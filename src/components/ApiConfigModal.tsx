@@ -37,7 +37,7 @@ export function ApiConfigModal({ config, onClose, onSave }: ApiConfigModalProps)
 
         <div className="quota-callout">
           <span>还没有可用额度？</span>
-          <button type="button">前往「智岳 API 官网」注册获取</button>
+          <button type="button">前往「智岛 API 官网」注册获取</button>
         </div>
 
         <form className="modal-form" onSubmit={handleSubmit}>
