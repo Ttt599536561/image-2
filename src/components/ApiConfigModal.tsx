@@ -1,5 +1,5 @@
 import { X } from 'lucide-react';
-import { type FormEvent, useState } from 'react';
+import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { type ApiConfig } from '../hooks/useApiConfig';
 
 type ApiConfigModalProps = {
@@ -11,10 +11,25 @@ type ApiConfigModalProps = {
 export function ApiConfigModal({ config, onClose, onSave }: ApiConfigModalProps) {
   const [baseUrl, setBaseUrl] = useState(config.baseUrl);
   const [apiKey, setApiKey] = useState(config.apiKey);
+  const [rememberApiKey, setRememberApiKey] = useState(config.rememberApiKey);
+  const dialogRef = useRef<HTMLElement>(null);
+
+  useEffect(() => {
+    dialogRef.current?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        onClose();
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    onSave({ baseUrl, apiKey });
+    onSave({ baseUrl, apiKey, rememberApiKey });
   }
 
   return (
@@ -23,7 +38,9 @@ export function ApiConfigModal({ config, onClose, onSave }: ApiConfigModalProps)
         aria-labelledby="api-config-title"
         aria-modal="true"
         className="api-config-modal"
+        ref={dialogRef}
         role="dialog"
+        tabIndex={-1}
       >
         <div className="modal-header">
           <div>
@@ -62,6 +79,20 @@ export function ApiConfigModal({ config, onClose, onSave }: ApiConfigModalProps)
               value={apiKey}
             />
           </label>
+
+          <label className="remember-key-option">
+            <input
+              aria-label="在此设备记住密钥"
+              checked={rememberApiKey}
+              onChange={(event) => setRememberApiKey(event.target.checked)}
+              type="checkbox"
+            />
+            在此设备记住 API Key
+          </label>
+
+          <p className="modal-helper">
+            默认只在当前页面会话中使用 API Key；勾选后才会写入浏览器本地存储。
+          </p>
 
           <div className="modal-actions">
             <button className="secondary-button" onClick={onClose} type="button">

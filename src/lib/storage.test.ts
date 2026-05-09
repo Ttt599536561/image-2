@@ -12,11 +12,22 @@ describe('api config storage', () => {
   });
 
   it('saves and loads API config', () => {
-    saveApiConfig({ baseUrl: 'https://api.example.com/v1', apiKey: 'sk-test' });
+    saveApiConfig({ baseUrl: 'https://api.example.com/v1', apiKey: 'sk-test', rememberApiKey: true });
 
     expect(loadApiConfig()).toEqual({
       baseUrl: 'https://api.example.com/v1',
       apiKey: 'sk-test',
+      rememberApiKey: true,
+    });
+  });
+
+  it('does not persist the API key unless remembering is enabled', () => {
+    saveApiConfig({ baseUrl: 'https://api.example.com/v1', apiKey: 'sk-test', rememberApiKey: false });
+
+    expect(loadApiConfig()).toEqual({
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: '',
+      rememberApiKey: false,
     });
   });
 
@@ -33,6 +44,8 @@ describe('api config storage', () => {
       throw new Error('blocked');
     });
 
-    expect(() => saveApiConfig({ baseUrl: 'https://api.example.com/v1', apiKey: 'sk-test' })).not.toThrow();
+    expect(() =>
+      saveApiConfig({ baseUrl: 'https://api.example.com/v1', apiKey: 'sk-test', rememberApiKey: false }),
+    ).not.toThrow();
   });
 });

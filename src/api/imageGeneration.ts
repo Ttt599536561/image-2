@@ -96,7 +96,7 @@ export async function generateImage({
   }
 
   if (!response.ok) {
-    const details = await readFailureBody(response);
+    const details = redactText(await readFailureBody(response), [apiKey]);
     throw new Error(
       `Image generation request failed with HTTP ${response.status}: ${details}`,
     );
@@ -174,3 +174,4 @@ function looksLikeBase64(value: string): boolean {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
+import { redactText } from '../lib/redaction';

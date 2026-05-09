@@ -127,6 +127,27 @@ button:disabled {
   font-weight: 700;
 }
 
+.modal-form .remember-key-option {
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+}
+
+.remember-key-option input {
+  width: 16px;
+  min-height: 16px;
+  height: 16px;
+  padding: 0;
+}
+
+.modal-helper {
+  margin: -6px 0 0;
+  color: #777b84;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .generator-form input,
 .generator-form select,
 .generator-form textarea,

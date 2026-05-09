@@ -141,6 +141,24 @@ describe('generateImage', () => {
     ).rejects.toThrow('Image generation request failed with HTTP 429: {"error":"quota exceeded"}');
   });
 
+  it('redacts the API key from HTTP failure details', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      statusText: 'Bad Request',
+      text: async () => '{"echoed":"Authorization: Bearer sk-real-secret"}',
+    });
+
+    await expect(
+      generateImage({
+        baseUrl: 'https://relay.example.com/v1',
+        apiKey: 'sk-real-secret',
+        request: generationInput,
+        fetchImpl,
+      }),
+    ).rejects.toThrow('Image generation request failed with HTTP 400: {"echoed":"Authorization: Bearer sk-***"}');
+  });
+
   it('throws a CORS and network hint when fetch rejects', async () => {
     const fetchImpl = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
 

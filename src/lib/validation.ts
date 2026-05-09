@@ -1,6 +1,7 @@
 export interface ApiConfig {
   baseUrl: string;
   apiKey: string;
+  rememberApiKey: boolean;
 }
 
 export interface GenerationValidationInput {

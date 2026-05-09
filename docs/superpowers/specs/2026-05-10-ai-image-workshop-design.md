@@ -41,7 +41,7 @@ Validation errors are shown before any network call. HTTP errors include status 
 
 ## Security
 
-The app never ships a hard-coded private key. API keys are only user-provided and stored locally after save. CURL preview redacts the key as `sk-***`. Raw JSON displays response content only, not request headers.
+The app never ships a hard-coded private key. API keys are only user-provided and are stored persistently only when the user enables the remember-key option. CURL preview, errors, and raw JSON panels redact keys as `sk-***`.
 
 ## Testing
 

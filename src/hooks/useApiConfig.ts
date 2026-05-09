@@ -15,6 +15,7 @@ export function useApiConfig() {
     const trimmedConfig = {
       baseUrl: normalizeBaseUrl(nextConfig.baseUrl),
       apiKey: nextConfig.apiKey.trim(),
+      rememberApiKey: nextConfig.rememberApiKey,
     };
 
     setConfigState(trimmedConfig);

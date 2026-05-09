@@ -22,6 +22,7 @@
 - Create: `src/lib/validation.ts` for form/config validation.
 - Create: `src/lib/curl.ts` for redacted CURL preview.
 - Create: `src/lib/storage.ts` for localStorage access.
+- Create: `src/lib/redaction.ts` for secret redaction before visible debug output.
 - Create: `src/hooks/useApiConfig.ts` for persisted config state.
 - Create: `src/components/ApiConfigModal.tsx` for modal UI.
 - Create: `src/components/GeneratorForm.tsx` for parameter controls.

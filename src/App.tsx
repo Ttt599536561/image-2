@@ -11,6 +11,7 @@ import { GeneratorForm } from './components/GeneratorForm';
 import { ResultPanel } from './components/ResultPanel';
 import { type ApiConfig, useApiConfig } from './hooks/useApiConfig';
 import { createCurlPreview } from './lib/curl';
+import { redactSecrets, redactText } from './lib/redaction';
 import { validateApiConfig, validateGenerationInput } from './lib/validation';
 
 export type GenerationRequest = ImageGenerationRequest & {
@@ -104,9 +105,9 @@ export default function App({ generateImage = defaultGenerateImage }: AppProps) 
       });
 
       setImages(result.images);
-      setRawResponse(result.rawResponse);
+      setRawResponse(redactSecrets(result.rawResponse, [config.apiKey]));
     } catch (generationError) {
-      setError(getErrorMessage(generationError));
+      setError(redactText(getErrorMessage(generationError), [config.apiKey]));
     } finally {
       setIsGenerating(false);
     }

@@ -21,7 +21,7 @@ The primary user is a creator or operator who already has an API relay account a
 - Vite + React + TypeScript single-page application.
 - Main layout modeled after the reference image.
 - API configuration modal modeled after the second reference image.
-- Persist `Base URL` and `API Key` to `localStorage`.
+- Persist `Base URL` to `localStorage`. Persist `API Key` only when the user explicitly chooses to remember it on this device.
 - Validate required fields before generation:
   - API key is present.
   - Base URL is present and has an HTTP or HTTPS scheme.
@@ -45,7 +45,7 @@ The primary user is a creator or operator who already has an API relay account a
   - `data[].url`
   - `data[].b64_json`
   - `output` arrays containing image URLs or base64 images.
-- Show raw JSON response in a collapsible section.
+- Show redacted raw JSON response in a collapsible section.
 - Allow copying CURL preview.
 - Allow downloading generated images when the output can be resolved to a URL or data URL.
 - Keep a disabled image-to-image tab as a visual placeholder only.
@@ -86,7 +86,7 @@ The primary user is a creator or operator who already has an API relay account a
 ## Security Requirements
 
 - The API key must never appear in the CURL preview or raw request preview.
-- The key may be saved in `localStorage` only after the user clicks save. Local storage contains the actual user-provided relay key; redaction applies to previews, logs, and visible debug output.
+- The key may be saved in `localStorage` only after the user clicks save and enables the remember-key option. Redaction applies to previews, logs, and visible debug output.
 - The UI must mention that browser-side direct calls use the user's relay key locally.
 - Logs and visible debug panels must redact secrets.
 - The request layer must not hard-code a private key.
@@ -104,7 +104,7 @@ The primary user is a creator or operator who already has an API relay account a
 - The app displays generated images when the relay returns a supported image response.
 - The app displays meaningful errors for missing config, missing prompt, invalid Base URL, HTTP failures, malformed JSON, and CORS-like network failures.
 - CURL preview updates when parameters change and redacts the API key.
-- Raw response JSON is viewable after a request.
+- Redacted raw response JSON is viewable after a request.
 - The API config modal visually matches the provided reference closely enough for layout, spacing, and hierarchy.
 - Unit tests cover request building, config validation, response parsing, malformed JSON handling, and preview redaction behavior.
 - UI tests cover API modal save behavior, form validation, success/error rendering with mocked network calls, and generated-image download controls.

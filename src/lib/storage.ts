@@ -5,6 +5,7 @@ const STORAGE_KEY = 'ai-image-workshop-api-config';
 export const DEFAULT_API_CONFIG: ApiConfig = {
   baseUrl: 'https://api.tangguo.xin/v1',
   apiKey: '',
+  rememberApiKey: false,
 };
 
 export function loadApiConfig(): ApiConfig {
@@ -15,9 +16,12 @@ export function loadApiConfig(): ApiConfig {
     }
 
     const parsed = JSON.parse(raw) as Partial<ApiConfig>;
+    const rememberApiKey = parsed.rememberApiKey === true;
+
     return {
       baseUrl: typeof parsed.baseUrl === 'string' ? parsed.baseUrl : DEFAULT_API_CONFIG.baseUrl,
-      apiKey: typeof parsed.apiKey === 'string' ? parsed.apiKey : DEFAULT_API_CONFIG.apiKey,
+      apiKey: rememberApiKey && typeof parsed.apiKey === 'string' ? parsed.apiKey : DEFAULT_API_CONFIG.apiKey,
+      rememberApiKey,
     };
   } catch {
     return DEFAULT_API_CONFIG;
@@ -26,7 +30,14 @@ export function loadApiConfig(): ApiConfig {
 
 export function saveApiConfig(config: ApiConfig): void {
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        baseUrl: config.baseUrl,
+        apiKey: config.rememberApiKey ? config.apiKey : '',
+        rememberApiKey: config.rememberApiKey,
+      }),
+    );
   } catch {
     // Some browser privacy modes disable storage. The app can still run for the current session.
   }

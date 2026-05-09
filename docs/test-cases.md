@@ -46,8 +46,9 @@
 ### Storage
 
 1. Reads defaults when storage is empty.
-2. Saves Base URL and API key after user action.
-3. Handles unavailable localStorage without crashing.
+2. Saves Base URL after user action.
+3. Saves API key only when remember-key is enabled.
+4. Handles unavailable localStorage without crashing.
 
 ## Component Test Cases
 
@@ -59,6 +60,8 @@
 4. Closes after save.
 5. Masks API key input.
 6. Can close with close button.
+7. Can close with Escape.
+8. Does not persist the API key unless remember-key is enabled.
 
 ### Generator Form
 
@@ -75,7 +78,7 @@
 2. Loading state appears during request.
 3. Success state shows returned generated image.
 4. Error state shows concise error message.
-5. Raw JSON collapsible section displays response after request.
+5. Raw JSON collapsible section displays redacted response after request.
 6. CURL section includes redacted preview and copy button.
 7. Generated URL and data URL images expose download controls.
 

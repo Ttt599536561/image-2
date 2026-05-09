@@ -7,28 +7,28 @@ import {
 
 describe('validateApiConfig', () => {
   it('rejects an empty API key', () => {
-    expect(validateApiConfig({ baseUrl: 'https://api.example.com/v1', apiKey: '' })).toEqual({
+    expect(validateApiConfig({ baseUrl: 'https://api.example.com/v1', apiKey: '', rememberApiKey: false })).toEqual({
       valid: false,
       message: '请先填写 API Key',
     });
   });
 
   it('rejects an empty Base URL', () => {
-    expect(validateApiConfig({ baseUrl: '', apiKey: 'sk-test' })).toEqual({
+    expect(validateApiConfig({ baseUrl: '', apiKey: 'sk-test', rememberApiKey: false })).toEqual({
       valid: false,
       message: '请先填写请求地址',
     });
   });
 
   it('rejects a non-http Base URL', () => {
-    expect(validateApiConfig({ baseUrl: 'ftp://api.example.com/v1', apiKey: 'sk-test' })).toEqual({
+    expect(validateApiConfig({ baseUrl: 'ftp://api.example.com/v1', apiKey: 'sk-test', rememberApiKey: false })).toEqual({
       valid: false,
       message: '请求地址必须以 http:// 或 https:// 开头',
     });
   });
 
   it('accepts a valid HTTPS Base URL and key', () => {
-    expect(validateApiConfig({ baseUrl: 'https://api.example.com/v1', apiKey: 'sk-test' })).toEqual({
+    expect(validateApiConfig({ baseUrl: 'https://api.example.com/v1', apiKey: 'sk-test', rememberApiKey: false })).toEqual({
       valid: true,
     });
   });

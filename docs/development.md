@@ -45,6 +45,9 @@ src/
   - Creates redacted CURL preview strings.
   - Never includes the real API key.
 
+- `src/lib/redaction.ts`
+  - Redacts user-provided keys and common bearer-token strings before errors or raw JSON content are rendered.
+
 - `src/lib/validation.ts`
   - Validates API config and generation form inputs.
 
@@ -137,5 +140,6 @@ Content-Type: application/json
 - Write tests before production code for behavior-bearing modules.
 - Keep the request adapter independent from React.
 - Keep secrets out of previews and logs.
+- Store the API key persistently only when the user enables the remember-key option.
 - Do not add backend files in the first release.
 - Do not implement image-to-image in the first release.

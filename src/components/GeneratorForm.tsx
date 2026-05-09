@@ -98,12 +98,13 @@ export function GeneratorForm({ request, isGenerating, onChange, onSubmit }: Gen
           <label>
             返回格式
             <select
+              disabled
               onChange={(event) =>
                 update('responseFormat', event.target.value as GenerationRequest['responseFormat'])
               }
               value={request.responseFormat}
             >
-              <option value="auto">默认 (url)</option>
+              <option value="auto">自动 (由 gpt-image-2 决定)</option>
               <option value="url">url</option>
               <option value="b64_json">b64_json</option>
             </select>
