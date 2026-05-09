@@ -41,6 +41,7 @@
 4. Parses JSON on success.
 5. Throws HTTP error with response details on non-2xx.
 6. Throws CORS/network hint when fetch rejects.
+7. Throws a malformed-response error when the response body is not valid JSON.
 
 ### Storage
 
@@ -65,7 +66,7 @@
 2. Renders image-to-image tab as disabled placeholder.
 3. Shows model selector.
 4. Shows prompt textarea.
-5. Shows size, quantity, quality, background, moderation, and format controls.
+5. Shows size, quantity, quality, background, moderation, and return-format controls.
 6. Submit button is disabled while generating.
 
 ### Result Panel
@@ -76,6 +77,7 @@
 4. Error state shows concise error message.
 5. Raw JSON collapsible section displays response after request.
 6. CURL section includes redacted preview and copy button.
+7. Generated URL and data URL images expose download controls.
 
 ## Manual Verification Cases
 

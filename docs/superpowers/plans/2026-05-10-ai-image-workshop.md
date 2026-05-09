@@ -99,6 +99,7 @@ Create tests that prove:
 - Fetch sends POST, JSON, and bearer token headers.
 - HTTP failures include status information.
 - Fetch rejection becomes a CORS/network hint.
+- Malformed JSON responses become a clear malformed-response error.
 - Response parser supports `data[].url`, `data[].b64_json`, and `output` image values.
 - CURL preview redacts the API key.
 
@@ -155,6 +156,7 @@ Create `src/App.test.tsx` to cover:
 - Missing prompt validation renders `请先填写图片描述`.
 - Missing API key validation renders `请先填写 API Key`.
 - Successful mocked generation renders an image.
+- Successful mocked generation renders a download control for the image.
 - Failed mocked generation renders error text.
 - CURL preview shows `sk-***` and not the real API key.
 

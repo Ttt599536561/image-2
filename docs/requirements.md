@@ -38,6 +38,7 @@ The primary user is a creator or operator who already has an API relay account a
   - `background`
   - `moderation`
   - `n`
+- Show a return-format UI control for relay compatibility. The first release defaults this to automatic behavior and does not send unsupported format parameters unless the adapter is explicitly extended later.
 - Generate and display a redacted CURL preview.
 - Display empty, loading, success, and error states.
 - Parse common relay response shapes:
@@ -85,7 +86,7 @@ The primary user is a creator or operator who already has an API relay account a
 ## Security Requirements
 
 - The API key must never appear in the CURL preview or raw request preview.
-- The key may be saved in `localStorage` only after the user clicks save.
+- The key may be saved in `localStorage` only after the user clicks save. Local storage contains the actual user-provided relay key; redaction applies to previews, logs, and visible debug output.
 - The UI must mention that browser-side direct calls use the user's relay key locally.
 - Logs and visible debug panels must redact secrets.
 - The request layer must not hard-code a private key.
@@ -93,7 +94,7 @@ The primary user is a creator or operator who already has an API relay account a
 ## Compatibility Requirements
 
 - The request layer must normalize Base URLs with or without a trailing slash.
-- The request layer must support configurable endpoint path construction.
+- The request layer must expose endpoint path construction as a single helper so the default `/images/generations` path can be changed later without touching UI components.
 - The first release should assume OpenAI Image API compatibility but keep response parsing permissive.
 - CORS failures should be surfaced as a likely browser-to-relay configuration issue.
 
@@ -105,5 +106,5 @@ The primary user is a creator or operator who already has an API relay account a
 - CURL preview updates when parameters change and redacts the API key.
 - Raw response JSON is viewable after a request.
 - The API config modal visually matches the provided reference closely enough for layout, spacing, and hierarchy.
-- Unit tests cover request building, config validation, response parsing, and storage redaction behavior.
-- UI tests cover API modal save behavior, form validation, and success/error rendering with mocked network calls.
+- Unit tests cover request building, config validation, response parsing, malformed JSON handling, and preview redaction behavior.
+- UI tests cover API modal save behavior, form validation, success/error rendering with mocked network calls, and generated-image download controls.
