@@ -27,7 +27,7 @@ export async function generateImageViaProxy({
 
   if (!response.ok) {
     const details = redactText(await response.text(), [apiKey]);
-    throw new Error(formatProxyFailure(response.status, details));
+    throw new Error(formatProxyFailure(response.status, details, request.model));
   }
 
   let rawResponse: unknown;
@@ -43,7 +43,11 @@ export async function generateImageViaProxy({
   };
 }
 
-function formatProxyFailure(status: number, details: string): string {
+function formatProxyFailure(status: number, details: string, model: string): string {
+  if (status === 502 && details.includes('upstream_error')) {
+    return `中转站上游请求失败（HTTP 502）。请确认中转站是否支持当前模型 ${model}，以及该模型在中转站到上游的映射、额度和权限是否可用。原始错误：${details}`;
+  }
+
   if (status === 504) {
     return '中转站网关超时（HTTP 504）。请求已到达中转站，但中转站或其网关/CDN 等待上游响应超时。请稍后重试，或检查中转站运行平台、网关/CDN、应用层请求超时和上游调用日志。';
   }

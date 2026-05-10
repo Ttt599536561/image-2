@@ -130,14 +130,17 @@ button:disabled {
 .modal-form .remember-key-option {
   flex-direction: row;
   align-items: center;
-  gap: 10px;
+  align-self: flex-start;
+  gap: 8px;
   font-weight: 600;
+  line-height: 1.35;
 }
 
 .remember-key-option input {
-  width: 16px;
-  min-height: 16px;
-  height: 16px;
+  flex: 0 0 auto;
+  width: 14px;
+  min-height: 14px;
+  height: 14px;
   padding: 0;
 }
 
@@ -151,7 +154,7 @@ button:disabled {
 .generator-form input,
 .generator-form select,
 .generator-form textarea,
-.modal-form input {
+.modal-form input:not([type="checkbox"]) {
   width: 100%;
   min-height: 44px;
   border: 1px solid #e1e2e6;
@@ -171,7 +174,7 @@ button:disabled {
 .generator-form input:focus,
 .generator-form select:focus,
 .generator-form textarea:focus,
-.modal-form input:focus {
+.modal-form input:not([type="checkbox"]):focus {
   border-color: #111318;
   box-shadow: 0 0 0 3px rgb(17 19 24 / 8%);
 }
@@ -187,6 +190,7 @@ button:disabled {
 .secondary-button,
 .icon-button,
 .quota-callout button,
+.quota-callout a,
 .result-card button {
   display: inline-flex;
   align-items: center;
@@ -280,9 +284,25 @@ button:disabled {
 }
 
 .image-grid a {
-  color: #111318;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 36px;
+  width: 100%;
+  border-radius: 8px;
+  background: #111318;
+  color: #ffffff;
   font-size: 13px;
   font-weight: 700;
+  text-decoration: none;
+  transition:
+    background 0.16s ease,
+    transform 0.16s ease;
+}
+
+.image-grid a:hover {
+  background: #2b3038;
+  transform: translateY(-1px);
 }
 
 .result-card details {
@@ -381,12 +401,14 @@ button:disabled {
   font-weight: 800;
 }
 
-.quota-callout button {
+.quota-callout button,
+.quota-callout a {
   min-height: 38px;
   border: 1px solid #000000;
   background: #000000;
   color: #ffffff;
   padding: 0 18px;
+  text-decoration: none;
 }
 
 .modal-form {

@@ -58,6 +58,24 @@ describe('generateImageViaProxy', () => {
     ).rejects.toThrow('Proxy request failed with HTTP 502: {"echo":"Authorization: Bearer sk-***"}');
   });
 
+  it('explains upstream 502 failures from the relay', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      statusText: 'Bad Gateway',
+      text: async () => '{"error":{"message":"Upstream request failed","type":"upstream_error"}}',
+    });
+
+    await expect(
+      generateImageViaProxy({
+        baseUrl: 'https://relay.example.com/v1',
+        apiKey: 'sk-real-secret',
+        request: { ...generationInput, model: 'gpt-image-2' },
+        fetchImpl,
+      }),
+    ).rejects.toThrow('中转站上游请求失败（HTTP 502）。请确认中转站是否支持当前模型 gpt-image-2');
+  });
+
   it('turns nginx 504 HTML into an actionable relay timeout message', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: false,
