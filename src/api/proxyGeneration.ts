@@ -10,6 +10,7 @@ export async function generateImageViaProxy({
   apiKey,
   request,
   fetchImpl = fetch,
+  pollIntervalMs = 2000,
 }: GenerateImageOptions): Promise<GenerateImageResult> {
   let response: Response;
 
@@ -30,17 +31,120 @@ export async function generateImageViaProxy({
     throw new Error(formatProxyFailure(response.status, details, request.model));
   }
 
-  let rawResponse: unknown;
-  try {
-    rawResponse = await response.json();
-  } catch {
-    throw new Error('Proxy returned malformed JSON.');
+  const jobStart = await readJson(response, 'Proxy returned malformed JSON.');
+  const jobId = getJobId(jobStart);
+  if (!jobId) {
+    return {
+      images: parseImageGenerationResponse(jobStart),
+      rawResponse: jobStart,
+    };
   }
+
+  const rawResponse = await pollImageJob({
+    jobId,
+    apiKey,
+    fetchImpl,
+    pollIntervalMs,
+    model: request.model,
+  });
 
   return {
     images: parseImageGenerationResponse(rawResponse),
     rawResponse,
   };
+}
+
+async function pollImageJob({
+  jobId,
+  apiKey,
+  fetchImpl,
+  pollIntervalMs,
+  model,
+}: {
+  jobId: string;
+  apiKey: string;
+  fetchImpl: typeof fetch;
+  pollIntervalMs: number;
+  model: string;
+}): Promise<unknown> {
+  const maxAttempts = 450;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    if (attempt > 0) {
+      await delay(pollIntervalMs);
+    }
+
+    const response = await fetchImpl(`/.netlify/functions/generate-status?id=${encodeURIComponent(jobId)}`);
+
+    if (!response.ok) {
+      const details = redactText(await response.text(), [apiKey]);
+      throw new Error(formatProxyFailure(response.status, details, model));
+    }
+
+    const statusPayload = await readJson(response, 'Proxy status endpoint returned malformed JSON.');
+
+    if (!isRecord(statusPayload)) {
+      throw new Error('Proxy status endpoint returned malformed JSON.');
+    }
+
+    if (statusPayload.status === 'pending' || statusPayload.status === 'running') {
+      continue;
+    }
+
+    if ((statusPayload.status === 'succeeded' || statusPayload.status === 'failed') && isProxyResponse(statusPayload.response)) {
+      if (statusPayload.response.status < 200 || statusPayload.response.status >= 300) {
+        const details = redactText(statusPayload.response.body, [apiKey]);
+        throw new Error(formatProxyFailure(statusPayload.response.status, details, model));
+      }
+
+      return parseJsonText(statusPayload.response.body);
+    }
+
+    throw new Error('Proxy status endpoint returned malformed JSON.');
+  }
+
+  throw new Error('Image generation timed out while waiting for the Netlify background job.');
+}
+
+async function readJson(response: Response, message: string): Promise<unknown> {
+  let rawResponse: unknown;
+  try {
+    rawResponse = await response.json();
+  } catch {
+    throw new Error(message);
+  }
+
+  return rawResponse;
+}
+
+function parseJsonText(value: string): unknown {
+  try {
+    return JSON.parse(value);
+  } catch {
+    throw new Error('Proxy returned malformed JSON.');
+  }
+}
+
+function getJobId(value: unknown): string | null {
+  if (isRecord(value) && typeof value.jobId === 'string') {
+    return value.jobId;
+  }
+
+  return null;
+}
+
+function isProxyResponse(value: unknown): value is { status: number; body: string } {
+  return isRecord(value) && typeof value.status === 'number' && typeof value.body === 'string';
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
 }
 
 function formatProxyFailure(status: number, details: string, model: string): string {

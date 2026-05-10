@@ -18,6 +18,7 @@ export type GenerateImageOptions = {
   apiKey: string;
   request: ImageGenerationRequest;
   fetchImpl?: typeof fetch;
+  pollIntervalMs?: number;
 };
 
 export type GenerateImageResult = {

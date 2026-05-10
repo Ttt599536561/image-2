@@ -12,18 +12,39 @@ const generationInput = {
 };
 
 describe('generateImageViaProxy', () => {
-  it('sends relay config and image request directly to the Netlify function endpoint', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ data: [{ url: 'https://cdn.example.com/image.png' }] }),
-    });
+  it('starts an async Netlify job and polls until the generated image is available', async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 202,
+        json: async () => ({ jobId: 'job-123', status: 'pending' }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: 'running',
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          status: 'succeeded',
+          response: {
+            status: 200,
+            body: JSON.stringify({ data: [{ url: 'https://cdn.example.com/image.png' }] }),
+          },
+        }),
+      });
 
     const result = await generateImageViaProxy({
       baseUrl: 'https://relay.example.com/v1',
       apiKey: 'sk-real-secret',
       request: generationInput,
       fetchImpl,
+      pollIntervalMs: 0,
     });
 
     expect(fetchImpl).toHaveBeenCalledWith('/.netlify/functions/generate', {
@@ -37,6 +58,7 @@ describe('generateImageViaProxy', () => {
         request: generationInput,
       }),
     });
+    expect(fetchImpl).toHaveBeenCalledWith('/.netlify/functions/generate-status?id=job-123');
     expect(result.images).toEqual([{ src: 'https://cdn.example.com/image.png', kind: 'url' }]);
   });
 
