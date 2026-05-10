@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { handler } from './generate';
+import { handler } from '../../../netlify/functions/generate';
 
 describe('Netlify generate function', () => {
   it('adapts Netlify requests to the image proxy handler', async () => {
