@@ -12,7 +12,7 @@ const generationInput = {
 };
 
 describe('generateImageViaProxy', () => {
-  it('sends relay config and image request to the same-origin proxy', async () => {
+  it('sends relay config and image request directly to the Netlify function endpoint', async () => {
     const fetchImpl = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -26,7 +26,7 @@ describe('generateImageViaProxy', () => {
       fetchImpl,
     });
 
-    expect(fetchImpl).toHaveBeenCalledWith('/api/generate', {
+    expect(fetchImpl).toHaveBeenCalledWith('/.netlify/functions/generate', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -56,6 +56,24 @@ describe('generateImageViaProxy', () => {
         fetchImpl,
       }),
     ).rejects.toThrow('Proxy request failed with HTTP 502: {"echo":"Authorization: Bearer sk-***"}');
+  });
+
+  it('explains 404 responses as a missing Netlify function route', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 404,
+      statusText: 'Not Found',
+      text: async () => '',
+    });
+
+    await expect(
+      generateImageViaProxy({
+        baseUrl: 'https://relay.example.com/v1',
+        apiKey: 'sk-real-secret',
+        request: generationInput,
+        fetchImpl,
+      }),
+    ).rejects.toThrow('Netlify function route was not found');
   });
 
   it('explains upstream 502 failures from the relay', async () => {

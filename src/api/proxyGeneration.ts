@@ -14,7 +14,7 @@ export async function generateImageViaProxy({
   let response: Response;
 
   try {
-    response = await fetchImpl('/api/generate', {
+    response = await fetchImpl('/.netlify/functions/generate', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -44,6 +44,10 @@ export async function generateImageViaProxy({
 }
 
 function formatProxyFailure(status: number, details: string, model: string): string {
+  if (status === 404) {
+    return 'Netlify function route was not found. Redeploy from GitHub and confirm netlify/functions/generate.ts is included in the deployed branch.';
+  }
+
   if (status === 502 && details.includes('upstream_error')) {
     return `中转站上游请求失败（HTTP 502）。请确认中转站是否支持当前模型 ${model}，以及该模型在中转站到上游的映射、额度和权限是否可用。原始错误：${details}`;
   }
