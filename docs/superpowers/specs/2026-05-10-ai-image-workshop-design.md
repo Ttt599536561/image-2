@@ -2,7 +2,7 @@
 
 ## Summary
 
-Create a pure frontend text-to-image website that lets users call their own API relay for `gpt-image-2`-style image generation. The first version focuses on matching the supplied UI references, supporting reliable request preview/debugging, and isolating the API adapter so a backend proxy can be added later.
+Create a text-to-image website that lets users call their own API relay for GPT image generation. The first version focuses on matching the supplied UI references, supporting reliable request preview/debugging, and isolating the API adapter so relay-specific models such as `gpt-image-2` can be selected without breaking the official-compatible default.
 
 ## Architecture
 

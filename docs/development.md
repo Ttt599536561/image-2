@@ -73,7 +73,7 @@ Request body:
 
 ```json
 {
-  "model": "gpt-image-2",
+  "model": "gpt-image-1.5",
   "prompt": "用户输入的提示词",
   "size": "1024x1024",
   "quality": "auto",

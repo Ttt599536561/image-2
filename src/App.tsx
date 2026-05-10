@@ -20,7 +20,7 @@ export type GenerateImageFn = (input: {
 }) => Promise<GenerateImageResult>;
 
 const defaultRequest: GenerationRequest = {
-  model: 'gpt-image-2',
+  model: 'gpt-image-1.5',
   prompt: '',
   size: '1024x1024',
   quality: 'auto',

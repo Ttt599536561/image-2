@@ -39,6 +39,7 @@ The primary user is a creator or operator who already has an API relay account a
   - `moderation`
   - `n`
 - Show a return-format UI control for relay compatibility. The first release defaults this to automatic behavior and does not send unsupported format parameters unless the adapter is explicitly extended later.
+- Default to the official Image API-compatible `gpt-image-1.5` model. Keep `gpt-image-2` selectable only as a relay-specific experimental option.
 - Generate and display a redacted CURL preview.
 - Display empty, loading, success, and error states.
 - Parse common relay response shapes:
