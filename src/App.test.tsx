@@ -42,7 +42,10 @@ describe('App', () => {
 
     expect(screen.getByRole('dialog', { name: '自定义 API 中转站配置' })).toBeInTheDocument();
     expect(screen.getByLabelText('API Key')).toHaveAttribute('type', 'password');
-    expect(screen.getByRole('button', { name: '前往「智岛 API 官网」注册获取' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '前往One-API官网注册获取' })).toHaveAttribute(
+      'href',
+      'https://api.tangguo.xin/',
+    );
 
     await user.clear(screen.getByLabelText(/Base URL/i));
     await user.type(screen.getByLabelText(/Base URL/i), validConfig.baseUrl);

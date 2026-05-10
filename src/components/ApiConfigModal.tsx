@@ -54,7 +54,9 @@ export function ApiConfigModal({ config, onClose, onSave }: ApiConfigModalProps)
 
         <div className="quota-callout">
           <span>还没有可用额度？</span>
-          <button type="button">前往「智岛 API 官网」注册获取</button>
+          <a href="https://api.tangguo.xin/" rel="noreferrer" target="_blank">
+            前往One-API官网注册获取
+          </a>
         </div>
 
         <form className="modal-form" onSubmit={handleSubmit}>

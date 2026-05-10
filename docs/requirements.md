@@ -77,7 +77,7 @@ The primary user is a creator or operator who already has an API relay account a
   - Title `自定义 API 中转站配置`
   - Close button.
   - Short explanatory copy.
-  - Dashed quota callout with button text `前往「智岛 API 官网」注册获取`
+  - Dashed quota callout with link text `前往One-API官网注册获取`, opening `https://api.tangguo.xin/`
   - Base URL field.
   - API Key password field.
   - Save button.
