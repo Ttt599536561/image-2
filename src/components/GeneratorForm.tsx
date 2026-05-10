@@ -33,9 +33,9 @@ export function GeneratorForm({ request, isGenerating, onChange, onSubmit }: Gen
           <label>
             模型
             <select onChange={(event) => update('model', event.target.value)} value={request.model}>
-              <option value="gpt-image-1.5">gpt-image-1.5（官方兼容推荐）</option>
+              <option value="gpt-image-1-mini">gpt-image-1-mini（更快推荐）</option>
+              <option value="gpt-image-1.5">gpt-image-1.5</option>
               <option value="gpt-image-1">gpt-image-1</option>
-              <option value="gpt-image-1-mini">gpt-image-1-mini</option>
               <option value="gpt-image-2">gpt-image-2（中转站自定义/实验）</option>
             </select>
           </label>

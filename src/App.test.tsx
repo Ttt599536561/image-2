@@ -134,7 +134,7 @@ describe('App', () => {
         config: runtimeConfig,
         request: expect.objectContaining({
           prompt: 'A glass mountain under sunrise',
-          model: 'gpt-image-1.5',
+          model: 'gpt-image-1-mini',
         }),
       }),
     );

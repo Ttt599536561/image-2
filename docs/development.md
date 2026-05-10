@@ -73,7 +73,7 @@ Request body:
 
 ```json
 {
-  "model": "gpt-image-1.5",
+  "model": "gpt-image-1-mini",
   "prompt": "用户输入的提示词",
   "size": "1024x1024",
   "quality": "auto",
@@ -141,5 +141,6 @@ Content-Type: application/json
 - Keep the request adapter independent from React.
 - Keep secrets out of previews and logs.
 - Store the API key persistently only when the user enables the remember-key option.
+- Show relay 504 responses as actionable upstream-timeout messages instead of rendering nginx HTML.
 - Do not add backend files in the first release.
 - Do not implement image-to-image in the first release.

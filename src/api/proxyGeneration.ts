@@ -27,7 +27,7 @@ export async function generateImageViaProxy({
 
   if (!response.ok) {
     const details = redactText(await response.text(), [apiKey]);
-    throw new Error(`Proxy request failed with HTTP ${response.status}: ${details}`);
+    throw new Error(formatProxyFailure(response.status, details));
   }
 
   let rawResponse: unknown;
@@ -41,4 +41,12 @@ export async function generateImageViaProxy({
     images: parseImageGenerationResponse(rawResponse),
     rawResponse,
   };
+}
+
+function formatProxyFailure(status: number, details: string): string {
+  if (status === 504) {
+    return '中转站网关超时（HTTP 504）。请求已到达中转站，但中转站等待上游响应超时。请稍后重试，或提高中转站的 Nginx/proxy/read timeout。';
+  }
+
+  return `Proxy request failed with HTTP ${status}: ${details}`;
 }

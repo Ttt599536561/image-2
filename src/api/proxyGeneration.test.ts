@@ -57,4 +57,31 @@ describe('generateImageViaProxy', () => {
       }),
     ).rejects.toThrow('Proxy request failed with HTTP 502: {"echo":"Authorization: Bearer sk-***"}');
   });
+
+  it('turns nginx 504 HTML into an actionable relay timeout message', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 504,
+      statusText: 'Gateway Time-out',
+      text: async () =>
+        '<html><head><title>504 Gateway Time-out</title></head><body><h1>504 Gateway Time-out</h1><hr><center>nginx/1.22.1</center></body></html>',
+    });
+
+    let errorMessage = '';
+
+    try {
+      await generateImageViaProxy({
+        baseUrl: 'https://relay.example.com/v1',
+        apiKey: 'sk-real-secret',
+        request: generationInput,
+        fetchImpl,
+      });
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(errorMessage).toContain('中转站网关超时');
+    expect(errorMessage).toContain('HTTP 504');
+    expect(errorMessage).not.toMatch(/<html|<body|nginx\/1\.22\.1/i);
+  });
 });

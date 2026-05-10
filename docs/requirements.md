@@ -39,7 +39,7 @@ The primary user is a creator or operator who already has an API relay account a
   - `moderation`
   - `n`
 - Show a return-format UI control for relay compatibility. The first release defaults this to automatic behavior and does not send unsupported format parameters unless the adapter is explicitly extended later.
-- Default to the official Image API-compatible `gpt-image-1.5` model. Keep `gpt-image-2` selectable only as a relay-specific experimental option.
+- Default to `gpt-image-1-mini` to reduce local relay timeout risk. Keep `gpt-image-1.5`, `gpt-image-1`, and `gpt-image-2` selectable for relay-specific compatibility.
 - Generate and display a redacted CURL preview.
 - Display empty, loading, success, and error states.
 - Parse common relay response shapes:
@@ -98,6 +98,7 @@ The primary user is a creator or operator who already has an API relay account a
 - The request layer must expose endpoint path construction as a single helper so the default `/images/generations` path can be changed later without touching UI components.
 - The first release should assume OpenAI Image API compatibility but keep response parsing permissive.
 - CORS failures should be surfaced as a likely browser-to-relay configuration issue.
+- Relay gateway timeouts such as HTTP 504 should be surfaced as a relay/upstream timeout, not as raw nginx HTML.
 
 ## Acceptance Criteria
 
