@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_API_CONFIG, loadApiConfig, saveApiConfig } from './storage';
+import {
+  DEFAULT_API_CONFIG,
+  DEFAULT_IMAGE_MODEL,
+  loadApiConfig,
+  loadSelectedImageModel,
+  saveApiConfig,
+  saveSelectedImageModel,
+} from './storage';
 
 describe('api config storage', () => {
   afterEach(() => {
@@ -64,5 +71,24 @@ describe('api config storage', () => {
     expect(() =>
       saveApiConfig({ baseUrl: 'https://api.example.com/v1', apiKey: 'sk-test', rememberApiKey: false }),
     ).not.toThrow();
+  });
+
+  it('saves and loads the selected image model', () => {
+    saveSelectedImageModel('gpt-image-2');
+
+    expect(loadSelectedImageModel()).toBe('gpt-image-2');
+  });
+
+  it('falls back to the default image model when stored model is unsupported', () => {
+    window.localStorage.setItem('ai-image-workshop-selected-model', 'unknown-image-model');
+
+    expect(loadSelectedImageModel()).toBe(DEFAULT_IMAGE_MODEL);
+  });
+
+  it('does not overwrite the selected image model with unsupported values', () => {
+    saveSelectedImageModel('gpt-image-2');
+    saveSelectedImageModel('unknown-image-model');
+
+    expect(loadSelectedImageModel()).toBe('gpt-image-2');
   });
 });

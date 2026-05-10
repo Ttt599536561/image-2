@@ -7,6 +7,7 @@ import { GeneratorForm } from './components/GeneratorForm';
 import { ResultPanel } from './components/ResultPanel';
 import { type ApiConfig, useApiConfig } from './hooks/useApiConfig';
 import { redactSecrets, redactText } from './lib/redaction';
+import { DEFAULT_IMAGE_MODEL, loadSelectedImageModel, saveSelectedImageModel } from './lib/storage';
 import { validateApiConfig, validateGenerationInput } from './lib/validation';
 
 export type GenerationRequest = ImageGenerationRequest & {
@@ -19,7 +20,7 @@ export type GenerateImageFn = (input: {
 }) => Promise<GenerateImageResult>;
 
 const defaultRequest: GenerationRequest = {
-  model: 'gpt-image-1-mini',
+  model: DEFAULT_IMAGE_MODEL,
   prompt: '',
   size: '1024x1024',
   quality: 'auto',
@@ -53,7 +54,10 @@ type AppProps = {
 
 export default function App({ generateImage = defaultGenerateImage }: AppProps) {
   const { config, saveConfig } = useApiConfig();
-  const [request, setRequest] = useState<GenerationRequest>(defaultRequest);
+  const [request, setRequest] = useState<GenerationRequest>(() => ({
+    ...defaultRequest,
+    model: loadSelectedImageModel(),
+  }));
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState('');
@@ -63,6 +67,14 @@ export default function App({ generateImage = defaultGenerateImage }: AppProps) 
 
   function handleImageToImageClick() {
     setToastMessage('图生图功能正在开发中');
+  }
+
+  function handleRequestChange(nextRequest: GenerationRequest) {
+    if (nextRequest.model !== request.model) {
+      saveSelectedImageModel(nextRequest.model);
+    }
+
+    setRequest(nextRequest);
   }
 
   async function handleGenerate() {
@@ -120,7 +132,7 @@ export default function App({ generateImage = defaultGenerateImage }: AppProps) 
       <main className="generator-layout">
         <GeneratorForm
           isGenerating={isGenerating}
-          onChange={setRequest}
+          onChange={handleRequestChange}
           onImageToImageClick={handleImageToImageClick}
           onSubmit={handleGenerate}
           request={request}

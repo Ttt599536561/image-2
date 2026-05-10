@@ -139,6 +139,28 @@ describe('App', () => {
     );
   });
 
+  it('keeps the selected model as the default after a successful generation', async () => {
+    const user = userEvent.setup();
+    const generateImage = vi.fn<GenerateImageFn>().mockResolvedValue({
+      images: [{ src: 'https://relay.example.com/generated.png', kind: 'url' }],
+      rawResponse: { data: [{ url: 'https://relay.example.com/generated.png' }] },
+    });
+    const { unmount } = renderApp(generateImage);
+    await saveApiConfig(user);
+
+    await user.selectOptions(screen.getByLabelText('模型'), 'gpt-image-2');
+    await user.type(screen.getByLabelText('图片描述'), 'A glass mountain under sunrise');
+    await user.click(screen.getByRole('button', { name: '开始创作' }));
+
+    expect(await screen.findByRole('img', { name: 'Generated image 1' })).toBeInTheDocument();
+    expect(screen.getByLabelText('模型')).toHaveValue('gpt-image-2');
+
+    unmount();
+    renderApp(generateImage);
+
+    expect(screen.getByLabelText('模型')).toHaveValue('gpt-image-2');
+  });
+
   it('renders generation failures from a mocked generation adapter', async () => {
     const user = userEvent.setup();
     const generateImage = vi
