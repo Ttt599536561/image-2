@@ -1,6 +1,6 @@
 import { runImageJob } from '../../src/server/asyncImageJob';
 import type { ImageProxyInput } from '../../src/server/imageProxy';
-import { getJobsStore } from '../../src/server/jobStore';
+import { connectJobsStore, getJobsStore } from '../../src/server/jobStore';
 
 type NetlifyEvent = {
   body: string | null;
@@ -13,6 +13,8 @@ type NetlifyResponse = {
 };
 
 export async function handler(event: NetlifyEvent): Promise<NetlifyResponse> {
+  connectJobsStore(event);
+
   const payload = JSON.parse(event.body ?? '{}') as { jobId?: string; input?: ImageProxyInput };
 
   if (!payload.jobId || !payload.input) {

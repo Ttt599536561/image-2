@@ -1,5 +1,5 @@
 import { createStatusHandler } from '../../src/server/asyncImageJob';
-import { getJobsStore } from '../../src/server/jobStore';
+import { connectJobsStore, getJobsStore } from '../../src/server/jobStore';
 
 type NetlifyEvent = {
   httpMethod: string;
@@ -13,6 +13,8 @@ type NetlifyResponse = {
 };
 
 export async function handler(event: NetlifyEvent): Promise<NetlifyResponse> {
+  connectJobsStore(event);
+
   const handleStatus = createStatusHandler({
     jobsStore: getJobsStore(),
   });

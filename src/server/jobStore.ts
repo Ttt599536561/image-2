@@ -1,7 +1,11 @@
-import { getStore } from '@netlify/blobs';
+import { connectLambda, getStore } from '@netlify/blobs';
 import type { JobRecord, JobsStore } from './asyncImageJob';
 
 const STORE_NAME = 'image-generation-jobs';
+
+export function connectJobsStore(event: unknown): void {
+  connectLambda(event as { blobs: string; headers: Record<string, string> });
+}
 
 export function getJobsStore(): JobsStore {
   const store = getStore(STORE_NAME);
