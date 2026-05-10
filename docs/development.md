@@ -83,7 +83,7 @@ Request body:
 }
 ```
 
-Future backend proxy request shape should be able to use the same input object:
+The first release includes a local same-origin Vite proxy to avoid relay CORS failures during local use. Future production deployments can replace the same contract with a hosted backend endpoint:
 
 ```http
 POST /api/generate

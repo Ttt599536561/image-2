@@ -1,11 +1,7 @@
 import { Settings } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import {
-  generateImage as generateImageRequest,
-  type GenerateImageResult,
-  type ImageGenerationRequest,
-  type ParsedImage,
-} from './api/imageGeneration';
+import { type GenerateImageResult, type ImageGenerationRequest, type ParsedImage } from './api/imageGeneration';
+import { generateImageViaProxy } from './api/proxyGeneration';
 import { ApiConfigModal } from './components/ApiConfigModal';
 import { GeneratorForm } from './components/GeneratorForm';
 import { ResultPanel } from './components/ResultPanel';
@@ -45,7 +41,7 @@ async function defaultGenerateImage({
   config: ApiConfig;
   request: GenerationRequest;
 }): Promise<GenerateImageResult> {
-  return generateImageRequest({
+  return generateImageViaProxy({
     baseUrl: config.baseUrl,
     apiKey: config.apiKey,
     request: toImageGenerationRequest(request),

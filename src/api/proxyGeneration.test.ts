@@ -1,0 +1,60 @@
+import { describe, expect, it, vi } from 'vitest';
+import { generateImageViaProxy } from './proxyGeneration';
+
+const generationInput = {
+  model: 'gpt-image-2',
+  prompt: 'A moonlit tea room',
+  size: '1024x1024',
+  quality: 'auto',
+  background: 'auto',
+  moderation: 'auto',
+  n: 1,
+};
+
+describe('generateImageViaProxy', () => {
+  it('sends relay config and image request to the same-origin proxy', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ data: [{ url: 'https://cdn.example.com/image.png' }] }),
+    });
+
+    const result = await generateImageViaProxy({
+      baseUrl: 'https://relay.example.com/v1',
+      apiKey: 'sk-real-secret',
+      request: generationInput,
+      fetchImpl,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledWith('/api/generate', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        baseUrl: 'https://relay.example.com/v1',
+        apiKey: 'sk-real-secret',
+        request: generationInput,
+      }),
+    });
+    expect(result.images).toEqual([{ src: 'https://cdn.example.com/image.png', kind: 'url' }]);
+  });
+
+  it('redacts proxy HTTP failure details', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 502,
+      statusText: 'Bad Gateway',
+      text: async () => '{"echo":"Authorization: Bearer sk-real-secret"}',
+    });
+
+    await expect(
+      generateImageViaProxy({
+        baseUrl: 'https://relay.example.com/v1',
+        apiKey: 'sk-real-secret',
+        request: generationInput,
+        fetchImpl,
+      }),
+    ).rejects.toThrow('Proxy request failed with HTTP 502: {"echo":"Authorization: Bearer sk-***"}');
+  });
+});
