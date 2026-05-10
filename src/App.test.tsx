@@ -208,9 +208,19 @@ describe('App', () => {
 
     expect(screen.queryByLabelText('数量')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('返回格式')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('尺寸')).toHaveValue('auto');
+    expect(screen.getByRole('option', { name: 'auto（AI 自动判断）' })).toHaveValue('auto');
     expect(screen.getByRole('option', { name: '1:1 正方形' })).toHaveValue('1024x1024');
+    expect(screen.getByRole('option', { name: '1:1 高清方图（2048x2048）' })).toHaveValue('2048x2048');
     expect(screen.getByRole('option', { name: '3:2 横图' })).toHaveValue('1536x1024');
     expect(screen.getByRole('option', { name: '2:3 竖图' })).toHaveValue('1024x1536');
+    expect(screen.getByRole('option', { name: '约 9:16 手机竖屏（1088x1920）' })).toHaveValue('1088x1920');
+    expect(screen.getByRole('option', { name: '约 16:9 电脑浏览器（1920x1088）' })).toHaveValue('1920x1088');
+    expect(screen.getByRole('option', { name: '16:9 高清横图（1280x720）' })).toHaveValue('1280x720');
+    expect(screen.getByRole('option', { name: '3:4 竖版海报（1200x1600）' })).toHaveValue('1200x1600');
+    expect(screen.getByRole('option', { name: '4:5 社媒海报（1088x1360）' })).toHaveValue('1088x1360');
+    expect(screen.getByRole('option', { name: '21:9 电影横幅（2560x1088）' })).toHaveValue('2560x1088');
+    expect(screen.getByRole('option', { name: '16:9 4K 宽屏（3840x2160）' })).toHaveValue('3840x2160');
     expect(screen.getByRole('option', { name: '自动审核' })).toHaveValue('auto');
     expect(screen.getByRole('option', { name: '宽松审核' })).toHaveValue('low');
     expect(screen.getByText('宽松审核会降低过滤强度，适合普通创作失败时再尝试。')).toBeInTheDocument();
