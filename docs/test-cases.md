@@ -42,7 +42,7 @@
 5. Throws HTTP error with response details on non-2xx.
 6. Throws CORS/network hint when fetch rejects.
 7. Throws a malformed-response error when the response body is not valid JSON.
-8. Converts nginx-style HTTP 504 HTML into an actionable relay timeout message.
+8. Converts gateway-style HTTP 504 HTML into an actionable relay timeout message without assuming Nginx exists on the user's server.
 
 ### Storage
 

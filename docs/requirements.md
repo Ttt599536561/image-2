@@ -98,7 +98,7 @@ The primary user is a creator or operator who already has an API relay account a
 - The request layer must expose endpoint path construction as a single helper so the default `/images/generations` path can be changed later without touching UI components.
 - The first release should assume OpenAI Image API compatibility but keep response parsing permissive.
 - CORS failures should be surfaced as a likely browser-to-relay configuration issue.
-- Relay gateway timeouts such as HTTP 504 should be surfaced as a relay/upstream timeout, not as raw nginx HTML.
+- Relay gateway timeouts such as HTTP 504 should be surfaced as a relay/upstream timeout, not as raw gateway HTML or a server-specific Nginx assumption.
 
 ## Acceptance Criteria
 

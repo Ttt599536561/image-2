@@ -141,6 +141,6 @@ Content-Type: application/json
 - Keep the request adapter independent from React.
 - Keep secrets out of previews and logs.
 - Store the API key persistently only when the user enables the remember-key option.
-- Show relay 504 responses as actionable upstream-timeout messages instead of rendering nginx HTML.
+- Show relay 504 responses as actionable upstream-timeout messages instead of rendering raw gateway HTML. The message should mention possible runtime platform, gateway/CDN, application timeout, or upstream-call log checks rather than assuming Nginx exists on the user's server.
 - Do not add backend files in the first release.
 - Do not implement image-to-image in the first release.

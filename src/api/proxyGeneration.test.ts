@@ -82,6 +82,8 @@ describe('generateImageViaProxy', () => {
 
     expect(errorMessage).toContain('中转站网关超时');
     expect(errorMessage).toContain('HTTP 504');
+    expect(errorMessage).toContain('网关/CDN');
+    expect(errorMessage).not.toContain('Nginx/proxy/read timeout');
     expect(errorMessage).not.toMatch(/<html|<body|nginx\/1\.22\.1/i);
   });
 });

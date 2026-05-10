@@ -45,7 +45,7 @@ export async function generateImageViaProxy({
 
 function formatProxyFailure(status: number, details: string): string {
   if (status === 504) {
-    return '中转站网关超时（HTTP 504）。请求已到达中转站，但中转站等待上游响应超时。请稍后重试，或提高中转站的 Nginx/proxy/read timeout。';
+    return '中转站网关超时（HTTP 504）。请求已到达中转站，但中转站或其网关/CDN 等待上游响应超时。请稍后重试，或检查中转站运行平台、网关/CDN、应用层请求超时和上游调用日志。';
   }
 
   return `Proxy request failed with HTTP ${status}: ${details}`;
