@@ -22,7 +22,7 @@ export type GenerateImageFn = (input: {
 const defaultRequest: GenerationRequest = {
   model: DEFAULT_IMAGE_MODEL,
   prompt: '',
-  size: '1024x1024',
+  size: 'auto',
   quality: 'auto',
   background: 'auto',
   moderation: 'auto',

@@ -61,9 +61,18 @@ export function GeneratorForm({
           <label>
             尺寸
             <select onChange={(event) => update('size', event.target.value)} value={request.size}>
+              <option value="auto">auto（AI 自动判断）</option>
               <option value="1024x1024">1:1 正方形</option>
+              <option value="2048x2048">1:1 高清方图（2048x2048）</option>
               <option value="1536x1024">3:2 横图</option>
               <option value="1024x1536">2:3 竖图</option>
+              <option value="1088x1920">约 9:16 手机竖屏（1088x1920）</option>
+              <option value="1920x1088">约 16:9 电脑浏览器（1920x1088）</option>
+              <option value="1280x720">16:9 高清横图（1280x720）</option>
+              <option value="1200x1600">3:4 竖版海报（1200x1600）</option>
+              <option value="1088x1360">4:5 社媒海报（1088x1360）</option>
+              <option value="2560x1088">21:9 电影横幅（2560x1088）</option>
+              <option value="3840x2160">16:9 4K 宽屏（3840x2160）</option>
             </select>
           </label>
 
