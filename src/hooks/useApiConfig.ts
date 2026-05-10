@@ -13,7 +13,7 @@ export function useApiConfig() {
 
   const saveConfig = useCallback((nextConfig: ApiConfig) => {
     const trimmedConfig = {
-      baseUrl: normalizeBaseUrl(nextConfig.baseUrl),
+      baseUrl: DEFAULT_API_CONFIG.baseUrl,
       apiKey: nextConfig.apiKey.trim(),
       rememberApiKey: nextConfig.rememberApiKey,
     };

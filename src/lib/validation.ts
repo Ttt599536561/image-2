@@ -43,8 +43,8 @@ export function validateGenerationInput(input: GenerationValidationInput): Valid
     return { valid: false, message: '生成数量至少为 1' };
   }
 
-  if (input.quantity > 4) {
-    return { valid: false, message: '生成数量最多为 4' };
+  if (input.quantity > 1) {
+    return { valid: false, message: '生成数量固定为 1' };
   }
 
   return { valid: true };

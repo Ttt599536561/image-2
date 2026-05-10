@@ -1,6 +1,7 @@
 import { X } from 'lucide-react';
 import { type FormEvent, useEffect, useRef, useState } from 'react';
 import { type ApiConfig } from '../hooks/useApiConfig';
+import { DEFAULT_API_CONFIG } from '../lib/storage';
 
 type ApiConfigModalProps = {
   config: ApiConfig;
@@ -9,7 +10,6 @@ type ApiConfigModalProps = {
 };
 
 export function ApiConfigModal({ config, onClose, onSave }: ApiConfigModalProps) {
-  const [baseUrl, setBaseUrl] = useState(config.baseUrl);
   const [apiKey, setApiKey] = useState(config.apiKey);
   const [rememberApiKey, setRememberApiKey] = useState(config.rememberApiKey);
   const dialogRef = useRef<HTMLElement>(null);
@@ -29,7 +29,7 @@ export function ApiConfigModal({ config, onClose, onSave }: ApiConfigModalProps)
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    onSave({ baseUrl, apiKey, rememberApiKey });
+    onSave({ baseUrl: DEFAULT_API_CONFIG.baseUrl, apiKey, rememberApiKey });
   }
 
   return (
@@ -60,16 +60,10 @@ export function ApiConfigModal({ config, onClose, onSave }: ApiConfigModalProps)
         </div>
 
         <form className="modal-form" onSubmit={handleSubmit}>
-          <label>
-            Base URL
-            <input
-              autoComplete="url"
-              onChange={(event) => setBaseUrl(event.target.value)}
-              placeholder="https://api.example.com/v1"
-              type="url"
-              value={baseUrl}
-            />
-          </label>
+          <div className="fixed-relay">
+            <span>固定中转站</span>
+            <strong>{DEFAULT_API_CONFIG.baseUrl}</strong>
+          </div>
 
           <label>
             API Key

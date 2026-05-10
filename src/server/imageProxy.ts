@@ -4,6 +4,7 @@ import {
   type ImageGenerationRequest,
 } from '../api/imageGeneration';
 import { redactText } from '../lib/redaction';
+import { DEFAULT_API_CONFIG } from '../lib/storage';
 import { validateApiConfig } from '../lib/validation';
 
 export type ImageProxyInput = {
@@ -41,7 +42,7 @@ export async function handleImageProxyRequest({
   }
 
   const configValidation = validateApiConfig({
-    baseUrl: input.baseUrl,
+    baseUrl: DEFAULT_API_CONFIG.baseUrl,
     apiKey: input.apiKey,
     rememberApiKey: false,
   });
@@ -50,13 +51,13 @@ export async function handleImageProxyRequest({
   }
 
   try {
-    const relayResponse = await fetchImpl(buildImageGenerationUrl(input.baseUrl), {
+    const relayResponse = await fetchImpl(buildImageGenerationUrl(DEFAULT_API_CONFIG.baseUrl), {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${input.apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(buildImageGenerationPayload(input.request)),
+      body: JSON.stringify(buildImageGenerationPayload({ ...input.request, n: 1 })),
     });
 
     const responseText = redactText(await relayResponse.text(), [input.apiKey]);

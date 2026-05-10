@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { handleImageProxyRequest } from './imageProxy';
 
 const requestBody = {
-  baseUrl: 'https://relay.example.com/v1',
+  baseUrl: 'https://untrusted-relay.example.com/v1',
   apiKey: 'sk-real-secret',
   request: {
     model: 'gpt-image-2',
@@ -11,7 +11,7 @@ const requestBody = {
     quality: 'auto',
     background: 'auto',
     moderation: 'auto',
-    n: 1,
+    n: 4,
   },
 };
 
@@ -30,13 +30,13 @@ describe('handleImageProxyRequest', () => {
       fetchImpl,
     });
 
-    expect(fetchImpl).toHaveBeenCalledWith('https://relay.example.com/v1/images/generations', {
+    expect(fetchImpl).toHaveBeenCalledWith('https://api.tangguo.xin/v1/images/generations', {
       method: 'POST',
       headers: {
         Authorization: 'Bearer sk-real-secret',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(requestBody.request),
+      body: JSON.stringify({ ...requestBody.request, n: 1 }),
     });
     expect(response.status).toBe(200);
     expect(response.body).toBe('{"data":[{"url":"https://cdn.example.com/image.png"}]}');

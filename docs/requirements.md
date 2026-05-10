@@ -7,13 +7,13 @@ Build a pure frontend text-to-image website for `gpt-image-2`-style generation t
 ## Deployment Model
 
 - The first release is a static frontend app.
-- Users provide their relay `Base URL` and `API Key` in the browser.
-- The app sends requests directly to the relay.
+- Users provide only their API key in the browser.
+- The app sends requests through the fixed relay `https://api.tangguo.xin/v1`.
 - The request layer must be isolated so a future backend proxy endpoint such as `/api/generate` can replace direct relay calls without rewriting UI code.
 
 ## Audience
 
-The primary user is a creator or operator who already has an API relay account and wants a simple web UI for generating images. They need clear controls, visible request previews, and raw response output for debugging relay compatibility.
+The primary user is a creator who already has an API key for the fixed One-API relay and wants a simple web UI for generating images.
 
 ## In Scope
 
@@ -21,10 +21,9 @@ The primary user is a creator or operator who already has an API relay account a
 - Vite + React + TypeScript single-page application.
 - Main layout modeled after the reference image.
 - API configuration modal modeled after the second reference image.
-- Persist `Base URL` to `localStorage`. Persist `API Key` only when the user explicitly chooses to remember it on this device.
+- Use the fixed relay Base URL `https://api.tangguo.xin/v1`. Persist `API Key` only when the user explicitly chooses to remember it on this device.
 - Validate required fields before generation:
   - API key is present.
-  - Base URL is present and has an HTTP or HTTPS scheme.
   - Prompt is present after trimming whitespace.
 - Default direct endpoint mode:
   - `POST {baseUrl}/images/generations`
@@ -38,18 +37,16 @@ The primary user is a creator or operator who already has an API relay account a
   - `background`
   - `moderation`
   - `n`
-- Show a return-format UI control for relay compatibility. The first release defaults this to automatic behavior and does not send unsupported format parameters unless the adapter is explicitly extended later.
+- Hide the return-format and quantity controls. Generation quantity is always fixed to `1`.
 - Default to `gpt-image-1-mini` to reduce local relay timeout risk. Keep `gpt-image-1.5`, `gpt-image-1`, and `gpt-image-2` selectable for relay-specific compatibility.
-- Generate and display a redacted CURL preview.
 - Display empty, loading, success, and error states.
 - Parse common relay response shapes:
   - `data[].url`
   - `data[].b64_json`
   - `output` arrays containing image URLs or base64 images.
 - Show redacted raw JSON response in a collapsible section.
-- Allow copying CURL preview.
 - Allow downloading generated images when the output can be resolved to a URL or data URL.
-- Keep a disabled image-to-image tab as a visual placeholder only.
+- Keep an image-to-image tab as a visual placeholder; clicking it shows a "developing" toast.
 
 ## Out of Scope
 
@@ -78,7 +75,7 @@ The primary user is a creator or operator who already has an API relay account a
   - Close button.
   - Short explanatory copy.
   - Dashed quota callout with link text `前往One-API官网注册获取`, opening `https://api.tangguo.xin/`
-  - Base URL field.
+  - Fixed relay display for `https://api.tangguo.xin/v1`.
   - API Key password field.
   - Save button.
 - The generation button should be disabled while generating.
@@ -86,7 +83,7 @@ The primary user is a creator or operator who already has an API relay account a
 
 ## Security Requirements
 
-- The API key must never appear in the CURL preview or raw request preview.
+- The API key must never appear in visible debug output.
 - The key may be saved in `localStorage` only after the user clicks save and enables the remember-key option. Redaction applies to previews, logs, and visible debug output.
 - The UI must mention that browser-side direct calls use the user's relay key locally.
 - Logs and visible debug panels must redact secrets.
@@ -94,7 +91,7 @@ The primary user is a creator or operator who already has an API relay account a
 
 ## Compatibility Requirements
 
-- The request layer must normalize Base URLs with or without a trailing slash.
+- The request layer must use the fixed relay Base URL and ignore user-provided or stale stored Base URLs.
 - The request layer must expose endpoint path construction as a single helper so the default `/images/generations` path can be changed later without touching UI components.
 - The first release should assume OpenAI Image API compatibility but keep response parsing permissive.
 - CORS failures should be surfaced as a likely browser-to-relay configuration issue.
@@ -102,10 +99,9 @@ The primary user is a creator or operator who already has an API relay account a
 
 ## Acceptance Criteria
 
-- A user can open the app, configure Base URL and API key, enter a prompt, and send a text-to-image request.
+- A user can open the app, enter an API key, enter a prompt, and send a text-to-image request through the fixed relay.
 - The app displays generated images when the relay returns a supported image response.
 - The app displays meaningful errors for missing config, missing prompt, invalid Base URL, HTTP failures, malformed JSON, and CORS-like network failures.
-- CURL preview updates when parameters change and redacts the API key.
 - Redacted raw response JSON is viewable after a request.
 - The API config modal visually matches the provided reference closely enough for layout, spacing, and hierarchy.
 - Unit tests cover request building, config validation, response parsing, malformed JSON handling, and preview redaction behavior.

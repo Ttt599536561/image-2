@@ -19,7 +19,7 @@ export function loadApiConfig(): ApiConfig {
     const rememberApiKey = parsed.rememberApiKey === true;
 
     return {
-      baseUrl: typeof parsed.baseUrl === 'string' ? parsed.baseUrl : DEFAULT_API_CONFIG.baseUrl,
+      baseUrl: DEFAULT_API_CONFIG.baseUrl,
       apiKey: rememberApiKey && typeof parsed.apiKey === 'string' ? parsed.apiKey : DEFAULT_API_CONFIG.apiKey,
       rememberApiKey,
     };
@@ -33,7 +33,7 @@ export function saveApiConfig(config: ApiConfig): void {
     window.localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
-        baseUrl: config.baseUrl,
+        baseUrl: DEFAULT_API_CONFIG.baseUrl,
         apiKey: config.rememberApiKey ? config.apiKey : '',
         rememberApiKey: config.rememberApiKey,
       }),

@@ -1,12 +1,11 @@
 import { Settings } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { type GenerateImageResult, type ImageGenerationRequest, type ParsedImage } from './api/imageGeneration';
 import { generateImageViaProxy } from './api/proxyGeneration';
 import { ApiConfigModal } from './components/ApiConfigModal';
 import { GeneratorForm } from './components/GeneratorForm';
 import { ResultPanel } from './components/ResultPanel';
 import { type ApiConfig, useApiConfig } from './hooks/useApiConfig';
-import { createCurlPreview } from './lib/curl';
 import { redactSecrets, redactText } from './lib/redaction';
 import { validateApiConfig, validateGenerationInput } from './lib/validation';
 
@@ -60,16 +59,11 @@ export default function App({ generateImage = defaultGenerateImage }: AppProps) 
   const [error, setError] = useState('');
   const [images, setImages] = useState<ParsedImage[]>([]);
   const [rawResponse, setRawResponse] = useState<unknown>(null);
+  const [toastMessage, setToastMessage] = useState('');
 
-  const curlPreview = useMemo(
-    () =>
-      createCurlPreview({
-        baseUrl: config.baseUrl || 'https://api.example.com/v1',
-        apiKey: config.apiKey,
-        request: toImageGenerationRequest(request),
-      }),
-    [config, request],
-  );
+  function handleImageToImageClick() {
+    setToastMessage('图生图功能正在开发中');
+  }
 
   async function handleGenerate() {
     const prompt = request.prompt.trim();
@@ -87,6 +81,7 @@ export default function App({ generateImage = defaultGenerateImage }: AppProps) 
     }
 
     setIsGenerating(true);
+    setToastMessage('');
     setError('');
     setImages([]);
     setRawResponse(null);
@@ -126,17 +121,23 @@ export default function App({ generateImage = defaultGenerateImage }: AppProps) 
         <GeneratorForm
           isGenerating={isGenerating}
           onChange={setRequest}
+          onImageToImageClick={handleImageToImageClick}
           onSubmit={handleGenerate}
           request={request}
         />
         <ResultPanel
-          curlPreview={curlPreview}
           error={error}
           images={images}
           isGenerating={isGenerating}
           rawResponse={rawResponse}
         />
       </main>
+
+      {toastMessage ? (
+        <div className="toast" role="status">
+          {toastMessage}
+        </div>
+      ) : null}
 
       {isConfigOpen ? (
         <ApiConfigModal
@@ -160,6 +161,6 @@ function toImageGenerationRequest(request: GenerationRequest): ImageGenerationRe
     quality: request.quality,
     background: request.background,
     moderation: request.moderation,
-    n: request.n,
+    n: 1,
   };
 }

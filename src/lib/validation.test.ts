@@ -66,14 +66,14 @@ describe('validateGenerationInput', () => {
     });
   });
 
-  it('rejects quantities above 4', () => {
-    expect(validateGenerationInput({ prompt: 'a cat', quantity: 5 })).toEqual({
+  it('rejects quantities above 1', () => {
+    expect(validateGenerationInput({ prompt: 'a cat', quantity: 2 })).toEqual({
       valid: false,
-      message: '生成数量最多为 4',
+      message: '生成数量固定为 1',
     });
   });
 
   it('accepts visible prompt text and valid quantity', () => {
-    expect(validateGenerationInput({ prompt: 'a cat', quantity: 2 })).toEqual({ valid: true });
+    expect(validateGenerationInput({ prompt: 'a cat', quantity: 1 })).toEqual({ valid: true });
   });
 });

@@ -1,14 +1,13 @@
 import { type ParsedImage } from '../api/imageGeneration';
 
 type ResultPanelProps = {
-  curlPreview: string;
   error: string;
   images: ParsedImage[];
   isGenerating: boolean;
   rawResponse: unknown;
 };
 
-export function ResultPanel({ curlPreview, error, images, isGenerating, rawResponse }: ResultPanelProps) {
+export function ResultPanel({ error, images, isGenerating, rawResponse }: ResultPanelProps) {
   return (
     <section aria-label="生成结果" className="result-card">
       <div className="result-stage">
@@ -30,19 +29,6 @@ export function ResultPanel({ curlPreview, error, images, isGenerating, rawRespo
           </div>
         ) : null}
       </div>
-
-      <details open>
-        <summary>CURL 预览</summary>
-        <pre data-testid="curl-preview">{curlPreview}</pre>
-        <button
-          onClick={() => {
-            void navigator.clipboard?.writeText(curlPreview);
-          }}
-          type="button"
-        >
-          复制 CURL
-        </button>
-      </details>
 
       {rawResponse ? (
         <details>

@@ -5,10 +5,17 @@ type GeneratorFormProps = {
   request: GenerationRequest;
   isGenerating: boolean;
   onChange: (request: GenerationRequest) => void;
+  onImageToImageClick: () => void;
   onSubmit: () => void;
 };
 
-export function GeneratorForm({ request, isGenerating, onChange, onSubmit }: GeneratorFormProps) {
+export function GeneratorForm({
+  request,
+  isGenerating,
+  onChange,
+  onImageToImageClick,
+  onSubmit,
+}: GeneratorFormProps) {
   function update<Key extends keyof GenerationRequest>(key: Key, value: GenerationRequest[Key]) {
     onChange({ ...request, [key]: value });
   }
@@ -24,7 +31,7 @@ export function GeneratorForm({ request, isGenerating, onChange, onSubmit }: Gen
         <button aria-selected="true" role="tab" type="button">
           文生图
         </button>
-        <button aria-disabled="true" disabled role="tab" type="button">
+        <button aria-disabled="true" onClick={onImageToImageClick} role="tab" type="button">
           图生图
         </button>
       </div>
@@ -54,21 +61,10 @@ export function GeneratorForm({ request, isGenerating, onChange, onSubmit }: Gen
           <label>
             尺寸
             <select onChange={(event) => update('size', event.target.value)} value={request.size}>
-              <option value="1024x1024">1024x1024</option>
-              <option value="1536x1024">1536x1024</option>
-              <option value="1024x1536">1024x1536</option>
+              <option value="1024x1024">1:1 正方形</option>
+              <option value="1536x1024">3:2 横图</option>
+              <option value="1024x1536">2:3 竖图</option>
             </select>
-          </label>
-
-          <label>
-            数量
-            <input
-              max={4}
-              min={1}
-              onChange={(event) => update('n', Number(event.target.value))}
-              type="number"
-              value={request.n}
-            />
           </label>
 
           <label>
@@ -93,24 +89,10 @@ export function GeneratorForm({ request, isGenerating, onChange, onSubmit }: Gen
           <label>
             审核
             <select onChange={(event) => update('moderation', event.target.value)} value={request.moderation}>
-              <option value="auto">auto</option>
-              <option value="low">low</option>
+              <option value="auto">自动审核</option>
+              <option value="low">宽松审核</option>
             </select>
-          </label>
-
-          <label>
-            返回格式
-            <select
-              disabled
-              onChange={(event) =>
-                update('responseFormat', event.target.value as GenerationRequest['responseFormat'])
-              }
-              value={request.responseFormat}
-            >
-              <option value="auto">自动 (由 gpt-image-2 决定)</option>
-              <option value="url">url</option>
-              <option value="b64_json">b64_json</option>
-            </select>
+            <span className="field-hint">宽松审核会降低过滤强度，适合普通创作失败时再尝试。</span>
           </label>
         </div>
 

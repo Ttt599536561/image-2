@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App, { type GenerateImageFn } from './App';
 
 const validConfig = {
-  baseUrl: 'https://relay.example.com/v1',
+  baseUrl: 'https://api.tangguo.xin/v1',
   apiKey: 'sk-real-secret',
 };
 
@@ -19,8 +19,6 @@ function renderApp(generateImage?: GenerateImageFn) {
 
 async function saveApiConfig(user = userEvent.setup()) {
   await user.click(screen.getByRole('button', { name: /中转站 API 配置/ }));
-  await user.clear(screen.getByLabelText(/Base URL/i));
-  await user.type(screen.getByLabelText(/Base URL/i), validConfig.baseUrl);
   await user.type(screen.getByLabelText('API Key'), validConfig.apiKey);
   await user.click(screen.getByRole('button', { name: '保存配置' }));
 }
@@ -42,13 +40,13 @@ describe('App', () => {
 
     expect(screen.getByRole('dialog', { name: '自定义 API 中转站配置' })).toBeInTheDocument();
     expect(screen.getByLabelText('API Key')).toHaveAttribute('type', 'password');
+    expect(screen.queryByLabelText(/Base URL/i)).not.toBeInTheDocument();
+    expect(screen.getByText('https://api.tangguo.xin/v1')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '前往One-API官网注册获取' })).toHaveAttribute(
       'href',
       'https://api.tangguo.xin/',
     );
 
-    await user.clear(screen.getByLabelText(/Base URL/i));
-    await user.type(screen.getByLabelText(/Base URL/i), validConfig.baseUrl);
     await user.type(screen.getByLabelText('API Key'), validConfig.apiKey);
     await user.click(screen.getByRole('button', { name: '保存配置' }));
 
@@ -67,8 +65,6 @@ describe('App', () => {
     renderApp();
 
     await user.click(screen.getByRole('button', { name: /中转站 API 配置/ }));
-    await user.clear(screen.getByLabelText(/Base URL/i));
-    await user.type(screen.getByLabelText(/Base URL/i), validConfig.baseUrl);
     await user.type(screen.getByLabelText('API Key'), validConfig.apiKey);
     await user.click(screen.getByLabelText('在此设备记住密钥'));
     await user.click(screen.getByRole('button', { name: '保存配置' }));
@@ -174,23 +170,36 @@ describe('App', () => {
     expect(screen.queryByText(validConfig.apiKey)).not.toBeInTheDocument();
   });
 
-  it('redacts the API key in the CURL preview', async () => {
+  it('hides the CURL preview from the result panel', async () => {
     const user = userEvent.setup();
     renderApp();
     await saveApiConfig(user);
 
     await user.type(screen.getByLabelText('图片描述'), 'A small studio with warm lights');
 
-    const preview = screen.getByTestId('curl-preview');
-    expect(preview).toHaveTextContent('Authorization: Bearer sk-***');
-    expect(preview).not.toHaveTextContent(validConfig.apiKey);
-    expect(preview).toHaveTextContent('https://relay.example.com/v1/images/generations');
+    expect(screen.queryByTestId('curl-preview')).not.toBeInTheDocument();
+    expect(screen.queryByText('CURL 预览')).not.toBeInTheDocument();
   });
 
-  it('renders the return-format compatibility control', () => {
+  it('hides quantity and return-format controls while rendering friendly size and moderation controls', () => {
     renderApp();
 
-    expect(screen.getByLabelText('返回格式')).toBeInTheDocument();
-    expect(screen.getByLabelText('返回格式')).toBeDisabled();
+    expect(screen.queryByLabelText('数量')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('返回格式')).not.toBeInTheDocument();
+    expect(screen.getByRole('option', { name: '1:1 正方形' })).toHaveValue('1024x1024');
+    expect(screen.getByRole('option', { name: '3:2 横图' })).toHaveValue('1536x1024');
+    expect(screen.getByRole('option', { name: '2:3 竖图' })).toHaveValue('1024x1536');
+    expect(screen.getByRole('option', { name: '自动审核' })).toHaveValue('auto');
+    expect(screen.getByRole('option', { name: '宽松审核' })).toHaveValue('low');
+    expect(screen.getByText('宽松审核会降低过滤强度，适合普通创作失败时再尝试。')).toBeInTheDocument();
+  });
+
+  it('shows a development toast when the image-to-image tab is clicked', async () => {
+    const user = userEvent.setup();
+    renderApp();
+
+    await user.click(screen.getByRole('tab', { name: '图生图' }));
+
+    expect(await screen.findByRole('status')).toHaveTextContent('图生图功能正在开发中');
   });
 });

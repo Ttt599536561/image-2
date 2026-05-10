@@ -15,7 +15,7 @@ describe('api config storage', () => {
     saveApiConfig({ baseUrl: 'https://api.example.com/v1', apiKey: 'sk-test', rememberApiKey: true });
 
     expect(loadApiConfig()).toEqual({
-      baseUrl: 'https://api.example.com/v1',
+      baseUrl: DEFAULT_API_CONFIG.baseUrl,
       apiKey: 'sk-test',
       rememberApiKey: true,
     });
@@ -25,9 +25,26 @@ describe('api config storage', () => {
     saveApiConfig({ baseUrl: 'https://api.example.com/v1', apiKey: 'sk-test', rememberApiKey: false });
 
     expect(loadApiConfig()).toEqual({
-      baseUrl: 'https://api.example.com/v1',
+      baseUrl: DEFAULT_API_CONFIG.baseUrl,
       apiKey: '',
       rememberApiKey: false,
+    });
+  });
+
+  it('ignores stored custom Base URLs and always uses the fixed relay', () => {
+    window.localStorage.setItem(
+      'ai-image-workshop-api-config',
+      JSON.stringify({
+        baseUrl: 'https://other-relay.example.com/v1',
+        apiKey: 'sk-test',
+        rememberApiKey: true,
+      }),
+    );
+
+    expect(loadApiConfig()).toEqual({
+      baseUrl: DEFAULT_API_CONFIG.baseUrl,
+      apiKey: 'sk-test',
+      rememberApiKey: true,
     });
   });
 

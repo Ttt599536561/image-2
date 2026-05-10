@@ -41,10 +41,6 @@ src/
   - Parses supported response shapes into displayable image objects.
   - Provides a single adapter boundary for a future backend proxy.
 
-- `src/lib/curl.ts`
-  - Creates redacted CURL preview strings.
-  - Never includes the real API key.
-
 - `src/lib/redaction.ts`
   - Redacts user-provided keys and common bearer-token strings before errors or raw JSON content are rendered.
 
@@ -61,10 +57,10 @@ src/
 
 ## API Contract
 
-Default direct relay request:
+Default relay request:
 
 ```http
-POST {baseUrl}/images/generations
+POST https://api.tangguo.xin/v1/images/generations
 Authorization: Bearer {apiKey}
 Content-Type: application/json
 ```
@@ -83,7 +79,7 @@ Request body:
 }
 ```
 
-The first release includes a local same-origin Vite proxy to avoid relay CORS failures during local use. Future production deployments can replace the same contract with a hosted backend endpoint:
+The local same-origin Vite proxy forwards only to the fixed One-API relay. It ignores stale or user-provided Base URLs.
 
 ```http
 POST /api/generate
@@ -92,7 +88,7 @@ Content-Type: application/json
 
 ```json
 {
-  "baseUrl": "https://api.example.com/v1",
+  "baseUrl": "https://api.tangguo.xin/v1",
   "apiKey": "user relay key",
   "request": {
     "model": "gpt-image-2",
@@ -120,9 +116,7 @@ Content-Type: application/json
 
 - Unit tests:
   - Config validation.
-  - Base URL normalization.
   - Payload creation.
-  - CURL redaction.
   - Response parsing.
   - Storage read/write fallback behavior.
 - Component tests:
@@ -141,6 +135,7 @@ Content-Type: application/json
 - Keep the request adapter independent from React.
 - Keep secrets out of previews and logs.
 - Store the API key persistently only when the user enables the remember-key option.
+- Keep the relay Base URL fixed to `https://api.tangguo.xin/v1`; do not expose a Base URL input.
 - Show relay 504 responses as actionable upstream-timeout messages instead of rendering raw gateway HTML. The message should mention possible runtime platform, gateway/CDN, application timeout, or upstream-call log checks rather than assuming Nginx exists on the user's server.
 - Do not add backend files in the first release.
 - Do not implement image-to-image in the first release.
