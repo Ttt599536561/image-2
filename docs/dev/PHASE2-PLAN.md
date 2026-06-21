@@ -55,16 +55,17 @@
 
 ## §3 钱链路（命门 — 最不容错）
 > 全部走 `src/server/tx.server.ts`(Pool/WS+FOR UPDATE)；SQL 照 03-money 逐条落 TS。
+> **状态（2026-06-21）：③ 全部完成并对真 Neon(PG18.4) 验证。** 8 个文件落地；**28 例真库测试全绿**（`tests/money/`，10 文件，`Promise.all` 真并发/重入，`npm run test:money`）；tsc 0 · vitest 45(单测) · build。**多代理对抗审查**（7 维并行精读 + 逐条证伪，10 agents）：0 blocker / 1 confirmed major 已修——adjust 减额 FIFO 漏过滤已过期批次（会被对账反转），补 `AND (expires_at IS NULL OR expires_at>now())` + 同步修 09 §10.3 规格示例 + 加端到端回归。
 - [x] `src/server/tx.server.ts`：`tx(async c=>…)` connect→BEGIN→COMMIT/ROLLBACK→release→end（+ `config.server.ts` readConfigInt/getConfigInt）。**②鉴权 grant 已用并对真库验**
-- [ ] **预算熔断（铁律①）** `src/server/budget.server.ts`：软闸 `isDailyBudgetExhausted(c)` + **硬上限** `incCallIfUnderCap()`=`UPDATE…WHERE calls<阈值 RETURNING`(原子防 TOCTOU) + `incMs`
-- [ ] **入队三闸** `src/server/generation/enqueue.ts`：并发(409)/余额(402，**只判不扣**)/软预算(429) + 建会话 + `INSERT generations(queued)` **同一 FOR UPDATE 事务** → 202
-- [ ] **抢占状态机（铁律③）** `src/server/money/preempt.server.ts`：`claim`=`UPDATE…WHERE status='queued' RETURNING`(后台第一步，affected=0 即退) · `markRunning` 写 started_at
-- [ ] **扣费（核心）** `src/server/money/debit.server.ts`：putToR2 在**事务外**；事务内 **⓪双守卫**(⓪a `SELECT status FOR UPDATE` 断言 running · ⓪b 探 uq_debit 已存在→幂等 no-op) → ① FIFO 锁 lots(`ORDER BY expires_at ASC NULLS LAST,created_at ASC`) → ② 扣 `charged`(实扣量、不出负、零头记 credit_shortfall) → ③ `INSERT images ON CONFLICT(generation_id) DO NOTHING` → ④ 物化余额 `-charged` RETURNING → ⑤ ledger debit(uq_debit ON CONFLICT) → ⑥ generations→succeeded + `duration_ms=(EXTRACT(EPOCH…)*1000)::int` + events
-- [ ] 兑换 `src/server/money/redeem.server.ts`：`UPDATE…WHERE status='active' RETURNING`→0 行再查状态分 404/410；同事务入账 lots+ledger(uq_credit_code)+余额；首兑升级 has_paid + 旧图顺延 60 天；失败限流 5/10min
-- [x] 注册发放 `src/server/money/grant.server.ts`：单事务 users+account+signup lot+ledger(uq_grant_signup)+events，GRANT_MP/有效期读 app_config。**幂等强化**：以 credit_accounts(user_id PK) INSERT…ON CONFLICT DO NOTHING RETURNING 作串行化闸，杜绝重入/并发重复 lot/events（强于 03 §4.4 字面顺序）；修真库 42P08（user_id uuid / ref_id text 分参 $1/$3）。对真 Neon 验：注册→140mp→幂等
-- [ ] 过期 `src/server/money/expire.server.ts`：每日 FIFO 清零到期 lot(永久 lot 跳过)，uq_expire_lot 幂等
-- [ ] 调账 `src/server/money/adjust.server.ts`：admin ±，**同事务动 credit_lots + 物化余额 + ledger(adjust) + audit**，记真实 moved 量，不出负
-- [ ] 对账 `src/server/money/reconcile.server.ts`：每日 `SUM(lots.remaining)` vs 物化余额，**先告警再以 lots 为准修正**
+- [x] **预算熔断（铁律①）** `src/server/budget.server.ts`：软闸 `isDailyBudgetExhausted(c)` + **硬上限** `incCallIfUnderCap()`=`UPDATE…WHERE calls<阈值 RETURNING`(原子防 TOCTOU) + `incMs`。阈值取 app_config 回退 env；date-in-key Asia/Shanghai。**真库验：cap=5 时 12 并发恰 5 成功**
+- [x] **入队三闸** `src/server/generation/enqueue.ts`：并发(409)/余额(402，**只判不扣**)/软预算(429) + 建会话 + `INSERT generations(queued)` **同一事务**（锁 credit_accounts 行 FOR UPDATE 串行化）→ 返回 {generationId,conversationId}。**真库验：402/409/429 三闸**
+- [x] **抢占状态机（铁律③）** `src/server/money/preempt.server.ts`：`claim`=`UPDATE…WHERE status='queued' RETURNING`(HTTP 单语句原子，affected=0 即退) · `markRunning` 写 started_at。**真库验：两实例并发恰 1 抢到**
+- [x] **扣费（核心）** `src/server/money/debit.server.ts`：putToR2 在**事务外**(结果作入参)；事务内 **⓪双守卫**(⓪a `SELECT status FOR UPDATE` 断言 running · ⓪b 探 uq_debit 已存在→幂等 no-op) → ① FIFO 锁 lots → ② 扣 `charged`(实扣量、不出负、零头记 credit_shortfall) → ③ `INSERT images ON CONFLICT DO NOTHING` → ④ 物化余额 `-charged` RETURNING → ⑤ ledger debit(uq_debit ON CONFLICT) → ⑥ succeeded + `duration_ms=(EXTRACT(EPOCH…)*1000)::int` + image_succeeded。charged===0 跳过 ④⑤(amount_mp CHECK>0)。**真库验：成功扣/重入幂等(⓪a+⓪b)/真并发/FIFO跨批/失败守卫**
+- [x] 兑换 `src/server/money/redeem.server.ts`：`UPDATE…WHERE status='active' RETURNING`→0 行再查状态分 404/410；同事务入账 lots+ledger(uq_credit_code)+余额；首兑升级 has_paid + 旧图顺延 60 天；失败限流 5/10min。**真库验：并发双击只入账 1 次/错误码/永久批次/首兑顺延**
+- [x] 注册发放 `src/server/money/grant.server.ts`：单事务 users+account+signup lot+ledger(uq_grant_signup)+events，GRANT_MP/有效期读 app_config。**幂等强化**：以 credit_accounts(user_id PK) INSERT…ON CONFLICT DO NOTHING RETURNING 作串行化闸，杜绝重入/并发重复 lot/events；修真库 42P08（user_id uuid / ref_id text 分参）。**真库验：注册→140mp→幂等(顺序+并发)**
+- [x] 过期 `src/server/money/expire.server.ts`：每日 FIFO 清零到期 lot(永久 lot 跳过)，uq_expire_lot 幂等。**真库验：清零+同步余额+重跑幂等**
+- [x] 调账 `src/server/money/adjust.server.ts`：admin ±，**同事务动 credit_lots + 物化余额 + ledger(adjust) + audit**，记真实 moved 量，不出负；减额 FIFO **只扣未过期批次**(防对账反转，对抗审查修)。**真库验：增/减/不出负/避开过期批经 expire+reconcile 意图存活**
+- [x] 对账 `src/server/money/reconcile.server.ts`：`SUM(lots.remaining 未过期)`(::text+BigInt) vs 物化余额，**先告警再以 lots 为准修正** + balance_reconciled。**真库验：制造 drift→检出+修正收敛**
 
 🔴 **红线**：⓪双守卫是扣费事务**第一步**(同时挡重入重复扣 & 超时翻 failed 后仍扣)；**成功才扣**；ledger/lots/物化余额三者用同一 charged、balance_after 取 RETURNING；`duration_ms` 用 `EXTRACT(EPOCH…)*1000`（绝不 `EXTRACT(MILLISECONDS…)`）；预算硬上限原子条件自增；adjust 必动 lots；5 个 partial-unique 迁移后人工核对 WHERE。
 
@@ -104,7 +105,7 @@
 - [ ] 可观测 `src/server/{sentry,alert}.ts`：Sentry + `ADMIN_ALERT_WEBHOOK`
 - [ ] 密钥断言 `scripts/assert-no-secrets-in-bundle.ts` 挂 CI
 - [ ] CI `.github/workflows/ci.yml`：biome→tsc→vitest→build→assert-no-secrets
-- [ ] **钱链路 9 例真库测试** `tests/money/*.test.ts` + `tests/setup/neon-branch.ts`：对真 Neon 分支 `Promise.all` 并发(双击兑换/重入扣费/抢占/FIFO 跨批/过期幂等/注册发放/入队双闸/超时重扫/对账)
+- [x] **钱链路真库测试**（命门，随 ③ 完成）：`tests/money/*.test.ts`（10 文件 **28 例** ≥ 9 例底线）+ `vitest.money.config.ts`(node env，从 `.env` 注入 Neon 串) + `npm run test:money`。对真 Neon `Promise.all` 并发/重入：双击兑换/重入扣费(⓪a+⓪b)/真并发扣费/抢占/FIFO 跨批/过期幂等/注册发放(顺序+并发)/入队三闸(402/409/429)/超时重扫(EXTRACT-EPOCH)/对账/预算硬上限 TOCTOU/调账(增减/不出负/防对账反转)。**全绿**。⚠️ **待 ⑦/CI**：每 PR 一条 Neon test branch 自动化（`tests/setup/neon-branch.ts`，当前对共享 direct 串跑）
 - [ ] Playwright 冒烟 `tests/e2e/*`：注册→生图→兑换
 - [ ] **成本对账（铁律②·上线闸）** `docs/dev/cost-reconciliation.md`：灰度 ≥200 张取 p95，调最低内存档，算单图成本对账 0.07，**毛利>0 才上线**
 
