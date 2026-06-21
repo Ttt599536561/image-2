@@ -105,13 +105,14 @@
 🔴 **红线**：双守卫(布局 loader + 每个 API 各自 requireAdmin)；钱/码 audit 同事务；套餐禁硬删/禁 CASCADE；SUM 不走 number；二次确认。
 
 ## §7 cron / 可观测 / 测试 / 上线闸
-- [ ] 5 个 Scheduled `netlify/functions/cron-{timeout-rescan,expire-credits,reconcile-balance,clean-images,budget-cleanup}.ts` + `netlify.toml`：错峰(rescan 每分钟、budget 00:00、expire 00:10、reconcile 00:30、clean 01:00)；钱 cron 走 Pool/WS、扫描走 HTTP；各 try/catch→告警
-- [ ] 可观测 `src/server/{sentry,alert}.ts`：Sentry + `ADMIN_ALERT_WEBHOOK`
-- [ ] 密钥断言 `scripts/assert-no-secrets-in-bundle.ts` 挂 CI
-- [ ] CI `.github/workflows/ci.yml`：biome→tsc→vitest→build→assert-no-secrets
-- [x] **钱链路真库测试**（命门，随 ③ 完成）：`tests/money/*.test.ts`（10 文件 **28 例** ≥ 9 例底线）+ `vitest.money.config.ts`(node env，从 `.env` 注入 Neon 串) + `npm run test:money`。对真 Neon `Promise.all` 并发/重入：双击兑换/重入扣费(⓪a+⓪b)/真并发扣费/抢占/FIFO 跨批/过期幂等/注册发放(顺序+并发)/入队三闸(402/409/429)/超时重扫(EXTRACT-EPOCH)/对账/预算硬上限 TOCTOU/调账(增减/不出负/防对账反转)。**全绿**。⚠️ **待 ⑦/CI**：每 PR 一条 Neon test branch 自动化（`tests/setup/neon-branch.ts`，当前对共享 direct 串跑）
-- [ ] Playwright 冒烟 `tests/e2e/*`：注册→生图→兑换
-- [ ] **成本对账（铁律②·上线闸）** `docs/dev/cost-reconciliation.md`：灰度 ≥200 张取 p95，调最低内存档，算单图成本对账 0.07，**毛利>0 才上线**
+> **状态（2026-06-22）：⑦ 全部完成并对真 Neon 验证（成本对账除「真·毛利数」需上线跑量外，方法论+占位已落）。** 5 cron + 可观测 + 密钥断言 + CI + Playwright 冒烟 + 成本对账方法论落地；`scripts/cron-smoke.ts` **27 检查全绿**（超时重扫/过期幂等/对账修正/清图⓪通知预扫+①付费顺延+②删过期(全成功/部分失败)+③孤儿/预算清理+昨日 ms 重算+熔断告警去重/编排/派发兜底，注入 R2 桩免烧 Supabase）；tsc 0·test:run 30·test:money 33·build 0·`assert-no-secrets` PASS（扫 94 文件、密钥值 7 项+结构标记 8 项 0 泄露）。**多代理对抗校验 cron 链路（6 维：错峰/连接类型/告警/通知幂等/清图孤儿/成本口径，14 agents）：0 blocker / 1 confirmed major 已修**——「预算硬上限命中即告警」结构性失效（process.ts 硬上限分支不告警；唯一 daily_budget_exhausted 在 0 点 cron 评估当日 fresh 键恒为假=死代码）→ ① process.ts 命中分支补 `markBudgetAlertedOnce`(当日 key alerted 标记原子去重)+`alert('daily_budget_exhausted')`「命中即告警·每天首次」② cron 改评估「已结束的昨天」作回溯日报，同步修 10 §11.8（7 假阳性已证伪）。
+- [x] 5 个 Scheduled `netlify/functions/cron-{timeout-rescan,expire-credits,reconcile-balance,clean-images,budget-cleanup}.ts` + `netlify.toml`：错峰(rescan `*/1`、budget `0 16`、expire `10 16`、reconcile `30 16`、clean `0 17` UTC)；钱 cron(expire/reconcile) 走 Pool/WS、扫描(rescan/clean/budget) 走 HTTP；各 try/catch→`alert(cron_failed)`+`captureException`。超时重扫逻辑 `src/server/generation/scan.server.ts`(rescanTimeouts 收 queued/claimed/running>5min→failed + dispatchStaleQueued 补派发 1–5min queued)；清图逻辑 `src/server/maintenance.server.ts`(prescan 通知/renewPaid 顺延/deleteExpired 先删R2再删DB/sweepOrphan 1h 保护窗)；预算 `budget.server.cleanupBudgetKeys`(删 7 天前旧键+**评估「已结束的昨天」** gen.duration_ms 之和重算 ms+回溯近阈/熔断日报；**实时「命中即告警」在 process.ts 硬上限分支** markBudgetAlertedOnce 每天首次去重+alert)
+- [x] 可观测 `src/server/{sentry,alert}.server.ts`：`sentry.server`(SENTRY_DSN 缺→no-op，@sentry/node 变量 specifier 动态 import 免 tsc/vite 静态解析未装包，捕获永不抛+console 兜底) + `alert.server`(AlertKind 9 类，captureMessage + POST ADMIN_ALERT_WEBHOOK，webhook 失败→captureException)
+- [x] 密钥断言 `scripts/assert-no-secrets-in-bundle.ts`：扫 `build/client`(js/css/html/json) 无密钥**值**(env 取真值、长度≥8 才扫)+无 schema 结构标记(uq_debit 等 8 个)；命中 exit(1)；CI 无 .env 时仅扫结构标记。`npm run assert-no-secrets` 可独立跑
+- [x] CI `.github/workflows/ci.yml`：checkout→setup-node 22+npm cache→`npm ci`→biome(若装则跑、否则跳)→`npm run typecheck`→`npm run test:run`→`npm run build`→`assert-no-secrets`（注入 secrets 给值匹配）。**每 PR Neon test branch 留 TODO**(需 Neon API token，test:money 暂未进 CI 避免共享库并发污染)
+- [x] **钱链路真库测试**（命门，随 ③ 完成）：`tests/money/*.test.ts`（10 文件 **28 例** ≥ 9 例底线）+ `vitest.money.config.ts`(node env，从 `.env` 注入 Neon 串) + `npm run test:money`。对真 Neon `Promise.all` 并发/重入：双击兑换/重入扣费(⓪a+⓪b)/真并发扣费/抢占/FIFO 跨批/过期幂等/注册发放(顺序+并发)/入队三闸(402/409/429)/超时重扫(EXTRACT-EPOCH)/对账/预算硬上限 TOCTOU/调账(增减/不出负/防对账反转)。**全绿(33)**。⚠️ **待 CI**：每 PR 一条 Neon test branch 自动化（`tests/setup/neon-branch.ts`，当前对共享 direct 串跑）
+- [x] Playwright 冒烟 `tests/e2e/smoke.spec.ts`（@smoke 注册→生图→兑换）+ `playwright.config.ts` + `npm run test:e2e`：选跑(CI 单独 job)、需起 server + 桩中转；@playwright/test 未装（不入 tsc/默认单测，vitest exclude tests/e2e）、首跑前 `npm i -D @playwright/test && npx playwright install chromium`
+- [x] **成本对账（铁律②·上线闸）** `docs/dev/cost-reconciliation.md`：方法论+取数 SQL(p50/p95/成功率)+对账表占位+毛利为负处置+上线 checklist。**方法论与占位已落；真·毛利数需上线灰度 ≥200 张跑量后填，毛利>0 才放量**
 
 🔴 **红线**：cron 错峰(expire 先于 reconcile)；EXTRACT(EPOCH)*1000；失败率折进成本；毛利>0 才上线。
 

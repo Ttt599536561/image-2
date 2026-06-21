@@ -1,0 +1,59 @@
+# CI 门禁（⑦ · 真相源 10 §11.10）。流水线顺序 lint → typecheck → test → build → 密钥断言，任一失败阻断合入。
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+
+      # Biome（lint + format 检查）。当前仓未引 Biome（无 biome.json）→ 自动跳过；引入后此步即生效。
+      - name: Biome (if configured)
+        run: |
+          if [ -f biome.json ] || [ -f biome.jsonc ]; then
+            npx --no-install @biomejs/biome ci .
+          else
+            echo "未配置 Biome（无 biome.json），跳过"
+          fi
+
+      # 类型检查：react-router typegen 生成 +types 后 tsc --noEmit。
+      - name: Typecheck
+        run: npm run typecheck
+
+      # 前端单测（jsdom；钱链路 test:money 需对真 Neon 分支，见末尾 TODO，未进默认 CI）。
+      - name: Unit tests
+        run: npm run test:run
+
+      # 构建（server 模块懒读 env，build 不需真密钥）。
+      - name: Build
+        run: npm run build
+
+      # 构建期密钥断言：扫 build/client 无密钥值/无 db schema 结构泄露。
+      # CI 注入的 secrets 用于「值」匹配；未注入则仅扫结构标记（仍硬挡 schema 泄露）。
+      - name: Assert no secrets in bundle
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL_UNPOOLED }}
+          RELAY_API_KEY: ${{ secrets.RELAY_API_KEY }}
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          STORAGE_S3_ACCESS_KEY_ID: ${{ secrets.STORAGE_S3_ACCESS_KEY_ID }}
+          STORAGE_S3_SECRET_ACCESS_KEY: ${{ secrets.STORAGE_S3_SECRET_ACCESS_KEY }}
+        run: node --import tsx scripts/assert-no-secrets-in-bundle.ts
+
+# TODO（需 Neon API token，10 §11.10）：每 PR 起一条 Neon test branch → 跑迁移 → 注入 DATABASE_URL_UNPOOLED 给
+#   `npm run test:money`（钱链路真库测试，命门）→ PR 关闭时销毁分支。当前 test:money 对共享 direct 串本地跑，
+#   未进 CI（避免多 PR 并发污染共享库）。落地见 tests/setup/neon-branch.ts（待建）。
+# TODO（可选）：Playwright @smoke（注册→生图→兑换，tests/e2e/）需起 dev server + 桩中转，单独 job 选跑，见 playwright.config.ts。

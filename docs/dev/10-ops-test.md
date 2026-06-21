@@ -318,7 +318,9 @@ ON CONFLICT (key) DO UPDATE
   -- 只覆盖 ms 路径，保留 calls（calls 是调中转前抢占式 +1 的硬上限计数，不可被重算冲掉）
 ```
 
-本 cron 顺带做**近阈告警**：`calls` ≥ `DAILY_RELAY_BUDGET_CALLS` 的 80%、或**重算后**的 `ms` ≥ `DAILY_RELAY_BUDGET_MS` 的 80% 即报（告警以重算值为准，避免少计 ms 漏告警）；**触发熔断时**（`calls` 硬上限命中，[04-generation-pipeline.md §5.6](04-generation-pipeline.md)）也告警（[§11.9](#119-可观测与告警)）——这是防站长破产的硬上限，达到即代表当天敞口见顶。
+本 cron 顺带做**近阈告警**：`calls` ≥ `DAILY_RELAY_BUDGET_CALLS` 的 80%、或**重算后**的 `ms` ≥ `DAILY_RELAY_BUDGET_MS` 的 80% 即报（告警以重算值为准，避免少计 ms 漏告警）。
+
+> **⚠️ 实现修正（错峰告警的时点陷阱）**：本 cron 跑在**北京 00:00**（新一天起点），此刻"当日"key 的 `calls`/`ms`≈0——若用上面 SQL 评估"当日"，近阈/熔断告警**恒为假、是死代码**（cron 链路对抗审查 alerting-major）。故实现上：**① 本 cron 改评估"已结束的前一天"**（`now() AT TIME ZONE 'Asia/Shanghai' - interval '1 day'` 的 key + 同窗 `generations.duration_ms` 重算），作为**昨日回溯日报**（"昨天到了 X% 敞口"）；② **真正的"熔断命中即告警"放在生图管线**——`src/server/generation/process.ts` 硬上限命中分支（`incCallIfUnderCap()` 返 false 处，[04 §5.6](04-generation-pipeline.md)）当场 `alert('daily_budget_exhausted', …)`，用当日 key 上的 `alerted` 标记原子去重做到"每天首次即发"（[§11.9](#119-可观测与告警) daily_budget_exhausted「命中即报（每天首次）」）。这样防破产硬上限被击中时站长**当天即收到告警**，不必等到次日 cron。
 
 ## 11.9 可观测与告警
 

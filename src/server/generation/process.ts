@@ -5,7 +5,8 @@
 // 🔴 红线：claim 是第一步、affected=0 立即退；预算硬闸在 callRelay「前」；putToR2 在扣费事务外；
 //    失败不扣费；duration_ms 用 (EXTRACT(EPOCH…)*1000)::int；callRelay/putToR2 可注入（测试桩，免烧中转/Supabase）。
 import { getSql } from "../../db/db.server";
-import { incCallIfUnderCap, incMs } from "../budget.server";
+import { alert } from "../alert.server";
+import { incCallIfUnderCap, incMs, markBudgetAlertedOnce } from "../budget.server";
 import { chargeOnSuccess } from "../money/debit.server";
 import { claim, markRunning } from "../money/preempt.server";
 import { putToR2 as realPutToR2 } from "../r2.server";
@@ -37,6 +38,11 @@ export async function runGenerationJob(generationId: string, deps: ProcessDeps =
 
   // ③ 预算硬上限（铁律①·防破产）：与「calls+1」同一原子语句、调中转前。affected=0 → 不调中转、置 failed。
   if (!(await incCallIfUnderCap())) {
+    // 「命中即告警」（铁律①·10 §11.9 daily_budget_exhausted「每天首次」）：防破产硬上限被击中=当天敞口见顶，
+    // 站长必须当场收到。markBudgetAlertedOnce 原子去重（每天首次才发）；alert 永不抛，可安全 await。
+    if (await markBudgetAlertedOnce()) {
+      await alert("daily_budget_exhausted", { exhausted: true, reason: "hard_cap_hit", source: "generation", generationId });
+    }
     await sql`
       UPDATE generations SET status='failed', error_code='insufficient_quota', error='今日额度已满，请稍后',
         completed_at=now(), duration_ms=(EXTRACT(EPOCH FROM now()-started_at)*1000)::int, updated_at=now()

@@ -11,6 +11,7 @@ import { randomBytes } from "node:crypto";
 import {
   DeleteObjectCommand,
   DeleteObjectsCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
@@ -155,4 +156,31 @@ export async function deleteManyFromR2(storageKeys: string[]): Promise<string[]>
     for (const e of res.Errors ?? []) if (e.Key) failed.push(e.Key);
   }
   return failed;
+}
+
+export interface StorageObject {
+  key: string;
+  lastModified: number; // epoch ms（孤儿清理用 LastModified>1h 保护窗口，避开在途图，§7.5 B）
+}
+
+/**
+ * 列出桶内对象（孤儿清理 cron 用，§7.5 B）。ListObjectsV2 续传分页；maxPages 上限防单次 cron 超时
+ * （每页 ≤1000，默认上限 10 页=1万对象/轮，未尽部分下轮再扫）。返回 {key,lastModified(ms)}。
+ */
+export async function listStorageObjects(maxPages = 10): Promise<StorageObject[]> {
+  const client = getR2Client();
+  const bucket = env("STORAGE_BUCKET");
+  const out: StorageObject[] = [];
+  let token: string | undefined;
+  for (let page = 0; page < maxPages; page += 1) {
+    const res = await client.send(
+      new ListObjectsV2Command({ Bucket: bucket, ContinuationToken: token, MaxKeys: 1000 }),
+    );
+    for (const o of res.Contents ?? []) {
+      if (o.Key) out.push({ key: o.Key, lastModified: o.LastModified ? o.LastModified.getTime() : 0 });
+    }
+    if (!res.IsTruncated || !res.NextContinuationToken) break;
+    token = res.NextContinuationToken;
+  }
+  return out;
 }

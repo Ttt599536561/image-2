@@ -16,3 +16,17 @@
   from = "/api/generate-status"
   to = "/.netlify/functions/generate-status"
   status = 200
+
+# ⑦ Scheduled Functions（cron · 真相源 10 §11.1）。时区：cron 用 UTC，「每日 0 点」按北京(UTC+8) 折算为 UTC 16:00。
+# 错峰：超时重扫每分钟；旧预算键清理 00:00；积分过期 00:10 → 余额对账 00:30（过期必先于对账，未过期口径才一致）；
+# 图片清理 01:00。钱 cron（过期/对账）走 Pool/WS 事务，只读扫描走 HTTP；各 handler try/catch → 告警，绝不静默吞。
+[functions."cron-timeout-rescan"]
+  schedule = "*/1 * * * *"
+[functions."cron-budget-cleanup"]
+  schedule = "0 16 * * *"
+[functions."cron-expire-credits"]
+  schedule = "10 16 * * *"
+[functions."cron-reconcile-balance"]
+  schedule = "30 16 * * *"
+[functions."cron-clean-images"]
+  schedule = "0 17 * * *"
