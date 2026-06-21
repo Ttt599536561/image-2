@@ -91,15 +91,16 @@
 - [x] 资产库**批量管理**(批量管理切换 + 单击/Shift 连选 + 吸底操作条 + store-mode zip(`src/lib/zip.ts`，失败退化逐张) + 删除带 `ConfirmDialog` 确认，§24.9)——做实（真·drag 框选矩形留待增强）
 
 ## §6 后台管理（`/admin/*` — 阶段一完全没建）
-> **开工前置（admin 账号）**：`/admin` 守卫读业务 `users.role='admin'`。先 `/register` 注册一个邮箱，再跑 `node --env-file=.env --import tsx scripts/promote-admin.ts <email>`（双写业务 `users.role` + Better Auth `"user".role`，后者供 admin 插件 ban/改密用；无需重登，requireUserStrict 每请求查 DB 即生效）。`requireAdmin` 已在 `src/lib/guard.ts`；`ConfirmDialog` 已在 `src/components/ConfirmDialog/`（⑤ 建，二次确认复用）。
-- [ ] 守卫 + 公共件：`src/server/requireAdmin.ts` · `src/contracts/admin.ts`(含 `REDEEM_ALPHABET`) · `src/server/{audit,alert}.ts`(writeAudit 同事务)
-- [ ] 兑换码 `netlify/functions/admin-codes-*.ts`：批量生成(CSPRNG `crypto.randomInt`)+套餐快照 · CSV 导出(BOM) · 查单 · 作废批次(只动 active) · 对账
-- [ ] 用户 `netlify/functions/admin-users-*.ts`：搜索/详情/封禁(吊销会话)/改密(吊销+不记明文)/并发；**调积分走 ③ adjust**
-- [ ] 灵感库 `netlify/functions/admin-inspirations*.ts` + 建 `inspirations` 表：CRUD + 封面传 R2 + audit
-- [ ] 生成记录 `netlify/functions/admin-generations.ts`：近 7 天/50 条/倒序；失败直显 error_code/error/http_status；纯记录
-- [ ] 套餐+参数+审计 `netlify/functions/admin-{packages,config,audit}.ts`：套餐软删 active=false(FK RESTRICT，**禁 CASCADE**)；config 即时生效；audit 只读只追加
-- [ ] 看板 `netlify/functions/admin-dashboard.ts` + `src/server/sumCodec.ts`：7 卡 events 聚合；**所有 SUM 走 string/bigint codec**
-- [ ] 后台 UI `app/routes/_admin.*.tsx` + `ConfirmDialog`：独立 `_admin` 布局(requireAdmin loader)；贴 design-system；敏感写**二次确认**
+> **状态（2026-06-22）：完成并对真 Neon 验证。** 实现用 **RR 资源路由**(`app/routes/api.admin.*.ts` 12 个，server-only 同 ⑤，无 netlify.toml；非 doc 原写的 `netlify/functions/admin-*`，更一致) + `src/server/admin/*.server.ts` 逻辑层 + `_admin` UI 6 页。**`scripts/admin-smoke.ts` 27 检查全绿**(发码/查单/对账/CSV-BOM/作废 + 搜索/详情/封禁/并发 + 调积分调③ + 套餐 CRUD 软删 + 参数校验 + 灵感 CRUD 回流 + 看板 SUM string + 审计含 12 动作)；tsc 0·test:run 30·build 0·客户端 0 密钥+0 schema 泄露。`inspirations` 表迁移已对真应用(`drizzle/0001`+`scripts/migrate-inspirations.ts`)。commit `fa2a4e9`(后端)+`520837a`(UI)。
+> **开工前置（admin 账号）**：`/admin` 守卫读业务 `users.role='admin'`。先 `/register` 注册一个邮箱，再跑 `node --env-file=.env --import tsx scripts/promote-admin.ts <email>`（双写业务 `users.role` + Better Auth `"user".role`，后者供 admin 插件 ban/改密用；无需重登，requireUserStrict 每请求查 DB 即生效）。
+- [x] 守卫 + 公共件：`src/lib/guard.ts requireAdmin`(已) + `page.server requireAdminPage`(redirect) · `src/contracts/admin.ts`(手写 Zod op 判别联合) · `src/server/admin/audit.server.ts`(writeAudit 同事务/writeAuditHttp/listAudit 只追加) · `src/server/sumCodec.ts`
+- [x] 兑换码 `api.admin.codes*` + `codes.server`：批量生成(CSPRNG `crypto.randomInt`+套餐快照+ON CONFLICT 补缺) · CSV 导出(BOM) · 查单 · 作废批次(只动 active) · 对账(SUM string codec)
+- [x] 用户 `api.admin.users[.$id]` + `users.server`：搜索/详情聚合/封禁(业务 is_banned 权威+Better Auth 吊销会话)/改密(Better Auth+吊销+不记明文)/并发；**调积分走 ③ adjustCredit**
+- [x] 灵感库 `api.admin.inspirations` + `inspirations.server` + **建 `inspirations` 表**(schema+0001 迁移已对真应用)：CRUD + audit；`reads.loadInspirations` 改查表(种子 fallback)。封面 multipart 上传留增强(本期贴 URL)
+- [x] 生成记录 `api.admin.generations` + `generations.server`：近 7 天/50/倒序；失败直显 error_code/error/http_status(失败无事件→查 generations)；纯记录
+- [x] 套餐+参数+审计 `api.admin.{packages,config,audit}` + server：套餐软删 active=false(FK RESTRICT，禁 CASCADE)；config 每键 min 校验即时生效；audit 只读只追加
+- [x] 看板 `api.admin.dashboard` + `dashboard.server` + `sumCodec.ts`：三口径(events/lots/generations) 14 指标；**所有 SUM 走 string codec**；Asia/Shanghai 今日
+- [x] 后台 UI `app/routes/_admin*.tsx`(布局+6 页) + `Admin.module.css` + `ConfirmDialog`：独立 `_admin` 布局(requireAdminPage loader)；贴 design-system；敏感写**二次确认**
 
 🔴 **红线**：双守卫(布局 loader + 每个 API 各自 requireAdmin)；钱/码 audit 同事务；套餐禁硬删/禁 CASCADE；SUM 不走 number；二次确认。
 
