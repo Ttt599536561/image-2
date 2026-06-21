@@ -43,4 +43,13 @@ export default [
     route("register", "routes/_auth.register.tsx"),
     route("forgot", "routes/_auth.forgot.tsx"),
   ]),
+  // 阶段二 ⑥：后台 UI（独立 _admin 布局，requireAdminPage 守卫）。
+  layout("routes/_admin.tsx", [
+    route("admin", "routes/_admin._index.tsx"), // 看板
+    route("admin/users", "routes/_admin.users.tsx"),
+    route("admin/codes", "routes/_admin.codes.tsx"),
+    route("admin/generations", "routes/_admin.generations.tsx"),
+    route("admin/inspiration", "routes/_admin.inspiration.tsx"),
+    route("admin/packages", "routes/_admin.packages.tsx"),
+  ]),
 ] satisfies RouteConfig;
