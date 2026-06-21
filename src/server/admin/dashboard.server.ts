@@ -51,11 +51,14 @@ export async function loadDashboard(): Promise<Dashboard> {
           count(*) FILTER (WHERE type='user_registered') AS reg,
           COALESCE(sum((payload->>'cashValue')::bigint) FILTER (WHERE type='code_redeemed'),0)::text AS revenue
         FROM events WHERE created_at >= ${day}::timestamptz` as Promise<Row[]>,
+    // 🔴 消耗口径修正（对抗审查 major）：生图扣费走 image_succeeded(payload.creditsChargedMp)，
+    //   非 credit_consumed（后者仅 adjust 减额发）。累计消耗 = 生图扣费 + 管理员减额，二者皆 outflow。
     sql`SELECT
           count(*) FILTER (WHERE type='image_succeeded') AS total_images,
           COALESCE(sum((payload->>'cashValue')::bigint) FILTER (WHERE type='code_redeemed'),0)::text AS total_revenue,
           COALESCE(sum((payload->>'amountMp')::bigint) FILTER (WHERE type='credit_granted'),0)::text AS granted,
-          COALESCE(sum((payload->>'amountMp')::bigint) FILTER (WHERE type='credit_consumed'),0)::text AS consumed
+          (COALESCE(sum((payload->>'creditsChargedMp')::bigint) FILTER (WHERE type='image_succeeded'),0)
+           + COALESCE(sum((payload->>'amountMp')::bigint) FILTER (WHERE type='credit_consumed'),0))::text AS consumed
         FROM events` as Promise<Row[]>,
     sql`SELECT COALESCE(sum(remaining_mp),0)::text AS s FROM credit_lots
         WHERE remaining_mp>0 AND (expires_at IS NULL OR expires_at>now())` as Promise<Row[]>,
