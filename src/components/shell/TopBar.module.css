@@ -1,0 +1,128 @@
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
+  border-bottom: 0.5px solid var(--border-subtle);
+  background: var(--bg-canvas);
+  min-height: 56px;
+}
+
+.left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.title {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 46vw;
+}
+.titleMuted {
+  color: var(--text-tertiary);
+  font-weight: 400;
+  font-size: 13px;
+  margin-left: var(--space-2);
+}
+
+.right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.iconBtn {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-full);
+  border: 0.5px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  position: relative;
+  transition: background 0.15s, color 0.15s;
+}
+.iconBtn:hover {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+}
+
+.menuBtn {
+  display: none;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 36px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-full);
+  border: 0.5px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.pill:hover {
+  background: var(--bg-subtle);
+}
+
+.panelToggle {
+  composes: pill;
+}
+.panelToggleActive {
+  background: var(--bg-subtle);
+  border-color: var(--border-strong);
+}
+
+.coin {
+  color: var(--accent);
+}
+
+.warnDot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  background: var(--warning-border);
+  margin-left: 2px;
+}
+
+.redDot {
+  position: absolute;
+  top: 6px;
+  right: 7px;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-full);
+  background: var(--danger-border);
+  border: 1.5px solid var(--bg-surface);
+}
+
+@media (max-width: 767px) {
+  .menuBtn {
+    display: grid;
+  }
+  .title {
+    max-width: 38vw;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .iconBtn,
+  .pill {
+    transition: none;
+  }
+}

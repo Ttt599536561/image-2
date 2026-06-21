@@ -1,4 +1,5 @@
-// 注册 /register —— Task #9 落地。
+import { AuthForm } from "../../src/components/auth/AuthForm";
+
 export default function Register() {
-  return <div>注册</div>;
+  return <AuthForm mode="register" />;
 }

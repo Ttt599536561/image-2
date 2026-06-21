@@ -1,4 +1,5 @@
-// 登录 /login —— Task #9 落地。
+import { AuthForm } from "../../src/components/auth/AuthForm";
+
 export default function Login() {
-  return <div>登录</div>;
+  return <AuthForm mode="login" />;
 }

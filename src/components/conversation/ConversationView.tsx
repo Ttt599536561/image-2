@@ -1,0 +1,315 @@
+import { AlertTriangle, Bookmark, Check, Copy, Download, FileText, RefreshCw, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router";
+import type { GenerateRequest } from "../../contracts/generate";
+import { redactText } from "../../lib/redaction";
+import { useMediaQuery } from "../../lib/useMediaQuery";
+import { PRICE_PER_IMAGE_MP } from "../../mocks/api";
+import { MOCK_INSPIRATIONS } from "../../mocks/data";
+import { useMock } from "../../mocks/store";
+import type { Turn } from "../../mocks/types";
+import { useGeneration } from "../../hooks/useGeneration";
+import { Composer } from "../composer/Composer";
+import { CosmicSkeleton } from "../composer/CosmicSkeleton";
+import { InspirationGallery } from "../InspirationGallery/InspirationGallery";
+import { useLightbox } from "../Lightbox/LightboxProvider";
+import { useShell } from "../shell/ShellContext";
+import { ThisConversationPanel } from "../shell/ThisConversationPanel";
+import { TopBar } from "../shell/TopBar";
+import { useToast } from "../Toast/ToastProvider";
+import styles from "./ConversationView.module.css";
+
+const EMPTY_REQUEST: GenerateRequest = {
+  prompt: "",
+  size: "auto",
+  quality: "auto",
+  background: "auto",
+};
+
+function downloadImage(src: string, name: string) {
+  const a = document.createElement("a");
+  a.href = src;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
+function rawResponseOf(turn: Turn): string {
+  const obj =
+    turn.status === "failed"
+      ? {
+          status: "failed",
+          errorCode: turn.errorCode,
+          error: turn.error,
+          httpStatus: turn.httpStatus,
+        }
+      : {
+          status: turn.status,
+          model: "gpt-image-2",
+          size: turn.size,
+          image: turn.image ? { width: turn.image.width, height: turn.image.height } : null,
+        };
+  return redactText(JSON.stringify(obj, null, 2));
+}
+
+export function ConversationView({ conversationId }: { conversationId: string | null }) {
+  const mock = useMock();
+  const toast = useToast();
+  const lightbox = useLightbox();
+  const shell = useShell();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const isDesktop = useMediaQuery("(min-width: 1024px)");
+
+  const [request, setRequest] = useState<GenerateRequest>(EMPTY_REQUEST);
+  const [panelOpen, setPanelOpen] = useState(true);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [rawTurn, setRawTurn] = useState<Turn | null>(null);
+
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const flowRef = useRef<HTMLDivElement>(null);
+
+  const { submit, isGenerating } = useGeneration(conversationId);
+
+  const currentId = conversationId ?? mock.activeId;
+  const conv = mock.getConversation(currentId);
+  const turns = conv?.turns ?? [];
+  const succeededCount = turns.filter((t) => t.status === "succeeded").length;
+  const canAfford = mock.balanceMp >= PRICE_PER_IMAGE_MP;
+
+  // 新轮加入后滚到底
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    flowRef.current?.scrollTo({ top: flowRef.current.scrollHeight, behavior: "smooth" });
+  }, [turns.length]);
+
+  // 跨路由一键带回（来自 /inspiration）：读 location.state.bringPrompt 注入 Composer 后清除。
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const bring = (location.state as { bringPrompt?: string } | null)?.bringPrompt;
+    if (bring) {
+      setRequest((r) => ({ ...r, prompt: bring }));
+      navigate(location.pathname, { replace: true });
+      textareaRef.current?.focus();
+    }
+  }, [location.key]);
+
+  const focusComposer = () => {
+    textareaRef.current?.focus();
+    textareaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+
+  const runGeneration = (req: GenerateRequest) => {
+    if (!req.prompt.trim()) return;
+    if (mock.balanceMp < PRICE_PER_IMAGE_MP) {
+      toast.error("积分不足，去充值");
+      return;
+    }
+    void submit(req);
+  };
+
+  const onSubmit = () => {
+    runGeneration(request);
+    setRequest((r) => ({ ...r, prompt: "" }));
+  };
+
+  const bringBackPrompt = (prompt: string) => {
+    if (isGenerating) {
+      toast.info("生成中，请稍候");
+      return;
+    }
+    if (request.prompt.trim() && request.prompt.trim() !== prompt.trim()) {
+      if (!window.confirm("替换当前输入?")) return;
+    }
+    setRequest((r) => ({ ...r, prompt }));
+    focusComposer();
+  };
+
+  const regenerate = (turn: Turn) => {
+    setRequest({
+      prompt: turn.prompt,
+      size: turn.size,
+      quality: turn.quality ?? "auto",
+      background: turn.background ?? "auto",
+    });
+    focusComposer();
+  };
+
+  const copyPrompt = (prompt: string) => {
+    navigator.clipboard?.writeText(prompt).then(
+      () => toast.success("已复制"),
+      () => toast.error("复制失败"),
+    );
+  };
+
+  const saveToLibrary = (turn: Turn) => {
+    if (!conv || turn.savedToLibrary) return;
+    mock.saveToLibrary(conv.id, turn.id);
+    toast.success("已存入资产库");
+  };
+
+  const composer = (
+    <Composer
+      request={request}
+      onChange={setRequest}
+      onSubmit={onSubmit}
+      disabled={isGenerating}
+      canAfford={canAfford}
+      balanceMp={mock.balanceMp}
+      variant={turns.length === 0 ? "full" : "compact"}
+      textareaRef={textareaRef}
+    />
+  );
+
+  // —— 欢迎态（无轮次）——
+  if (turns.length === 0) {
+    return (
+      <>
+        <TopBar onOpenMenu={shell.openMenu} />
+        <div className={styles.welcomeBody}>
+          <div className={styles.welcomeInner}>
+            <div className={styles.hero}>
+              <h1 className={styles.heroTitle}>今天想画点什么?</h1>
+              <p className={styles.heroSub}>用一句话描述画面，AI 帮你生成。每张固定 0.07 积分，成功才扣。</p>
+            </div>
+            {composer}
+            <div className={styles.gallerySection}>
+              <p className={styles.galleryLabel}>浏览灵感（站长维护，点卡片一键带回提示词）</p>
+              <InspirationGallery items={MOCK_INSPIRATIONS} compact onUsePrompt={bringBackPrompt} />
+            </div>
+          </div>
+        </div>
+        {rawModal()}
+      </>
+    );
+  }
+
+  // —— 工作态（生成中 / 成功 / 失败混排）——
+  return (
+    <>
+      <TopBar
+        title={conv?.title}
+        currentLabel="（当前对话）"
+        thisCount={succeededCount}
+        panelOpen={isDesktop ? panelOpen : drawerOpen}
+        onTogglePanel={() => (isDesktop ? setPanelOpen((o) => !o) : setDrawerOpen((o) => !o))}
+        onOpenMenu={shell.openMenu}
+      />
+      <div className={styles.workRow}>
+        <div className={styles.flowCol}>
+          <div className={styles.flow} ref={flowRef}>
+            <div className={styles.flowInner}>
+              {turns.map((turn) => (
+                <div className={styles.turn} key={turn.id}>
+                  <div className={styles.userBubble}>{turn.prompt}</div>
+                  {renderResult(turn)}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className={styles.composerDock}>
+            <div className={styles.composerDockInner}>{composer}</div>
+          </div>
+        </div>
+        {isDesktop && panelOpen ? <ThisConversationPanel turns={turns} mode="column" /> : null}
+      </div>
+      {!isDesktop && drawerOpen ? (
+        <ThisConversationPanel turns={turns} mode="drawer" onClose={() => setDrawerOpen(false)} />
+      ) : null}
+      {rawModal()}
+    </>
+  );
+
+  function renderResult(turn: Turn) {
+    if (turn.status === "running") {
+      return (
+        <div className={styles.resultMedia}>
+          <CosmicSkeleton size={turn.size} startedAt={Date.parse(turn.createdAt)} />
+        </div>
+      );
+    }
+    if (turn.status === "failed") {
+      return (
+        <div className={styles.errorCard}>
+          <div className={styles.errorHead}>
+            <AlertTriangle size={16} />
+            {turn.error ?? "生成失败，请重试"}
+          </div>
+          <p className={styles.errorNote}>本次未扣 / 已退积分。</p>
+          <button type="button" className={styles.retryBtn} onClick={() => regenerate(turn)}>
+            <RefreshCw size={14} />
+            重试
+          </button>
+        </div>
+      );
+    }
+    // succeeded
+    return (
+      <div>
+        <span className={styles.doneTag}>
+          <Check size={13} />
+          已完成
+        </span>
+        {turn.image ? (
+          <div className={styles.resultMedia}>
+            <img
+              className={styles.resultImage}
+              src={turn.image.publicUrl}
+              alt={turn.prompt}
+              onClick={() => lightbox.open(turn.image!.publicUrl, `图像工坊_${turn.id}.svg`)}
+            />
+          </div>
+        ) : null}
+        <div className={styles.actionBar}>
+          <button
+            type="button"
+            className={styles.chip}
+            onClick={() => turn.image && downloadImage(turn.image.publicUrl, `图像工坊_${turn.id}.svg`)}
+          >
+            <Download size={13} />
+            下载
+          </button>
+          <button type="button" className={styles.chip} onClick={() => regenerate(turn)}>
+            <RefreshCw size={13} />
+            重新生成
+          </button>
+          <button type="button" className={styles.chip} onClick={() => copyPrompt(turn.prompt)}>
+            <Copy size={13} />
+            复制提示词
+          </button>
+          <button type="button" className={styles.chip} onClick={() => setRawTurn(turn)}>
+            <FileText size={13} />
+            查看原始响应
+          </button>
+          <button
+            type="button"
+            className={`${styles.chip} ${turn.savedToLibrary ? styles.chipDone : ""}`}
+            onClick={() => saveToLibrary(turn)}
+            disabled={turn.savedToLibrary}
+          >
+            <Bookmark size={13} />
+            {turn.savedToLibrary ? "已存入" : "存入资产库"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  function rawModal() {
+    if (!rawTurn) return null;
+    return (
+      <div className={styles.rawScrim} onClick={() => setRawTurn(null)}>
+        <div className={styles.rawCard} onClick={(e) => e.stopPropagation()}>
+          <div className={styles.rawHead}>
+            <span className={styles.rawTitle}>原始响应（已脱敏）</span>
+            <button type="button" className={styles.rawClose} onClick={() => setRawTurn(null)} aria-label="关闭">
+              <X size={16} />
+            </button>
+          </div>
+          <pre className={styles.rawPre}>{rawResponseOf(rawTurn)}</pre>
+        </div>
+      </div>
+    );
+  }
+}

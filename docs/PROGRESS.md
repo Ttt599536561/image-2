@@ -13,12 +13,14 @@
 | 3 | UI 视觉风格（design-system.html） | ✅ 定稿 |
 | 4 | 技术选型 | ✅ 定稿 |
 | 5 | **开发文档（技术设计文档）** | ✅ 定稿（docs/dev/，12 章；钱链路已签字） |
-| 6 | 阶段一 · 前端形态 | 🚧 进行中 ← **下一步** |
-| 7 | 阶段二 · 账号+积分+存储 | ⬜ 未开始 |
+| 6 | 阶段一 · 前端形态 | ✅ 完成（RR8 骨架 + 三栏壳 + 五态 + 灵感画廊 + 主题，mock 跑通并验证） |
+| 7 | 阶段二 · 账号+积分+存储 | ⬜ 未开始 ← **下一步** |
 | 8 | 阶段三 · 增强 | ⬜ 未开始 |
 
 ## 当前状态
-**需求 + 低保真原型（含 6 个二级页）+ UI 视觉风格 + 技术选型 + 开发文档（技术设计文档）均已定稿。** UI 风格落 `docs/prototypes/design-system.html`（同步进 §17）；二级页线框补齐进 `wireframes.html`（共 21 节）；**技术选型已锁定**（见下方独立条目）；**开发文档已定稿** → `docs/dev/`（README 索引 + `00`–`11` 共 12 章），经**三轮**多代理审查（① 起草+对抗校验 → ② 单一真相源裁决修订 + 全局终审 → ③ 正确性/完整性对抗审查，3 blocker + 一批 major 全修）跨章口径收敛一致；**钱链路（03/04）已逐条向站长导读并签字**（成功才扣的慢图代价 D、预算软/硬闸过冲 E/F、callRelay 软超时+主备 Base G、adjust 红线 H 均经确认）。**已进入阶段一开发**：slice 1（铁律④·修 v1 真后台 + 代理读 env key + 全链路删 apiKey）**已完成并独立验证**（vitest 42/42、`tsc -b` 0、build 通过）。**下一步：阶段一前端形态主体**——RR7 framework 骨架 + `tokens.css` 落地 + App.tsx 双栏→Composer 三栏壳 + 五态（星空动效）+ 尺寸/参数药丸 + 灵感画廊 + 深色/暖色（mock 账号/积分跑通）；建议在 **git worktree** 隔离这次大改。**新对话从读 CLAUDE.md → 本文件 → docs/dev 接手。**
+**需求 + 低保真原型（含 6 个二级页）+ UI 视觉风格 + 技术选型 + 开发文档（技术设计文档）均已定稿。** UI 风格落 `docs/prototypes/design-system.html`（同步进 §17）；二级页线框补齐进 `wireframes.html`（共 21 节）；**技术选型已锁定**（见下方独立条目）；**开发文档已定稿** → `docs/dev/`（README 索引 + `00`–`11` 共 12 章），经**三轮**多代理审查（① 起草+对抗校验 → ② 单一真相源裁决修订 + 全局终审 → ③ 正确性/完整性对抗审查，3 blocker + 一批 major 全修）跨章口径收敛一致；**钱链路（03/04）已逐条向站长导读并签字**（成功才扣的慢图代价 D、预算软/硬闸过冲 E/F、callRelay 软超时+主备 Base G、adjust 红线 H 均经确认）。**阶段一已全部完成**：slice 1（铁律④·修 v1 真后台 + 代理读 env key + 全链路删 apiKey）+ **前端形态主体均已落地并验证**。前端形态主体把 v1 双栏 SPA 重构为 **React Router 8 framework 模式（SSR）** 的对话式三栏壳：`tokens.css` 落地 design-system（明/暗 + 不反相 `--cosmic-*`）；侧栏(nav+最近) ｜ 对话+Composer ｜ 「本次·N」面板（≥1024 常驻/<1024 抽屉/<768 折叠）；**Composer 五态**（欢迎/生成中=宇宙星空动效+`生成中 M:SS`/成功=成品图+5 操作/失败=504+未扣已退+重试/积分不足=拦截去充值）；尺寸 6 档 + 高级设置（质量/背景）药丸；灵感画廊（封面瀑布流+一键带回）；深色/暖色 cookie 主题（SSR 无闪烁）；全局 Lightbox/Toast/Skeleton；次级页 mock 占位（/billing 做实兑换）。**账号/积分全 mock**，未接 Neon/Better Auth/R2（阶段二）。**验证**：vitest 42/42、`react-router typegen && tsc` 0、`react-router build` 通过；preview 工具逐态实测（提交→星空→成功扣 0.07、失败未扣、积分不足拦截→/billing、兑换 +10「积分到账」、主题切换、lightbox、灵感带回均通过）。**git 隔离**：环境非 git 仓库且 worktree 工具不可用 → 改用 `git init` + `main`(v1 基线 8667d04) + `phase1-frontend` 分支隔离。**下一步：阶段二**（账号+积分+存储；地基→鉴权→钱链路→管线→页面→后台→cron/测试）。**新对话从读 CLAUDE.md → 本文件 → docs/dev 接手。**
+
+> **阶段一前端落地要点（研发须知）**：① **栈用 RR8 不是 RR7**——RR7(7.x) 仅支持 vite≤7，而本仓 vite 已是 8.0.11（v1 42 测试基线），RR8.0.1 的 framework 模式与 RR7 同构（loader/action/SSR/`routes.ts`/`+types`/`react-router.config.ts`），且原生支持 vite 8，故用 RR8 + `@netlify/vite-plugin-react-router@4`（React 钉到 19.2.7 满足 RR8 peer）；docs/dev 文中「RR7」即指 framework 模式，版本以此为准。② **vitest 与 RR 插件分离**：`vitest.config.ts` 只挂 `@vitejs/plugin-react`，不加 `reactRouter()`（同时加载冲突）。③ **目录**：`app/`(root+routes+路由模块) + `src/`(components/hooks/lib/mocks/contracts/styles/server)，与 11 §12.1 一致；mock 客户端态在 `src/mocks/store.tsx`(MockProvider)，job 轮询 hook 在 `src/hooks/`。④ **短轮询 `refetchIntervalInBackground:true`**（比 08 §9.3 示例的 false 更贴合「提交后切走等结果」，且修复隐藏标签页不轮询）。⑤ 删了 v1 SPA 入口（index.html/main.tsx/App.tsx/styles.css/GeneratorForm/ResultPanel）；`src/lib/storage.ts` **保留**（`imageProxy.ts` 仍依赖其 `DEFAULT_API_CONFIG`，阶段二随真生成链路再清模型 localStorage 残留）。⑥ preview 截图工具对 vite dev（HMR 长连不 idle）超时，故用 snapshot + eval 驱动逐态验证。
 
 ## 已完成
 - v1 文档对齐了实际实现（development / requirements / test-cases，顶部加了指向 v2 的 banner）。
@@ -46,9 +48,9 @@
 
 ## 下一步（按顺序；做完把 `[ ]` 改 `[x]` + 翻里程碑总览）
 - [x] **编写开发文档（技术设计文档）** → 已成稿 `docs/dev/`（README + `00`–`11` 共 12 章）：技术栈/env·密钥红线、系统架构（组件图+生图/扣费/兑换三时序）、数据库 DDL+索引+5 部分唯一索引、钱链路事务（可执行 SQL+幂等键+抢占式状态机）、生图管线（含 5min 双层超时+单日预算熔断+v1 迁移）、鉴权（Better Auth+封禁/改密硬校验）、R2 存储+清理 cron、API 契约（状态码+Zod 判别联合）、前端架构（RR7 路由表+TanStack+tokens）、后台管理、cron/可观测/测试、目录结构+分期清单。经两轮多代理审查收敛跨章口径（失败模型/函数签名/枚举/预算计数/路由命名等一致）。
-- [ ] **阶段一·前端形态**（🚧 进行中）：
+- [x] **阶段一·前端形态**（✅ 完成）：
   - [x] **铁律④·修真后台 + 读 env key + 全链路删 apiKey**（§15 第一步，保留 Blobs、未上 Neon）：`imageProxy.ts` 从 `process.env.RELAY_API_KEY`/`RELAY_BASE_URL` 注入（缺 Key 返 500）；`ImageProxyInput` 删 apiKey/baseUrl；`generate.ts` 触发改 fire-and-forget + 本地 URL 回退；前端删密钥 UI（删 `ApiConfigModal.tsx`/`useApiConfig.ts`、`storage.ts` 去掉 apiKey 存取、`proxyGeneration` 只发 `{request}`）。**验证：vitest 42/42 通过 + `tsc -b` 0**。残留小尾巴：死代码 `generateImage`(直连)/`curl.ts` 仍带 apiKey 参（应用不调用、§12.2 curl 可留），无 Key 流经应用。
-  - [ ] 前端形态主体：RR7 framework 骨架 + `tokens.css` 落地 + App.tsx 双栏→Composer 三栏壳 + 五态（宇宙星空动效）+ 尺寸/参数药丸 + 灵感画廊 + 深色/暖色（mock 账号/积分跑通体验）。
+  - [x] 前端形态主体：**RR8** framework 骨架（非 RR7，vite8 兼容，见上「落地要点」①）+ `tokens.css` 落地 + App.tsx 双栏→Composer 三栏壳 + 五态（宇宙星空动效）+ 尺寸/参数药丸 + 灵感画廊 + 深色/暖色（mock 账号/积分跑通体验）。**验证 vitest 42/42 + typegen/tsc 0 + build 通过 + preview 逐态实测**。隔离用 `phase1-frontend` 分支（worktree 工具因仓库非 git 不可用）。
 - [ ] **阶段二·账号+积分+存储**：注册登录 + Neon + R2 + 队列 + 积分账本 + 扣费 + 兑换码 + 充值页 + 后台 + 历史/资产库/本次面板 + 并发 + 工程一致性(§22)。
 - [ ] **阶段三·增强**：搜索、资产库高级管理、客服/RBAC、优化提示词；（更远）图生图、多图、单图编辑。
 

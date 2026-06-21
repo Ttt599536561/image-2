@@ -6,7 +6,7 @@
 一个**对话式（ChatGPT 风格）AI 生图网站**的重构项目：用户注册登录后，在 Composer 输入提示词生图，按**积分**计费，靠**兑换码**充值。v1 是已上线的双栏工具版，正重构为 v2。
 
 ## 当前阶段
-**需求 + 低保真原型 + UI 视觉风格 + 技术选型 + 开发文档（技术设计文档）均已成稿**（多代理审查已做、5 条工程硬伤已修、13 条交互默认值已补，规格 §24）。UI 风格落 `docs/prototypes/design-system.html`（已同步进 §17）。**技术选型已锁定**（栈见下方「技术栈」节，§15 架构已同步、§14/§19 已据此修订预算熔断）。**开发文档已定稿** → `docs/dev/`（README 索引 + `00`–`11` 共 12 章），经三轮多代理审查收敛、**钱链路已签字**。**已进入阶段一开发**：**slice 1（铁律④·修 v1 真后台 + 代理读 env key + 全链路删 apiKey）已完成并验证**（vitest 42/42、`tsc -b` 0；§15 第一步，保留 Blobs、未上 Neon）。**下一步：阶段一前端形态主体**（RR7 骨架 + Composer 三栏壳/五态 + tokens + 灵感画廊 + 深色暖色，mock 账号积分；建议 worktree 隔离）。
+**需求 + 低保真原型 + UI 视觉风格 + 技术选型 + 开发文档（技术设计文档）均已成稿**（多代理审查已做、5 条工程硬伤已修、13 条交互默认值已补，规格 §24）。UI 风格落 `docs/prototypes/design-system.html`（已同步进 §17）。**技术选型已锁定**（栈见下方「技术栈」节，§15 架构已同步、§14/§19 已据此修订预算熔断）。**开发文档已定稿** → `docs/dev/`（README 索引 + `00`–`11` 共 12 章），经三轮多代理审查收敛、**钱链路已签字**。**阶段一已全部完成**：slice 1（铁律④·修 v1 真后台 + 代理读 env key + 全链路删 apiKey）+ **前端形态主体**均已落地验证（vitest 42/42、typegen/tsc 0、build 通过、preview 逐态实测）。前端把 v1 双栏 SPA 重构为 **React Router 8 framework 模式（SSR）** 三栏壳：tokens 落 design-system + Composer 五态（宇宙星空动效）+ 6 档尺寸/高级药丸 + 灵感画廊一键带回 + cookie 明暗主题 + 全局 lightbox/toast；账号/积分全 mock，未接 Neon/Better Auth/R2。**注意栈用 RR8 不是 RR7**（RR7 仅支持 vite≤7，本仓 vite=8；RR8 framework 模式同构、原生支持 vite8；docs/dev 文中「RR7」即 framework 模式）。代码在 `phase1-frontend` 分支（仓库 `git init` 后，v1 基线在 `main`；worktree 工具因初始非 git 不可用）。**下一步：阶段二**（账号+积分+存储：地基→鉴权→钱链路→管线→页面→后台→cron/测试）。落地细节见 [docs/PROGRESS.md](docs/PROGRESS.md)「阶段一前端落地要点」。
 - 进度 / 中断恢复看 → [docs/PROGRESS.md](docs/PROGRESS.md)
 - **完整需求规格（唯一真相源）** → [docs/redesign-requirements.md](docs/redesign-requirements.md)
 

@@ -1,0 +1,258 @@
+/* —— 欢迎态 —— */
+.welcomeBody {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: var(--space-8) var(--space-5) var(--space-10);
+}
+.welcomeInner {
+  width: 100%;
+  max-width: 760px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+.hero {
+  text-align: center;
+  padding-top: var(--space-8);
+}
+.heroTitle {
+  font-size: 28px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 var(--space-2);
+}
+.heroSub {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+.gallerySection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+.galleryLabel {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  margin: 0;
+}
+
+/* —— 工作态 —— */
+.workRow {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+.flowCol {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.flow {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-6) var(--space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.flowInner {
+  width: 100%;
+  max-width: 760px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.composerDock {
+  border-top: 0.5px solid var(--border-subtle);
+  padding: var(--space-3) var(--space-5) var(--space-5);
+  background: var(--bg-canvas);
+}
+.composerDockInner {
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+/* —— 一轮 —— */
+.turn {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.userBubble {
+  align-self: flex-end;
+  max-width: 78%;
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-subtle);
+  border-radius: var(--radius-lg);
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.5;
+}
+.userMeta {
+  display: block;
+  margin-top: var(--space-1);
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.resultMedia {
+  width: 100%;
+  max-width: 340px;
+}
+.resultImage {
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-lg);
+  border: 0.5px solid var(--border-subtle);
+  display: block;
+  cursor: zoom-in;
+}
+.doneTag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 12px;
+  color: var(--success-text);
+  margin-bottom: var(--space-1);
+}
+
+.actionBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.chip:hover {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+}
+.chipDone {
+  opacity: 0.5;
+  cursor: default;
+}
+.chipDone:hover {
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+}
+
+/* —— 失败态 —— */
+.errorCard {
+  max-width: 420px;
+  padding: var(--space-4);
+  border: 0.5px solid var(--danger-border);
+  border-radius: var(--radius-lg);
+  background: var(--danger-surface);
+}
+.errorHead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--danger-text);
+  font-size: 14px;
+  font-weight: 500;
+}
+.errorNote {
+  margin: var(--space-2) 0 var(--space-3);
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.retryBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-4);
+  border: 0.5px solid var(--border-strong);
+  border-radius: var(--radius-full);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.retryBtn:hover {
+  background: var(--bg-subtle);
+}
+
+/* —— 原始响应弹窗 —— */
+.rawScrim {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: var(--scrim);
+  display: grid;
+  place-items: center;
+  padding: var(--space-5);
+}
+.rawCard {
+  width: 100%;
+  max-width: 520px;
+  background: var(--bg-surface);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-5);
+}
+.rawHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+.rawTitle {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.rawClose {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+.rawClose:hover {
+  background: var(--bg-subtle);
+}
+.rawPre {
+  margin: 0;
+  padding: var(--space-3);
+  background: var(--bg-subtle);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 50vh;
+  overflow: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chip,
+  .resultImage {
+    transition: none;
+  }
+}

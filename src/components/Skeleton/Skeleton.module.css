@@ -1,0 +1,43 @@
+/* Skeleton — 通用占位块。底色 --bg-subtle + 移动高光微光。
+ * 高光仅用 transform；reduced-motion 降级为静态底色。 */
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--bg-subtle);
+}
+
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.18) 50%,
+    transparent 100%
+  );
+  animation: skel-shimmer 1.5s ease-in-out infinite;
+  will-change: transform;
+}
+
+.circle {
+  border-radius: 50%;
+}
+
+@keyframes skel-shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after {
+    animation: none;
+    display: none;
+  }
+}

@@ -1,0 +1,291 @@
+/* 骨架·宇宙星空"生成中"占位（design-system §8 / §5 生成态）——「深空银河·旋转极光」+
+   星点离散闪烁 / 掠星事件 / 底部暗角 / reduced-motion 静态星。自包含深空底、自适应任意比例、
+   仅 transform·opacity GPU 友好。--cosmic-* 刻意不随明暗反相（深空恒为深色）。 */
+
+.tile {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  border-radius: var(--radius-md);
+  background: radial-gradient(
+    120% 100% at 50% 0%,
+    var(--cosmic-top) 0%,
+    var(--cosmic-mid) 38%,
+    var(--cosmic-bot) 100%
+  );
+  border: 0.5px solid var(--cosmic-edge);
+  box-shadow: inset 0 0 40px rgba(4, 6, 14, 0.7), inset 0 1px 0 rgba(150, 180, 255, 0.08);
+  /* 铺满父宽、按比例定高，避免高瘦 9:16 撑爆对话流 */
+  width: 100%;
+  max-height: min(60vh, 420px);
+  margin-inline: auto;
+}
+
+.tile > * {
+  position: absolute;
+  pointer-events: none;
+}
+
+/* 底部暗角 vignette */
+.tile::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  border-radius: inherit;
+  box-shadow: inset 0 -30% 42% -26% rgba(0, 0, 0, 0.6);
+}
+
+.galaxy {
+  inset: -60%;
+  z-index: 0;
+  filter: blur(16px);
+  will-change: transform;
+  background: conic-gradient(
+    from 0deg at 50% 50%,
+    rgba(60, 90, 170, 0) 0deg,
+    rgba(86, 128, 220, 0.34) 48deg,
+    rgba(150, 110, 210, 0.26) 95deg,
+    rgba(40, 70, 150, 0) 150deg,
+    rgba(70, 150, 190, 0.3) 210deg,
+    rgba(120, 90, 200, 0.22) 268deg,
+    rgba(60, 90, 170, 0) 320deg,
+    rgba(86, 128, 220, 0.3) 360deg
+  );
+  animation: sc-rot 26s linear infinite;
+}
+
+.neb {
+  inset: -30%;
+  z-index: 0;
+  mix-blend-mode: screen;
+  filter: blur(22px);
+  will-change: transform;
+  background: conic-gradient(
+    from 140deg at 42% 58%,
+    rgba(0, 0, 0, 0) 0deg,
+    rgba(110, 180, 210, 0.2) 70deg,
+    rgba(0, 0, 0, 0) 150deg,
+    rgba(150, 120, 220, 0.18) 250deg,
+    rgba(0, 0, 0, 0) 330deg
+  );
+  animation: sc-rot-rev 38s linear infinite;
+}
+
+.stars,
+.stars2,
+.stars3 {
+  inset: 0;
+  z-index: 1;
+  background-repeat: no-repeat;
+}
+
+.stars {
+  background-image: radial-gradient(1.4px 1.4px at 12% 18%, #fff, transparent),
+    radial-gradient(1.6px 1.6px at 44% 34%, #fff, transparent),
+    radial-gradient(1.2px 1.2px at 78% 58%, #fff, transparent),
+    radial-gradient(1.3px 1.3px at 16% 88%, #fff, transparent),
+    radial-gradient(1.5px 1.5px at 70% 90%, #fff, transparent);
+  animation: sc-tw 4.2s ease-in-out infinite;
+}
+
+.stars2 {
+  background-image: radial-gradient(1px 1px at 28% 72%, rgba(220, 232, 255, 0.95), transparent),
+    radial-gradient(1px 1px at 62% 12%, rgba(200, 220, 255, 0.9), transparent),
+    radial-gradient(1px 1px at 88% 28%, rgba(210, 225, 255, 0.9), transparent),
+    radial-gradient(1px 1px at 52% 80%, rgba(225, 235, 255, 0.92), transparent),
+    radial-gradient(1px 1px at 6% 46%, rgba(215, 228, 255, 0.85), transparent);
+  animation: sc-tw 5.6s ease-in-out infinite;
+  animation-delay: -1.4s;
+}
+
+.stars3 {
+  background-image: radial-gradient(1px 1px at 22% 40%, rgba(255, 255, 255, 0.8), transparent),
+    radial-gradient(1.2px 1.2px at 66% 44%, rgba(255, 255, 255, 0.85), transparent),
+    radial-gradient(1px 1px at 38% 22%, rgba(255, 255, 255, 0.75), transparent),
+    radial-gradient(1.8px 1.8px at 58% 70%, var(--accent), transparent);
+  animation: sc-tw 3.1s ease-in-out infinite;
+  animation-delay: -0.6s;
+}
+
+.sweep {
+  inset: -30% -10%;
+  z-index: 1;
+  will-change: transform;
+  background: linear-gradient(
+    115deg,
+    transparent 38%,
+    rgba(200, 220, 255, 0.1) 47%,
+    rgba(235, 242, 255, 0.22) 50%,
+    rgba(200, 220, 255, 0.1) 53%,
+    transparent 62%
+  );
+  animation: sc-sweep 3.8s cubic-bezier(0.45, 0, 0.2, 1) infinite;
+}
+
+.comet {
+  z-index: 1;
+  top: 28%;
+  left: -12%;
+  width: 32%;
+  height: 1.5px;
+  border-radius: var(--radius-full);
+  background: linear-gradient(
+    90deg,
+    rgba(220, 230, 255, 0),
+    rgba(220, 230, 255, 0.5) 60%,
+    rgba(255, 255, 255, 0.85)
+  );
+  opacity: 0;
+  filter: blur(0.3px);
+  will-change: transform, opacity;
+  animation: sc-comet 9s ease-in-out infinite;
+}
+
+/* 居中计时标签：深空恒为深色，rgba(0,0,0,.35) 仅作可读性遮罩、不随主题反相 */
+.meta {
+  left: 9px;
+  bottom: 8px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: var(--radius-full);
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(2px);
+  font-size: 11.5px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: rgba(232, 240, 255, 0.92);
+  text-shadow: 0 1px 3px rgba(0, 8, 24, 0.85), 0 0 10px rgba(0, 4, 16, 0.6);
+  font-variant-numeric: tabular-nums;
+}
+
+.meta b {
+  font-weight: 600;
+  color: var(--accent);
+  text-shadow: 0 1px 2px rgba(0, 8, 24, 0.7);
+}
+
+/* 角落呼吸光点（环 + 脉冲） */
+.dot {
+  position: relative;
+  width: 9px;
+  height: 9px;
+  flex: none;
+}
+
+.dot::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(150, 185, 255, 0.55);
+  animation: sc-ring 2.4s ease-out infinite;
+}
+
+.dot::after {
+  content: "";
+  position: absolute;
+  inset: 2.5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent), 0 0 2px #fff;
+  animation: sc-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes sc-rot {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes sc-rot-rev {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+@keyframes sc-tw {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  45% {
+    opacity: 1;
+  }
+}
+
+@keyframes sc-sweep {
+  0% {
+    transform: translateX(-120%);
+  }
+  60%,
+  100% {
+    transform: translateX(120%);
+  }
+}
+
+@keyframes sc-comet {
+  0%,
+  80% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0);
+  }
+  84% {
+    opacity: 0.85;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(150%, 34%, 0);
+  }
+}
+
+@keyframes sc-ring {
+  0% {
+    transform: scale(0.6);
+    opacity: 0.9;
+  }
+  80%,
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+
+@keyframes sc-pulse {
+  0%,
+  100% {
+    transform: scale(0.85);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.1);
+    opacity: 1;
+  }
+}
+
+/* reduced-motion：冻结全部动画为静态深空，仍显计时标签与静态星点 */
+@media (prefers-reduced-motion: reduce) {
+  .galaxy,
+  .neb,
+  .sweep,
+  .comet,
+  .stars,
+  .stars2,
+  .stars3,
+  .dot::before,
+  .dot::after {
+    animation: none;
+  }
+  .comet {
+    opacity: 0;
+  }
+  .stars,
+  .stars2,
+  .stars3 {
+    opacity: 0.7;
+  }
+}

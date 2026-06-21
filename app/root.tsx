@@ -9,8 +9,10 @@ import {
   ScrollRestoration,
   useRouteLoaderData,
 } from "react-router";
+import { LightboxProvider } from "../src/components/Lightbox/LightboxProvider";
+import { ToastProvider } from "../src/components/Toast/ToastProvider";
+import { parseThemeCookie, type Theme, ThemeProvider } from "../src/lib/theme";
 import type { Route } from "./+types/root";
-import { parseThemeCookie, type Theme } from "./lib/theme";
 // 全局设计令牌（side-effect import；RR 收集进 <Links/> 注入，SSR 无 FOUC）
 import "../src/styles/tokens.css";
 
@@ -40,7 +42,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   );
 }
 
-export default function App() {
+export default function App({ loaderData }: Route.ComponentProps) {
   // 每个浏览器会话一个 QueryClient（SSR 安全：用 useState 惰性建一次）。
   const [queryClient] = useState(
     () =>
@@ -52,7 +54,13 @@ export default function App() {
   );
   return (
     <QueryClientProvider client={queryClient}>
-      <Outlet />
+      <ThemeProvider initialTheme={loaderData.theme}>
+        <ToastProvider>
+          <LightboxProvider>
+            <Outlet />
+          </LightboxProvider>
+        </ToastProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }
