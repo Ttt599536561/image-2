@@ -4,6 +4,8 @@
 
 ## 9.1 RR7 框架模式
 
+> **实现注（阶段一已落地）**：实际用 **React Router 8**——RR7（7.x）仅支持 vite ≤7，而本仓 vite 已是 8.x；RR8 的 framework 模式与 RR7 **同构**（`loader`/`action`/SSR/`routes.ts`/`+types`/`react-router.config.ts` 全一致），且原生支持 vite 8，配 `@netlify/vite-plugin-react-router@4`、React 钉 ≥19.2.7。**下文「RR7」一律指 framework 模式，版本以 RR8 为准。**
+
 React Router 7 **framework 模式**（非 library/data 模式）：路由即模块，每个路由模块可导出 `loader`（服务端取数、SSR 首屏）、`action`（表单/写操作）、`Component`（UI）、`ErrorBoundary`。配 Vite + React 19，`@react-router/dev` 插件接管打包与 SSR。
 
 `vite.config.ts` 形态（Netlify 跑 RR7 framework 模式必需）：`plugins:[reactRouter(), netlifyReactRouter()]`——`reactRouter()` 取自 `@react-router/dev/vite`、`netlifyReactRouter()` 取自 `@netlify/vite-plugin-react-router`（依赖见 [11-structure-roadmap.md §12.4](11-structure-roadmap.md)），后者默认产出 Netlify Serverless Functions(Node)、Edge 才设 `edge:true`；`@react-router/node`、`isbot` 保留。
