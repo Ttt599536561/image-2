@@ -16,7 +16,7 @@
 | 服务 | 变量 | 何时需要 | 状态 |
 |---|---|---|---|
 | **Neon Postgres**（AWS 美东，与 Netlify 同区） | `DATABASE_URL`(pooled) · `DATABASE_URL_UNPOOLED`(direct) · 每 PR 一个 test branch | ①起 | 🟡 direct 串已配（PG18.4，迁移+seed 已跑通）；pooled 串(带 -pooler)+每 PR test branch 待补 |
-| **对象存储（S3 兼容）= Supabase Storage**（公有桶，免自定义域/免绑卡；代码厂商中立 `STORAGE_*`，换 R2/B2/S3 只改值。原选型 Cloudflare R2 因需自定义域+绑卡，站长 2026-06-21 改 Supabase Storage） | `STORAGE_S3_ENDPOINT`/`STORAGE_S3_REGION`/`STORAGE_S3_ACCESS_KEY_ID`/`STORAGE_S3_SECRET_ACCESS_KEY`/`STORAGE_BUCKET`/`STORAGE_PUBLIC_BASE_URL` | ①/④ | ⬜ 待开通（Supabase 建 project + public 桶 + S3 Access Keys） |
+| **对象存储（S3 兼容）= Supabase Storage**（公有桶，免自定义域/免绑卡；代码厂商中立 `STORAGE_*`，换 R2/B2/S3 只改值。原选型 Cloudflare R2 因需自定义域+绑卡，站长 2026-06-21 改 Supabase Storage） | `STORAGE_S3_ENDPOINT`/`STORAGE_S3_REGION`/`STORAGE_S3_ACCESS_KEY_ID`/`STORAGE_S3_SECRET_ACCESS_KEY`/`STORAGE_BUCKET`/`STORAGE_PUBLIC_BASE_URL` | ①/④ | ✅ 已开通并验证（Supabase project `exexcwt…`，public 桶 `images`，region ap-northeast-2；6 变量存 `.env`；`scripts/storage-smoke.ts` 往返 PASS） |
 | **Better Auth** | `BETTER_AUTH_SECRET`(可生成) · `BETTER_AUTH_URL` | ② | ⬜ |
 | **中转**（v1 已有，确认） | `RELAY_API_KEY` · `RELAY_BASE_URL`(+可选 `RELAY_BASE_URL_BACKUP`) · `DAILY_RELAY_BUDGET_CALLS/_MS` | ④ | ⬜ 确认 |
 | 可观测/告警（可后补） | `SENTRY_DSN` · `ADMIN_ALERT_WEBHOOK` | ⑦ | ⬜ |
@@ -28,16 +28,16 @@
 ---
 
 ## §1 地基（Foundation）— 连接 / 表 / 存储（无钱逻辑）
-> **状态（2026-06-21）**：离线代码全部完成并通过 tsc 0 / vitest 45 / build / 7 维多代理对抗校验（schema-ddl/money-redlines/failure 零发现；5 条 minor 已修）。**接真已对真 Neon(PG18.4) 跑通：迁移应用 + 13/13 表 + 7/7 关键索引 WHERE 谓词在库校验 + FOR UPDATE 交互式事务冒烟 + seed(2 套餐/8 config，幂等) ✅**（`scripts/db-smoke.ts`/`db-verify.ts`，`node --env-file=.env --import tsx …`）。**仅 putToR2 往返待 R2 密钥（§0）。**
+> **状态（2026-06-21）**：离线代码全部完成并通过 tsc 0 / vitest 45 / build / 7 维多代理对抗校验（schema-ddl/money-redlines/failure 零发现；5 条 minor 已修）。**接真已对真 Neon(PG18.4) 跑通：迁移应用 + 13/13 表 + 7/7 关键索引 WHERE 谓词在库校验 + FOR UPDATE 交互式事务冒烟 + seed(2 套餐/8 config，幂等) ✅**（`scripts/db-smoke.ts`/`db-verify.ts`，`node --env-file=.env --import tsx …`）。**putToR2 往返已对真 Supabase Storage 验证（`scripts/storage-smoke.ts`：上传→public_url fetch 200 image/png→删除，PASS）→ ① 地基全部完成。**
 - [x] 装依赖：drizzle-orm · drizzle-kit · @neondatabase/serverless · ws · @aws-sdk/client-s3 · zod · drizzle-zod · @types/ws（+tsx）（`package.json`）
 - [x] **DB 双连接** `src/db/db.server.ts`：`getPool()`(Pool/WS over `DATABASE_URL_UNPOOLED`，`neonConfig.webSocketConstructor=ws`) 给事务；`getSql()=neon(DATABASE_URL)` HTTP 给看板/单语句。开-用-关单 handler 内，不跨请求复用
 - [x] **Schema** `src/db/schema.ts`：13 张业务表（users/credit_accounts/credit_lots/credit_ledger/packages/redeem_codes/conversations/generations/images/audit_log/notifications/events/app_config），金额列 `bigint`(`_mp`/`_cash`)，全二级索引 + **5 个部分唯一索引**(uq_debit/uq_refund/uq_grant_signup/uq_credit_code/uq_expire_lot，均 ON `credit_ledger(ref_id)` + WHERE 谓词) + `uq_notif_dedupe`
 - [x] **迁移** `drizzle.config.ts` + `drizzle/0000_phase2_foundation.sql`：`drizzle-kit generate` 后**已人工核对** 5 个 partial-unique 的 WHERE 谓词逐条正确（含 uq_grant_signup 复合 `entry_type='grant' AND ref_type='signup'`）；手工补 `CREATE EXTENSION pgcrypto`
 - [x] **种子** `src/db/seed.ts`：admin(SEED_ADMIN_EMAIL 提权翻 role) · packages(¥9.9→990/10000mp，¥29.9→2990/32000mp，固定 UUID 幂等) · app_config(70/140/30/7/60/2 + 预算阈值；非数值 env 当场报错)
-- [x] **R2** `src/server/r2.server.ts`：`putToR2(userId,generationId,relayImage)` · `buildStorageKey`={uid}/{yyyy}/{mm}/{genId}-{rand}.png(crypto rand 防猜) · `publicUrl()` · `retentionExpiry(user,cfg)` · 删除助手(单/批，批量自动分片 ≤1000 + 返回失败 key)；S3Client `region:'auto'`，`CacheControl: immutable`
+- [x] **对象存储（后端 = Supabase Storage，S3 兼容；接真已验）** `src/server/r2.server.ts`：`putToR2(userId,generationId,relayImage)` · `buildStorageKey`={uid}/{yyyy}/{mm}/{genId}-{rand}.png(crypto rand 防猜) · `publicUrl()` · `retentionExpiry(user,cfg)` · 删除助手(单/批，批量自动分片 ≤1000 + 返回失败 key)；S3Client 厂商中立 `STORAGE_*`（显式 endpoint + `forcePathStyle:true`），`CacheControl: immutable`。**真 Supabase 验：`scripts/storage-smoke.ts` 上传→public_url 200 image/png→删除 PASS**（原选型 R2 因需自定义域+绑卡改 Supabase，换回只改 env）
 
 🔴 **红线**：金额整数（绝不 float/NUMERIC）；`users.id` 无 DB default（鉴权 hook 写 Better Auth UUID）；两种连接不可混用（防双花读改写必须 Pool/WS+FOR UPDATE）；storage_key 的 rand 段是唯一软隔离，前端只读 public_url、绝不拼 key/碰中转临时 URL。
-✅ **验证**：tsc/vitest/build 绿 + 客户端 bundle 0 密钥泄露 + 迁移 WHERE 谓词人工核对通过（离线已过）。**真 Neon(PG18.4)：迁移已应用 + 13/13 表 + 7/7 关键索引 WHERE 谓词在库校验 + FOR UPDATE 交互式事务冒烟 + seed(幂等) 全过 ✅。** putToR2 往返拿到可访问 public_url ← 待 R2 密钥。
+✅ **验证**：tsc/vitest/build 绿 + 客户端 bundle 0 密钥泄露 + 迁移 WHERE 谓词人工核对通过（离线已过）。**真 Neon(PG18.4)：迁移已应用 + 13/13 表 + 7/7 关键索引 WHERE 谓词在库校验 + FOR UPDATE 交互式事务冒烟 + seed(幂等) 全过 ✅。** **putToR2 往返已验：对真 Supabase Storage `scripts/storage-smoke.ts` 上传→public_url fetch 200 image/png→删除 PASS ✅。**
 
 ## §2 鉴权（Better Auth）
 > **状态（2026-06-21）**：核心完成并对真 Neon 验证（注册→送 140mp→幂等、user.id 原生 uuid、4/4 表）；tsc 0·vitest 45·build·客户端 0 泄露 + 6 维多代理对抗校验（auth/grant/hooks/guards/红线 零发现，1 条 doc-drift minor 已修）。**封禁/改密 route 归 ⑥（admin 端点）**。
