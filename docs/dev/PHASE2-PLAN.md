@@ -70,15 +70,16 @@
 🔴 **红线**：⓪双守卫是扣费事务**第一步**(同时挡重入重复扣 & 超时翻 failed 后仍扣)；**成功才扣**；ledger/lots/物化余额三者用同一 charged、balance_after 取 RETURNING；`duration_ms` 用 `EXTRACT(EPOCH…)*1000`（绝不 `EXTRACT(MILLISECONDS…)`）；预算硬上限原子条件自增；adjust 必动 lots；5 个 partial-unique 迁移后人工核对 WHERE。
 
 ## §4 生图管线 + API 契约
+> **状态（2026-06-22）：后端管线全部完成并对真验证。** 3 端点(v2 Request) + `runGenerationJob` 编排 + 触发 + 清死代码落地；`pipeline.test.ts` 5 例真库（注入 relay/putToR2 桩）+ 中转真生图端到端冒烟（`scripts/relay-smoke.ts`，47.5s 出图→Supabase→public_url 200）。**多代理对抗审查（3 维并行+逐条证伪）：0 finding。** tsc 0·vitest 37(单测,删 v1 -8)·test:money 33·build。**余 `rateLimit.ts` 收口 + 前端接真并入 ⑤ 一起做（需登录态，与 auth 页接真同步）。**
 - [x] 契约 `src/contracts/{error,generate,redeem,me,notification,conversation,image,package,inspiration,account}.ts` + `index.ts` barrel：统一错误信封 + `GenerateStatusResponse` 判别联合 + SIZES + 6 值 ERROR_CODES + `REDEEM_ALPHABET/REDEEM_CODE_RE`；单笔 number、SUM(expiringSoon.mp) string codec；`package.ts` drizzle-zod 派生；`generate.ts` 雏形升级为 Zod（向后兼容，消费端全 `import type`）。**离线先行（§4 其余 generate*/限流/前端接真待 ④ 推进）**
 - [x] **relay 封装（铁律④）** `src/server/relay.ts`：Key 只从 `process.env.RELAY_API_KEY`；主/备 Base（DB 不可达回退 env）；AbortController 4.5min 软超时→provider_timeout；F-429(HTTP200+error body)守卫；**AbortError 不重试**；复用 v1 `imageGeneration.ts` build/parse + `redaction.ts`；`toRelayImage` 桥接 ParsedImage→putToR2 入参(任意 base64 data URL 提 b64_json)
 - [x] 失败归一 `src/server/generation/failure.ts`：先脱敏 → 6 值枚举（precedence: timeout→unreachable→quota→content→5xx→unknown），message≤500
-- [ ] 提交(同步) `netlify/functions/generate.ts`：requireUserStrict→parse→enqueue→`triggerBackground`(fire-and-forget，body 仅 `{generationId}`)→202；**绝不 await relay**
-- [ ] 后台(15min) `netlify/functions/generate-background.ts`：`-background` 后缀；claim→running→预算硬闸→callRelay→putToR2→debit；catch→归一 failed；finally→incMs
-- [ ] 状态 `netlify/functions/generate-status.ts`：`WHERE id AND user_id`(owner-scoped 否则 404)→判别联合；失败也 200；只回 R2 public_url
-- [ ] 清死代码：删 `src/server/{jobStore,imageProxy}.ts`、`asyncImageJob.ts` 去 Blobs；全链路无 apiKey
-- [ ] 限流 `src/server/rateLimit.ts`：DB 计数窗口(redeem 5/10min、sign-in 10/10min、sign-up 5/hr，只计失败)
-- [ ] 前端接真：`src/mocks/api.ts`→真 fetch；`src/hooks/useGeneration*.ts` TanStack Query 2s 轮询、终态停、5min 前端软超时(仅释放 UI)
+- [x] 提交(同步) `netlify/functions/generate.ts`（v2 Request）：requireUserStrict→`GenerateRequest.parse`→enqueue→`triggerBackground`(fire-and-forget，body 仅 `{generationId}`)→202；enqueue 抛的 Response(402/409/429/404) 经 `e instanceof Response` 原样返回；**绝不 await relay**
+- [x] 后台(15min) `netlify/functions/generate-background.ts`：`-background` 后缀；body 仅 `{generationId}`→`runGenerationJob`（`src/server/generation/process.ts`：claim→running→预算硬闸(incCallIfUnderCap)→callRelay→putToR2(事务外)→chargeOnSuccess；catch→归一 failed；finally→incMs；callRelay/putToR2 可注入测试桩）
+- [x] 状态 `netlify/functions/generate-status.ts`（v2）：requireUser owner-scoped(`WHERE id AND user_id` 否则 404)→判别联合三态；失败也 200；只回 R2 public_url + 触发 `src/server/generation/trigger.ts`
+- [x] 清死代码：删 `src/server/{jobStore,asyncImageJob,imageProxy}.ts` + 两测试（v1 Blobs DB-as-queue 前身）；生成链路无 apiKey（`proxyGeneration` 留前端接真时清/复用）；`netlify.toml` 补 `/api/generate-status` 重写
+- [ ] 限流 `src/server/rateLimit.ts`：DB 计数窗口(redeem 5/10min、sign-in 10/10min、sign-up 5/hr，只计失败)——**并入 ⑤**（redeem 现有 inline 限流，sign-in/up 需 auth 端点接真时挂）
+- [ ] 前端接真：`src/mocks/api.ts`→真 fetch；`src/hooks/useGeneration*.ts` TanStack Query 2s 轮询、终态停、5min 前端软超时(仅释放 UI)——**并入 ⑤**（需登录态，与 auth 页接真同步）
 
 🔴 **红线**：同步函数不 await relay；`-background` 后缀=真后台；claim 铁律③；预算硬闸在 relay 前；putToR2 在扣费事务外；失败不进扣费事务；回前端脱敏、只给 R2 public_url；生成不可取消。
 
