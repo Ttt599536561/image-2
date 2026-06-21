@@ -65,7 +65,8 @@
 - [ ] 中转是否支持**请求级幂等键**（防平台重试对中转重复下单）。
 - [ ] Neon **direct vs pooled endpoint**（开发文档压并发验证 `FOR UPDATE` 真锁、不撞 max_connections）。
 - [ ] **单图 GB-hour compute 成本实测**（上线前对账 0.07 积分定价确认毛利）。
-- [ ] 第三方店铺**购买 URL**（用户后续提供，前期占位）。
+- [x] 第三方店铺**购买 URL** → 站长给统一默认 `https://www.ldxp.cn/merchant/goods/list?is_proxy=0`（2026-06-22，`src/lib/site.ts` `DEFAULT_PURCHASE_URL`；前端 fallback + seed 默认，套餐 `redirect_url` 空即跳默认，⑥ 后台可按套餐覆盖）。
+- **admin 提权**：`scripts/promote-admin.ts <email>`（双写业务 `users.role` + Better Auth `"user".role`；⑥ 进 `/admin` 前先注册再提权）。
 - [ ] **阶段二外部服务/密钥**（[PHASE2-PLAN §0](dev/PHASE2-PLAN.md)）：✅ Neon(已配 direct 串，pooled `-pooler` 串待补)、✅ **Supabase Storage**(6 个 `STORAGE_*` 已配并 `scripts/storage-smoke.ts` 往返验证)、✅ Better Auth(`BETTER_AUTH_SECRET`/`URL`)；⬜ **确认中转 `RELAY_API_KEY`/`RELAY_BASE_URL`**(+预算阈值，④ 真生图需要)、⬜ (可后补)`SENTRY_DSN`/`ADMIN_ALERT_WEBHOOK`、⬜ 每 PR Neon test branch 自动化(⑦/CI)。
 - [x] ~~单日预算熔断是否做~~ → **已定：做**（应用层硬上限，§14/§15/§22）。
 - [x] ~~中转接口同步/异步~~ → **已定：同步阻塞**（按最坏设计 + 4 条成本铁律兜底）。

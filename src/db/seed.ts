@@ -7,6 +7,7 @@
 //     金额换算速查（02 §3.6）：1 积分 = 1000 mp；0.07/张 = 70mp；0.14 赠送 = 140mp；¥9.9 → price_cash=990。
 
 import { getSql } from "./db.server";
+import { DEFAULT_PURCHASE_URL } from "../lib/site";
 
 // 两个默认套餐用固定 UUID，保证重复跑 seed 不产生重复行（02 §3.5）。
 const PKG_9_9 = "00000000-0000-4000-a000-000000000001";
@@ -41,13 +42,14 @@ export async function seed(): Promise<void> {
 
   // —— 默认套餐（¥9.9 → 10 积分；¥29.9 → 32 积分）——
   // valid_days 为占位默认（365 天），站长可在后台改（02 §3.5「由站长定」）。
+  // redirect_url 默认统一跳第三方店铺（站长 2026-06-22 给；⑥ 后台可按套餐覆盖）。
   await sql`
     INSERT INTO packages (id, title, description, price_cash, credits_mp, valid_days, redirect_url, sort, active)
-    VALUES (${PKG_9_9}, '入门包', '适合轻度尝鲜', 990, 10000, 365, NULL, 1, true)
+    VALUES (${PKG_9_9}, '入门包', '适合轻度尝鲜', 990, 10000, 365, ${DEFAULT_PURCHASE_URL}, 1, true)
     ON CONFLICT (id) DO NOTHING`;
   await sql`
     INSERT INTO packages (id, title, description, price_cash, credits_mp, valid_days, redirect_url, sort, active)
-    VALUES (${PKG_29_9}, '标准包', '高频创作更划算', 2990, 32000, 365, NULL, 2, true)
+    VALUES (${PKG_29_9}, '标准包', '高频创作更划算', 2990, 32000, 365, ${DEFAULT_PURCHASE_URL}, 2, true)
     ON CONFLICT (id) DO NOTHING`;
 
   // —— 全局参数（app_config）——

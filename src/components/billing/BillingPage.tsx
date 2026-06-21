@@ -6,9 +6,9 @@ import type { PackageItem, PackagesResponse } from "../../contracts/package";
 import { useMe, usePackages } from "../../hooks/queries";
 import { ApiError, apiPost } from "../../lib/api-client";
 import { formatCash, formatCredits, formatMonthDay, formatValidDays } from "../../lib/format";
+import { DEFAULT_PURCHASE_URL } from "../../lib/site";
 import { useShell } from "../shell/ShellContext";
 import { TopBar } from "../shell/TopBar";
-import { useToast } from "../Toast/ToastProvider";
 import styles from "./Billing.module.css";
 
 // 推荐档 = 性价比最高（creditsMp/priceCash 比值最大）；DB packages 无 recommended 列，按值派生（确定性）。
@@ -27,7 +27,6 @@ function bestValueId(items: PackageItem[]): string | null {
 
 export function BillingPage({ initialPackages }: { initialPackages?: PackagesResponse }) {
   const me = useMe();
-  const toast = useToast();
   const shell = useShell();
   const qc = useQueryClient();
   const packages = usePackages(initialPackages).data?.items ?? [];
@@ -55,11 +54,9 @@ export function BillingPage({ initialPackages }: { initialPackages?: PackagesRes
 
   const buy = (pkg: PackageItem) => {
     setSelectedId(pkg.id);
-    if (pkg.redirectUrl && pkg.redirectUrl !== "#") {
-      window.open(pkg.redirectUrl, "_blank", "noopener");
-    } else {
-      toast.info("购买将跳转第三方店铺（链接待站长配置）");
-    }
+    // 套餐 redirect_url 为空 → 统一跳默认第三方店铺（⑥ 可按套餐覆盖）。
+    const url = pkg.redirectUrl && pkg.redirectUrl !== "#" ? pkg.redirectUrl : DEFAULT_PURCHASE_URL;
+    window.open(url, "_blank", "noopener");
   };
 
   const onRedeem = () => {

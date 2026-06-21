@@ -20,7 +20,7 @@
 | **Better Auth** | `BETTER_AUTH_SECRET`(可生成) · `BETTER_AUTH_URL` | ② | ⬜ |
 | **中转**（v1 已有，确认） | `RELAY_API_KEY` · `RELAY_BASE_URL`(+可选 `RELAY_BASE_URL_BACKUP`) · `DAILY_RELAY_BUDGET_CALLS/_MS` | ④ | ⬜ 确认 |
 | 可观测/告警（可后补） | `SENTRY_DSN` · `ADMIN_ALERT_WEBHOOK` | ⑦ | ⬜ |
-| 第三方店铺购买 URL | 套餐 `redirect_url` | ⑥（可占位） | ⬜ |
+| 第三方店铺购买 URL | 套餐 `redirect_url`（默认 `src/lib/site.ts` `DEFAULT_PURCHASE_URL`） | ⑥（可覆盖） | ✅ 站长给统一默认 `https://www.ldxp.cn/merchant/goods/list?is_proxy=0`（2026-06-22）；套餐 `redirect_url` 空即跳默认（前端 fallback + seed 默认），⑥ 后台按套餐覆盖 |
 
 > **可立即离线开工（不需密钥）**：① 的 Drizzle schema/迁移/seed、④ 的契约（`src/contracts/*`）/relay 封装/失败归一。建议站长并行开通 Neon + R2。
 > **隔离**：在 `main` 上新建 `phase2` 工作分支推进。
@@ -91,6 +91,7 @@
 - [x] 资产库**批量管理**(批量管理切换 + 单击/Shift 连选 + 吸底操作条 + store-mode zip(`src/lib/zip.ts`，失败退化逐张) + 删除带 `ConfirmDialog` 确认，§24.9)——做实（真·drag 框选矩形留待增强）
 
 ## §6 后台管理（`/admin/*` — 阶段一完全没建）
+> **开工前置（admin 账号）**：`/admin` 守卫读业务 `users.role='admin'`。先 `/register` 注册一个邮箱，再跑 `node --env-file=.env --import tsx scripts/promote-admin.ts <email>`（双写业务 `users.role` + Better Auth `"user".role`，后者供 admin 插件 ban/改密用；无需重登，requireUserStrict 每请求查 DB 即生效）。`requireAdmin` 已在 `src/lib/guard.ts`；`ConfirmDialog` 已在 `src/components/ConfirmDialog/`（⑤ 建，二次确认复用）。
 - [ ] 守卫 + 公共件：`src/server/requireAdmin.ts` · `src/contracts/admin.ts`(含 `REDEEM_ALPHABET`) · `src/server/{audit,alert}.ts`(writeAudit 同事务)
 - [ ] 兑换码 `netlify/functions/admin-codes-*.ts`：批量生成(CSPRNG `crypto.randomInt`)+套餐快照 · CSV 导出(BOM) · 查单 · 作废批次(只动 active) · 对账
 - [ ] 用户 `netlify/functions/admin-users-*.ts`：搜索/详情/封禁(吊销会话)/改密(吊销+不记明文)/并发；**调积分走 ③ adjust**
