@@ -1,0 +1,46 @@
+# v2 技术开发文档（技术设计文档）
+
+> 这是 **研发照着写代码的蓝图**。它把已锁定的技术选型 + 产品规格落成可执行的工程设计。
+> **真相源分工**：要做什么看 [redesign-requirements.md](../redesign-requirements.md)（产品规格，唯一产品真相源）；长什么样看 [wireframes.html](../prototypes/wireframes.html)（结构）+ [design-system.html](../prototypes/design-system.html)（视觉令牌）；**怎么写代码看本文件夹**。
+> 进度/状态只在 [PROGRESS.md](../PROGRESS.md) 维护，本文件夹**不写"做没做"**（避免多处漂移）。
+
+## 阅读顺序
+
+新会话/新成员按此顺序读：
+
+1. [00-overview.md](00-overview.md) — **技术栈总览 + 环境变量/密钥/配置**（先建立全局认知 + 把密钥红线刻进脑子）
+2. [01-architecture.md](01-architecture.md) — 系统架构：组件图 + 三大流程时序（生图 / 扣费 / 兑换）
+3. [02-database.md](02-database.md) — 数据库设计：完整 DDL + 索引 + 部分唯一索引 + Drizzle 映射 + 迁移策略
+4. [03-money.md](03-money.md) — **钱/积分链路（核心，最详）**：可执行事务步骤 + 幂等键 + 抢占式状态机
+5. [04-generation-pipeline.md](04-generation-pipeline.md) — 生图管线：submit→后台→短轮询 + 5min 超时 + 预算熔断 + **v1 代码迁移**
+6. [05-auth.md](05-auth.md) — 鉴权与会话：Better Auth + 封禁/改密硬校验
+7. [06-storage.md](06-storage.md) — 对象存储与媒体：R2 + 清理 cron
+8. [07-api.md](07-api.md) — API 契约：端点 + 状态码（402/409/410/429）+ Zod
+9. [08-frontend.md](08-frontend.md) — 前端架构：RR7 路由表 + TanStack Query + tokens 落地
+10. [09-admin.md](09-admin.md) — 后台管理
+11. [10-ops-test.md](10-ops-test.md) — cron / 可观测 / 测试
+12. [11-structure-roadmap.md](11-structure-roadmap.md) — 目录结构 + 分期任务清单（可勾选）+ v1 迁移清单
+
+## 全文档共享约定（任何章节都默认遵守，不再重复声明）
+
+- **金额一律整数**：积分用**毫积分（milliPoints）BIGINT**（`1 积分 = 1000 mp`，`0.07 积分 = 70 mp`）；现金用**分 BIGINT**（`¥9.9 = 990`）。**绝不用 float / NUMERIC**。变量/列名带 `_mp` 后缀表毫积分、`_cash` 表分。
+- **生成状态机**：`generations.status ∈ {queued, claimed, running, succeeded, failed}`。in-flight（并发计数口径）= `{queued, claimed, running}`。
+- **账本条目类型**：`credit_ledger.entry_type ∈ {grant, credit, debit, refund, expire, adjust}`。
+- **一个 `generation_id` 贯穿全链路**：提交 → 生图 → 落图 → 扣费，是幂等主键。
+- **模型固定** `gpt-image-2`；每次 `n=1`；审核固定 `moderation=low`。
+- **DB 调用模式区分**：钱/码的**多语句事务**走 `@neondatabase/serverless` 的 **Pool/WebSocket + `FOR UPDATE`**；兑换核销等**单语句 `UPDATE…RETURNING`** 与看板只读聚合走 **HTTP**。
+- **密钥红线**：`RELAY_API_KEY` / `RELAY_BASE_URL` / `DATABASE_URL` / R2 凭据 / `BETTER_AUTH_SECRET` **只在服务端**，构建期断言它们**永不进前端 bundle**（详见 [00-overview.md](00-overview.md) §1.4）。
+- **术语**：milliPoints=毫积分；lot=积分批次（`credit_lots` 行）；relay=中转（`api.tangguo.xin`，OneAPI 风格、**同步阻塞、无 webhook**）。
+
+## 4 条成本铁律（因「中转 = 同步阻塞」，贯穿全文档）
+
+| # | 铁律 | 落在 |
+|---|---|---|
+| ① | **单日预算熔断**（应用层硬上限，Netlify 无全局消费帽） | [04](04-generation-pipeline.md) §5.6 / [10](10-ops-test.md) |
+| ② | 上线前**实测单图 GB-hour compute 成本**对账 0.07 定价 | [10](10-ops-test.md) §11.5 |
+| ③ | generations **抢占式状态机** `UPDATE…WHERE status='queued' RETURNING` 防平台重试重复扣费/下单 | [03](03-money.md) §4.5 / [04](04-generation-pipeline.md) §5.3 |
+| ④ | **先修** `generate.ts` 真后台 + `imageProxy.ts` 阻塞 fetch 搬后台读 env key | [04](04-generation-pipeline.md) §5.7 / [11](11-structure-roadmap.md) |
+
+## 维护
+
+技术设计若变更：改对应章节文件 + 在 [PROGRESS.md](../PROGRESS.md) 记一笔。产品规则变更先改 [redesign-requirements.md](../redesign-requirements.md)，本文档随后对齐。

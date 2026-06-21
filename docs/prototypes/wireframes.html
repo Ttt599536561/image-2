@@ -1,0 +1,798 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI 图像工坊 · 低保真原型（wireframes）</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css" />
+<style>
+:root{
+  --color-background-primary:#ffffff;--color-background-secondary:#f3f2ef;--color-background-tertiary:#ecebe5;
+  --color-background-danger:#fceaea;--color-background-info:#e7f0fb;
+  --color-text-primary:#1a1a18;--color-text-secondary:#6c6b66;--color-text-tertiary:#9b9a93;
+  --color-text-danger:#a32d2d;--color-text-info:#185fa5;--color-text-success:#0f6e56;
+  --color-border-tertiary:rgba(0,0,0,.12);--color-border-secondary:rgba(0,0,0,.22);
+  --color-border-danger:#e24b4a;--color-border-info:#378add;
+  --border-radius-md:8px;--border-radius-lg:12px;
+}
+*{box-sizing:border-box}
+body{margin:0;padding:28px 20px 80px;background:#faf9f7;color:var(--color-text-primary);
+  font-family:Inter,system-ui,-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;line-height:1.5}
+.page{max-width:780px;margin:0 auto}
+h1{font-size:22px;font-weight:600;margin:0 0 4px}
+.lead{color:var(--color-text-secondary);font-size:13px;margin:0 0 8px}
+.legend{color:var(--color-text-tertiary);font-size:12px;margin:0 0 24px}
+section{margin:0 0 30px}
+section>h2{font-size:15px;font-weight:600;margin:0 0 4px;display:flex;gap:8px;align-items:baseline}
+section>h2 .map{font-size:11px;color:var(--color-text-tertiary);font-weight:400}
+.cap{font-size:12px;color:var(--color-text-secondary);margin:0 0 10px}
+.frame{border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);background:#fff;padding:14px;overflow:hidden}
+i.ti{line-height:1}
+/* sitemap */
+.wf-box{border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);background:#fff;padding:10px 12px}
+.wf-grp{border:0.5px dashed var(--color-border-secondary);border-radius:var(--border-radius-lg);padding:12px;background:var(--color-background-secondary)}
+.wf-t{font-size:13px;font-weight:500}.wf-s{font-size:12px;color:var(--color-text-secondary)}
+.wf-tag{font-size:11px;color:var(--color-text-secondary);border:0.5px solid var(--color-border-tertiary);border-radius:999px;padding:2px 8px;background:#fff}
+/* login */
+.l2-in{height:38px;border:0.5px solid var(--color-border-secondary);border-radius:8px;background:#fff;display:flex;align-items:center;padding:0 12px;font-size:12px;color:var(--color-text-tertiary)}
+.l2-lab{font-size:11px;color:var(--color-text-secondary);margin:0 0 5px}
+.l2-card{flex:1;min-width:230px;background:#fff;border:0.5px solid var(--color-border-tertiary);border-radius:12px;padding:18px}
+.l2-btn{height:40px;border-radius:8px;background:var(--color-text-primary);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:500;margin-top:14px}
+.l2-tab{text-align:center;padding:7px;font-size:13px}
+/* welcome */
+.d-nav{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;font-size:12.5px;color:var(--color-text-secondary)}
+.d-nav.on{background:var(--color-background-secondary);color:var(--color-text-primary)}
+.d-pill{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:0.5px solid var(--color-border-secondary);border-radius:999px;font-size:12px}
+.d-ph{aspect-ratio:1;border-radius:10px;background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;justify-content:center;color:var(--color-text-tertiary)}
+/* advanced */
+.a2-sel{height:34px;border:0.5px solid var(--color-border-secondary);border-radius:8px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;font-size:12px}
+.a2-lab{font-size:11px;color:var(--color-text-secondary);margin-bottom:5px}
+/* working full nav */
+.fn-nav{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;font-size:12px;color:var(--color-text-secondary)}
+.fn-nav.on{background:var(--color-background-secondary);color:var(--color-text-primary)}
+.fn-h{display:flex;align-items:center;gap:6px;padding:5px 8px;border-radius:7px;font-size:11.5px;color:var(--color-text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fn-h.on{background:var(--color-background-secondary);color:var(--color-text-primary)}
+/* edge states */
+.es-card{border:0.5px solid var(--color-border-tertiary);border-radius:12px;background:#fff;padding:14px}
+.es-t{font-size:12px;font-weight:500;color:var(--color-text-secondary);margin-bottom:10px}
+.es-btn{display:inline-flex;align-items:center;gap:6px;font-size:12px;border:0.5px solid var(--color-border-secondary);border-radius:8px;padding:6px 10px}
+/* recharge */
+.r-card{border:0.5px solid var(--color-border-secondary);border-radius:12px;background:#fff;padding:16px;display:flex;flex-direction:column;gap:8px}
+.r-buy{height:38px;border-radius:8px;background:var(--color-text-primary);color:#fff;display:flex;align-items:center;justify-content:center;gap:6px;font-size:13px;font-weight:500;margin-top:4px}
+.r-li{font-size:12px;color:var(--color-text-secondary)}
+/* assets */
+.b-th{position:relative;aspect-ratio:1;border-radius:8px;background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;justify-content:center;color:var(--color-text-tertiary);font-size:16px}
+.b-ck{position:absolute;top:6px;left:6px;width:15px;height:15px;border-radius:50%;border:1px solid var(--color-border-secondary);background:#fff}
+.b-ck.on{background:var(--color-text-primary);border-color:var(--color-text-primary)}
+/* inspiration */
+.i-tag{font-size:11px;color:var(--color-text-secondary);border:0.5px solid var(--color-border-tertiary);border-radius:999px;padding:3px 10px;background:#fff}
+.i-card{border:0.5px solid var(--color-border-tertiary);border-radius:12px;overflow:hidden;background:#fff}
+.i-cov{height:96px;background:var(--color-background-secondary);display:flex;align-items:center;justify-content:center;color:var(--color-text-tertiary)}
+/* admin dashboard */
+.ad-nav{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:8px;font-size:12.5px;color:var(--color-text-secondary)}
+.ad-nav.on{background:var(--color-background-secondary);color:var(--color-text-primary)}
+.ad-kpi{background:var(--color-background-secondary);border-radius:8px;padding:12px}
+.ad-kl{font-size:11px;color:var(--color-text-secondary)}.ad-kv{font-size:22px;font-weight:500;margin-top:4px}
+/* tables */
+.t-tbl,.u-tbl,.rv-tbl{width:100%;border-collapse:collapse;font-size:11.5px}
+.t-tbl th,.u-tbl th,.rv-tbl th{text-align:left;color:var(--color-text-secondary);font-weight:400;padding:7px 8px;border-bottom:0.5px solid var(--color-border-tertiary)}
+.t-tbl td,.u-tbl td,.rv-tbl td{padding:7px 8px;border-bottom:0.5px solid var(--color-border-tertiary)}
+.rv-tbl{table-layout:fixed}.rv-tbl td{vertical-align:middle;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:6px 8px}
+.t-h,.u-h{font-size:14px;font-weight:500}
+.t-btn,.c-btn{font-size:11px;border:0.5px solid var(--color-border-secondary);border-radius:7px;padding:5px 10px}
+.t-card,.u-card,.c-card{border:0.5px solid var(--color-border-tertiary);border-radius:12px;background:#fff;padding:14px}
+.u-fld{display:flex;justify-content:space-between;align-items:center;font-size:12px;padding:8px 0;border-bottom:0.5px solid var(--color-border-tertiary)}
+.u-in{font-size:12px;border:0.5px solid var(--color-border-secondary);border-radius:6px;padding:4px 10px;background:#fff}
+.c-h{font-size:14px;font-weight:500}
+.c-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:0.5px solid var(--color-border-tertiary)}
+.c-cov{width:40px;height:40px;border-radius:6px;background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;justify-content:center;color:var(--color-text-tertiary);flex:0 0 40px}
+.rv-tn{width:30px;height:30px;border-radius:5px;background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;justify-content:center;color:var(--color-text-tertiary)}
+.rv-op{font-size:10px;color:var(--color-text-secondary)}
+</style>
+</head>
+<body>
+<div class="page">
+<h1>AI 图像工坊 · 低保真原型</h1>
+<p class="lead">配套需求规格：<code>docs/redesign-requirements.md</code>（行为/规则以规格为准，本文件只表达页面结构与状态）。</p>
+<p class="legend">低保真：灰块=图片/占位，仅表达布局与层级，不代表最终视觉风格（配色/字体/圆角等单独定）。更新：2026-06-21。</p>
+
+<section>
+  <h2>1. 站点地图 <span class="map">· §3 信息架构</span></h2>
+  <div class="frame">
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px">
+      <div class="wf-box"><span class="wf-t">访客</span></div><i class="ti ti-arrow-right"></i>
+      <div class="wf-box" style="border-color:var(--color-text-primary)"><span class="wf-t">登录 / 注册页</span><div class="wf-s">未登录唯一入口·不能生图</div></div><i class="ti ti-arrow-right"></i>
+      <div class="wf-box"><span class="wf-t">主对话页</span><div class="wf-s">登录后默认落地</div></div>
+    </div>
+    <div class="wf-grp" style="margin-bottom:10px">
+      <div class="wf-s" style="margin-bottom:8px">登录后·用户区（左侧栏导航 + 顶部积分）</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px">
+        <div class="wf-box"><span class="wf-t">主对话页 ★</span><div class="wf-s">五态 + 本次对话图片面板</div></div>
+        <div class="wf-box"><span class="wf-t">最近（会话列表）</span><div class="wf-s">点开续聊</div></div>
+        <div class="wf-box"><span class="wf-t">资产库</span><div class="wf-s">全部图+日期+删/下载</div></div>
+        <div class="wf-box"><span class="wf-t">灵感库</span><div class="wf-s">提示词卡→一键带回</div></div>
+        <div class="wf-box"><span class="wf-t">充值页</span><div class="wf-s">余额+兑换码+档位</div></div>
+        <div class="wf-box"><span class="wf-t">搜索</span><div class="wf-s">本期占位</div></div>
+      </div>
+    </div>
+    <div class="wf-grp" style="background:#fff">
+      <div class="wf-s" style="margin-bottom:8px"><i class="ti ti-lock"></i> 后台管理（仅管理员）</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        <span class="wf-tag">数据看板</span><span class="wf-tag">兑换码</span><span class="wf-tag">用户管理</span><span class="wf-tag">灵感库 CRUD</span><span class="wf-tag">图片生成记录</span><span class="wf-tag">配置中心</span><span class="wf-tag">审计日志</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>2. 登录 / 注册页 <span class="map">· §4 账号</span></h2>
+  <div class="frame" style="background:var(--color-background-secondary);display:flex;gap:14px;flex-wrap:wrap">
+    <div class="l2-card">
+      <div style="display:grid;grid-template-columns:1fr 1fr;border-bottom:0.5px solid var(--color-border-tertiary);margin-bottom:14px">
+        <div class="l2-tab" style="font-weight:500;border-bottom:2px solid var(--color-text-primary)">登录</div>
+        <div class="l2-tab" style="color:var(--color-text-secondary)">注册</div>
+      </div>
+      <div style="margin-bottom:10px"><div class="l2-lab">邮箱</div><div class="l2-in">you@example.com</div></div>
+      <div><div class="l2-lab">密码</div><div class="l2-in">••••••••</div></div>
+      <div class="l2-btn">登录</div>
+    </div>
+    <div class="l2-card">
+      <div style="display:grid;grid-template-columns:1fr 1fr;border-bottom:0.5px solid var(--color-border-tertiary);margin-bottom:14px">
+        <div class="l2-tab" style="color:var(--color-text-secondary)">登录</div>
+        <div class="l2-tab" style="font-weight:500;border-bottom:2px solid var(--color-text-primary)">注册</div>
+      </div>
+      <div style="margin-bottom:10px"><div class="l2-lab">邮箱</div><div class="l2-in">you@example.com</div></div>
+      <div style="margin-bottom:10px"><div class="l2-lab">密码</div><div class="l2-in">••••••••</div></div>
+      <div><div class="l2-lab">确认密码</div><div class="l2-in">••••••••</div></div>
+      <div class="l2-btn">注册</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>3. 主对话页 · 欢迎态（空）<span class="map">· §4.1 / §5.1</span></h2>
+  <div class="frame" style="background:var(--color-background-secondary)">
+    <div style="display:flex;background:#fff;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);overflow:hidden;min-height:430px">
+      <aside style="width:120px;flex:0 0 120px;border-right:0.5px solid var(--color-border-tertiary);padding:10px 8px;display:flex;flex-direction:column;gap:2px">
+        <div style="font-size:12px;font-weight:500;margin-bottom:8px">图像工坊</div>
+        <div class="d-nav on"><i class="ti ti-plus"></i>新建生成</div>
+        <div class="d-nav"><i class="ti ti-search"></i>搜索</div>
+        <div class="d-nav"><i class="ti ti-history"></i>最近</div>
+        <div class="d-nav"><i class="ti ti-photo"></i>资产库</div>
+        <div class="d-nav"><i class="ti ti-bulb"></i>灵感库</div>
+        <div style="flex:1"></div><div class="d-nav"><i class="ti ti-user-circle"></i>账号</div>
+      </aside>
+      <main style="flex:1;min-width:0;padding:12px 16px;display:flex;flex-direction:column">
+        <div style="display:flex;justify-content:flex-end;align-items:center;gap:10px">
+          <span class="d-pill"><i class="ti ti-coin" style="font-size:13px"></i>积分 5.86</span><i class="ti ti-moon" style="color:var(--color-text-secondary)"></i>
+        </div>
+        <div style="text-align:center;margin:24px 0 18px">
+          <div style="font-size:24px;font-weight:500">今天想画点什么?</div>
+          <div style="font-size:13px;color:var(--color-text-secondary);margin-top:6px">描述画面、选好比例，剩下的交给 AI。</div>
+        </div>
+        <div style="border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-lg);background:#fff;padding:12px">
+          <div style="font-size:13px;color:var(--color-text-tertiary);min-height:40px">描述你想生成的画面…</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-top:8px">
+            <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+              <span class="d-pill" style="padding:6px 8px"><i class="ti ti-photo" style="font-size:14px"></i></span>
+              <span class="d-pill"><i class="ti ti-crop" style="font-size:13px"></i>比例·智能<i class="ti ti-chevron-down" style="font-size:13px"></i></span>
+              <span class="d-pill"><i class="ti ti-adjustments-horizontal" style="font-size:13px"></i>高级设置</span>
+              <span class="d-pill" style="border-style:dashed;color:var(--color-text-tertiary)"><i class="ti ti-wand" style="font-size:13px"></i>优化提示词</span>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span style="font-size:11px;color:var(--color-text-tertiary)">0.07 积分/张</span>
+              <span style="width:34px;height:34px;border-radius:50%;background:var(--color-text-primary);color:#fff;display:inline-flex;align-items:center;justify-content:center"><i class="ti ti-arrow-up" style="font-size:15px"></i></span>
+            </div>
+          </div>
+        </div>
+        <div style="margin-top:16px">
+          <div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:8px">浏览灵感（站长维护，点卡片一键带回提示词）</div>
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+            <div class="d-ph"><i class="ti ti-wand"></i></div><div class="d-ph"><i class="ti ti-photo"></i></div><div class="d-ph"><i class="ti ti-photo"></i></div><div class="d-ph"><i class="ti ti-photo"></i></div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+  <p class="cap">注：模型全站固定 gpt-image-2 → 无模型药丸；药丸=参考图(占位)/比例/高级设置/优化提示词(占位)/发送。</p>
+</section>
+
+<section>
+  <h2>4. 主对话页 · 高级设置展开 <span class="map">· §5.1</span></h2>
+  <div class="frame">
+    <div style="display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border:0.5px solid var(--color-text-primary);border-radius:999px;font-size:12px"><i class="ti ti-adjustments-horizontal" style="font-size:13px"></i>高级设置<i class="ti ti-chevron-up" style="font-size:13px"></i></div>
+    <div style="width:0;height:0;border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:7px solid var(--color-border-secondary);margin:6px 0 0 24px"></div>
+    <div style="margin-top:-1px;width:300px;max-width:100%;border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);background:#fff;padding:12px">
+      <div style="font-size:12px;color:var(--color-text-secondary);margin-bottom:10px">高级设置</div>
+      <div style="margin-bottom:10px"><div class="a2-lab">质量</div><div class="a2-sel">auto <i class="ti ti-chevron-down" style="font-size:13px;color:var(--color-text-tertiary)"></i></div></div>
+      <div><div class="a2-lab">背景</div><div class="a2-sel">auto <i class="ti ti-chevron-down" style="font-size:13px;color:var(--color-text-tertiary)"></i></div></div>
+      <div style="font-size:10px;color:var(--color-text-tertiary);margin-top:10px">审核已固定为「宽松」，不在此显示。</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>5. 主对话页 · 工作态（生成中 / 成功）<span class="map">· §5 / §11</span></h2>
+  <div class="frame" style="background:var(--color-background-secondary)">
+    <div style="display:flex;background:#fff;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);overflow:hidden;min-height:450px">
+      <aside style="width:138px;flex:0 0 138px;border-right:0.5px solid var(--color-border-tertiary);padding:10px 8px;display:flex;flex-direction:column;gap:2px">
+        <div style="font-size:12px;font-weight:500;margin-bottom:8px">图像工坊</div>
+        <div style="display:flex;align-items:center;gap:6px;border:0.5px solid var(--color-border-secondary);border-radius:8px;padding:6px;font-size:12px;margin-bottom:4px"><i class="ti ti-plus" style="font-size:14px"></i>新建生成</div>
+        <div class="fn-nav"><i class="ti ti-search"></i>搜索</div>
+        <div style="font-size:10px;color:var(--color-text-tertiary);padding:6px 8px 2px">最近</div>
+        <div class="fn-h on">戴针织帽的柴犬…</div><div class="fn-h">赛博城市夜景…</div><div class="fn-h">雨后花窗暖光…</div>
+        <div style="height:6px"></div>
+        <div class="fn-nav"><i class="ti ti-photo"></i>资产库</div><div class="fn-nav"><i class="ti ti-bulb"></i>灵感库</div>
+        <div style="flex:1"></div><div class="fn-nav"><i class="ti ti-user-circle"></i>账号</div>
+      </aside>
+      <main style="flex:1;min-width:0;padding:10px 14px;display:flex;flex-direction:column">
+        <div style="display:flex;justify-content:space-between;align-items:center;border-bottom:0.5px solid var(--color-border-tertiary);padding-bottom:8px;margin-bottom:10px">
+          <span style="font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">戴针织帽的柴犬…<span style="color:var(--color-text-tertiary);font-weight:400">（当前对话）</span></span>
+          <div style="display:flex;align-items:center;gap:10px;flex:0 0 auto;margin-left:8px">
+            <span style="font-size:11px;border:0.5px solid var(--color-border-secondary);border-radius:999px;padding:3px 8px"><i class="ti ti-coin" style="font-size:12px"></i> 5.86</span>
+            <span style="font-size:11px;color:var(--color-text-secondary);border:0.5px solid var(--color-border-secondary);border-radius:999px;padding:3px 8px"><i class="ti ti-layout-grid" style="font-size:11px"></i> 本次·3</span>
+            <i class="ti ti-moon" style="color:var(--color-text-secondary);font-size:15px"></i>
+          </div>
+        </div>
+        <div style="flex:1;display:flex;flex-direction:column;gap:10px">
+          <div style="align-self:flex-end;background:var(--color-background-secondary);border-radius:10px;padding:7px 9px;font-size:12px;max-width:78%">柴犬戴针织帽，窗边午后光 · 2:3</div>
+          <div>
+            <div style="width:90px;height:135px;border-radius:8px;background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;justify-content:center;color:var(--color-text-tertiary)"><i class="ti ti-photo" style="font-size:20px"></i></div>
+            <div style="display:flex;gap:6px;margin-top:6px;font-size:10px;color:var(--color-text-secondary)"><span style="border:0.5px solid var(--color-border-tertiary);border-radius:6px;padding:3px 7px">下载</span><span style="border:0.5px solid var(--color-border-tertiary);border-radius:6px;padding:3px 7px">重新生成</span><span style="border:0.5px solid var(--color-border-tertiary);border-radius:6px;padding:3px 7px">复制提示词</span></div>
+          </div>
+          <div style="width:90px;height:135px;border-radius:8px;background:var(--color-background-secondary);border:0.5px dashed var(--color-border-secondary);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--color-text-tertiary)"><i class="ti ti-loader-2" style="font-size:18px"></i><span style="font-size:10px">生成中 0:08</span></div>
+        </div>
+        <div style="border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-lg);padding:8px 10px;margin-top:8px;display:flex;justify-content:space-between;align-items:center">
+          <span style="font-size:12px;color:var(--color-text-tertiary)">继续在当前对话生图…</span>
+          <span style="width:28px;height:28px;border-radius:50%;background:var(--color-text-primary);color:#fff;display:inline-flex;align-items:center;justify-content:center"><i class="ti ti-arrow-up" style="font-size:13px"></i></span>
+        </div>
+      </main>
+    </div>
+  </div>
+  <p class="cap">侧栏与积分始终在 → 点任意导航即离开当前对话，无需"退出"。「本次对话图片」面板由"本次·3"开关展开（见 §11）。</p>
+</section>
+
+<section>
+  <h2>6. 主对话页 · 边界态（失败 / 积分不足）<span class="map">· §5.3 / §6</span></h2>
+  <div class="frame" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;border:none;background:transparent;padding:0">
+    <div class="es-card">
+      <div class="es-t">失败态</div>
+      <div style="border:0.5px solid var(--color-border-danger);background:var(--color-background-danger);border-radius:8px;padding:10px">
+        <div style="font-size:12px;color:var(--color-text-danger)"><i class="ti ti-alert-triangle" style="font-size:13px"></i> 中转网关超时（504），请重试</div>
+        <div style="font-size:11px;color:var(--color-text-secondary);margin-top:6px">本次未扣 / 已退积分</div>
+      </div>
+      <div style="margin-top:10px"><span class="es-btn"><i class="ti ti-refresh" style="font-size:12px"></i> 重试</span></div>
+    </div>
+    <div class="es-card">
+      <div class="es-t">积分不足（提交前拦截）</div>
+      <div style="border:0.5px solid var(--color-border-secondary);border-radius:8px;padding:10px">
+        <div style="font-size:12px"><i class="ti ti-coin" style="font-size:13px"></i> 积分不足，无法生成</div>
+        <div style="font-size:11px;color:var(--color-text-tertiary);margin-top:6px">不创建任务、不入队列、不扣费</div>
+      </div>
+      <div style="margin-top:10px"><span class="es-btn" style="border-color:var(--color-text-primary)"><i class="ti ti-arrow-right" style="font-size:12px"></i> 去充值</span></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>7. 图片放大预览（lightbox）<span class="map">· §17，全局</span></h2>
+  <div class="frame" style="padding:0;border:none;background:transparent">
+    <div style="position:relative;min-height:320px;border-radius:var(--border-radius-lg);background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;overflow:hidden">
+      <div style="position:absolute;top:12px;left:14px;color:rgba(255,255,255,.7);font-size:11px">遮罩覆盖全屏 · 点遮罩或 × 关闭</div>
+      <div style="position:absolute;top:12px;right:14px;width:28px;height:28px;border-radius:50%;border:0.5px solid rgba(255,255,255,.4);color:#fff;display:flex;align-items:center;justify-content:center"><i class="ti ti-x" style="font-size:16px"></i></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:12px">
+        <div style="width:170px;height:235px;border-radius:10px;background:var(--color-background-secondary);display:flex;align-items:center;justify-content:center;color:var(--color-text-tertiary)"><i class="ti ti-photo" style="font-size:34px"></i></div>
+        <span style="font-size:12px;color:#fff;border:0.5px solid rgba(255,255,255,.45);border-radius:8px;padding:6px 16px"><i class="ti ti-download" style="font-size:13px"></i> 下载</span>
+      </div>
+    </div>
+  </div>
+  <p class="cap">这块代表"整个屏幕"：点任意图 → 居中模态浮层盖在当前页之上，关闭后回原位。对话流/本次面板/资产库/灵感库/后台审核通用。</p>
+</section>
+
+<section>
+  <h2>8. 充值页 <span class="map">· §7 / §8</span></h2>
+  <div class="frame" style="display:flex;flex-direction:column;gap:14px">
+    <div style="border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);background:var(--color-background-secondary);padding:16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+      <div><div style="font-size:12px;color:var(--color-text-secondary)">当前积分</div><div style="font-size:26px;font-weight:500">5.86</div><div style="font-size:11px;color:var(--color-text-tertiary)">≈ 83 张 · 0.07 积分/张</div></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="height:38px;min-width:160px;border:0.5px solid var(--color-border-secondary);border-radius:8px;background:#fff;display:flex;align-items:center;padding:0 12px;font-size:12px;color:var(--color-text-tertiary)">输入兑换码…</div>
+        <div style="height:38px;border:0.5px solid var(--color-border-secondary);border-radius:8px;display:flex;align-items:center;padding:0 14px;font-size:13px">兑换</div>
+      </div>
+    </div>
+    <div style="font-size:13px;font-weight:500">充值档位（购买跳第三方店铺 → 得兑换码 → 回来输码到账）</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px">
+      <div class="r-card">
+        <div style="font-size:13px;font-weight:500">基础档</div><div style="font-size:24px;font-weight:500">¥9.9</div>
+        <div class="r-li"><i class="ti ti-check" style="font-size:13px"></i> 到账 10 积分（≈ 142 张）</div>
+        <div class="r-buy"><i class="ti ti-external-link" style="font-size:14px"></i> 去购买</div>
+      </div>
+      <div class="r-card" style="border:2px solid var(--color-border-info)">
+        <div style="display:flex;align-items:center;gap:8px"><span style="font-size:13px;font-weight:500">超值档</span><span style="font-size:11px;background:var(--color-background-info);color:var(--color-text-info);border-radius:999px;padding:1px 8px">更划算</span></div>
+        <div style="font-size:24px;font-weight:500">¥29.9</div>
+        <div class="r-li"><i class="ti ti-check" style="font-size:13px"></i> 到账 32 积分（≈ 457 张）</div>
+        <div class="r-buy"><i class="ti ti-external-link" style="font-size:14px"></i> 去购买</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>9. 资产库 <span class="map">· §12</span></h2>
+  <div class="frame">
+    <div style="font-size:15px;font-weight:500;margin-bottom:4px">资产库</div>
+    <div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:8px">点任意图放大预览 · 仅本人生成、不支持上传</div>
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 10px;border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);background:var(--color-background-secondary)">
+      <i class="ti ti-calendar-event" style="font-size:14px;color:var(--color-text-secondary)"></i>
+      <span style="font-size:11px;color:var(--color-text-primary);background:#fff;border:0.5px solid var(--color-border-secondary);border-radius:999px;padding:3px 11px">今天</span>
+      <span style="font-size:11px;color:var(--color-text-secondary);padding:3px 11px">近 7 天</span>
+      <span style="font-size:11px;color:var(--color-text-secondary);padding:3px 11px">近 30 天</span>
+      <span style="flex:1"></span>
+      <span style="font-size:11px;color:var(--color-text-primary);background:#fff;border:0.5px solid var(--color-border-secondary);border-radius:8px;padding:4px 10px"><i class="ti ti-calendar" style="font-size:12px"></i> 6/15 – 6/21 ▾</span>
+    </div>
+    <div style="font-size:12px;font-weight:500;margin:12px 0 6px;padding-bottom:4px;border-bottom:0.5px solid var(--color-border-tertiary)">今天</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(80px,1fr));gap:8px">
+      <div class="b-th"><span class="b-ck on"></span><i class="ti ti-photo"></i></div>
+      <div class="b-th"><span class="b-ck on"></span><i class="ti ti-photo"></i></div>
+      <div class="b-th"><span class="b-ck"></span><i class="ti ti-photo"></i></div>
+    </div>
+    <div style="font-size:12px;font-weight:500;margin:10px 0 6px;padding-bottom:4px;border-bottom:0.5px solid var(--color-border-tertiary)">昨天</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(80px,1fr));gap:8px">
+      <div class="b-th"><span class="b-ck"></span><i class="ti ti-photo"></i></div>
+      <div class="b-th"><span class="b-ck"></span><i class="ti ti-photo"></i></div>
+    </div>
+    <div style="font-size:12px;font-weight:500;margin:10px 0 6px;padding-bottom:4px;border-bottom:0.5px solid var(--color-border-tertiary)">6 月 19 日</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(80px,1fr));gap:8px">
+      <div class="b-th"><span class="b-ck"></span><i class="ti ti-photo"></i></div>
+      <div class="b-th"><span class="b-ck"></span><i class="ti ti-photo"></i></div>
+    </div>
+    <div style="margin-top:12px;border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-lg);background:#fff;padding:10px 14px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+      <span style="font-size:12px">已选 2 张</span>
+      <div style="display:flex;gap:8px">
+        <span style="font-size:12px;border:0.5px solid var(--color-border-secondary);border-radius:8px;padding:5px 10px"><i class="ti ti-download" style="font-size:12px"></i> 下载(zip)</span>
+        <span style="font-size:12px;color:var(--color-text-danger);border:0.5px solid var(--color-border-danger);border-radius:8px;padding:5px 10px"><i class="ti ti-trash" style="font-size:12px"></i> 删除</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>10. 灵感库（用户端）<span class="map">· §13</span></h2>
+  <div class="frame">
+    <div style="font-size:15px;font-weight:500">灵感库</div>
+    <div style="font-size:12px;color:var(--color-text-secondary);margin:4px 0 12px">挑一条直接带回对话流（站长维护、不支持用户上传）。</div>
+    <div style="height:36px;border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);display:flex;align-items:center;padding:0 12px;font-size:12px;color:var(--color-text-tertiary);margin-bottom:10px"><i class="ti ti-search" style="font-size:14px;margin-right:6px"></i> 搜索标题、标签或提示词</div>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">
+      <span class="i-tag" style="border-color:var(--color-text-primary);color:var(--color-text-primary)">全部</span><span class="i-tag">海报</span><span class="i-tag">写实</span><span class="i-tag">风景</span><span class="i-tag">人像</span><span class="i-tag">国风</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px">
+      <div class="i-card"><div class="i-cov"><i class="ti ti-photo" style="font-size:24px"></i></div><div style="padding:10px"><div style="margin-bottom:6px"><span class="i-tag" style="font-size:10px;padding:2px 8px">海报</span></div><div style="font-size:13px;font-weight:500">电影海报</div><div style="font-size:11px;color:var(--color-text-secondary);margin:4px 0 8px;line-height:1.4">史诗概念海报，光影层级与标题排版…</div><div style="font-size:11px;border:0.5px solid var(--color-border-secondary);border-radius:7px;padding:5px;text-align:center"><i class="ti ti-wand" style="font-size:12px"></i> 用此提示词</div></div></div>
+      <div class="i-card"><div class="i-cov"><i class="ti ti-photo" style="font-size:24px"></i></div><div style="padding:10px"><div style="margin-bottom:6px"><span class="i-tag" style="font-size:10px;padding:2px 8px">风景</span></div><div style="font-size:13px;font-weight:500">晨雾海岸</div><div style="font-size:11px;color:var(--color-text-secondary);margin:4px 0 8px;line-height:1.4">金色阳光穿透云层，宁静治愈…</div><div style="font-size:11px;border:0.5px solid var(--color-border-secondary);border-radius:7px;padding:5px;text-align:center"><i class="ti ti-wand" style="font-size:12px"></i> 用此提示词</div></div></div>
+      <div class="i-card"><div class="i-cov"><i class="ti ti-photo" style="font-size:24px"></i></div><div style="padding:10px"><div style="margin-bottom:6px"><span class="i-tag" style="font-size:10px;padding:2px 8px">人像</span></div><div style="font-size:13px;font-weight:500">写实人像</div><div style="font-size:11px;color:var(--color-text-secondary);margin:4px 0 8px;line-height:1.4">自然光、真实皮肤质感、日常场景…</div><div style="font-size:11px;border:0.5px solid var(--color-border-secondary);border-radius:7px;padding:5px;text-align:center"><i class="ti ti-wand" style="font-size:12px"></i> 用此提示词</div></div></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>11. 后台 · 数据看板 <span class="map">· §9</span></h2>
+  <div class="frame" style="padding:0">
+    <div style="display:flex;min-height:380px">
+      <aside style="width:140px;flex:0 0 140px;border-right:0.5px solid var(--color-border-tertiary);padding:12px 10px">
+        <div style="font-size:12px;font-weight:500;margin-bottom:10px"><i class="ti ti-lock" style="font-size:13px"></i> 后台管理</div>
+        <div class="ad-nav on"><i class="ti ti-chart-bar"></i>数据看板</div><div class="ad-nav"><i class="ti ti-ticket"></i>兑换码</div><div class="ad-nav"><i class="ti ti-users"></i>用户管理</div><div class="ad-nav"><i class="ti ti-bulb"></i>灵感库</div><div class="ad-nav"><i class="ti ti-photo-check"></i>图片生成记录</div><div class="ad-nav"><i class="ti ti-settings"></i>配置中心</div><div class="ad-nav"><i class="ti ti-list-details"></i>审计日志</div>
+      </aside>
+      <main style="flex:1;min-width:0;padding:16px">
+        <div style="font-size:15px;font-weight:500;margin-bottom:14px">数据看板</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px">
+          <div class="ad-kpi"><div class="ad-kl">今日注册</div><div class="ad-kv">37</div></div>
+          <div class="ad-kpi"><div class="ad-kl">今日成功 / 失败</div><div class="ad-kv">412 / 9</div></div>
+          <div class="ad-kpi"><div class="ad-kl">累计总图</div><div class="ad-kv">18.6k</div></div>
+          <div class="ad-kpi"><div class="ad-kl">今日收入(面值)</div><div class="ad-kv">¥358</div></div>
+          <div class="ad-kpi"><div class="ad-kl">积分负债</div><div class="ad-kv">1,240</div></div>
+          <div class="ad-kpi"><div class="ad-kl">队列 待/跑</div><div class="ad-kv">2 / 5</div></div>
+          <div class="ad-kpi"><div class="ad-kl">平均生图时长</div><div class="ad-kv">14.2s</div></div>
+          <div class="ad-kpi"><div class="ad-kl">失败原因 Top</div><div class="ad-kv" style="font-size:13px">超时·额度不足</div></div>
+        </div>
+      </main>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>12. 后台 · 兑换码 + 审计日志 <span class="map">· §9</span></h2>
+  <div class="frame" style="display:flex;flex-direction:column;gap:14px">
+    <div class="t-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><span class="t-h">兑换码</span><div style="display:flex;gap:8px"><span class="t-btn"><i class="ti ti-plus" style="font-size:12px"></i> 生成一批</span><span class="t-btn"><i class="ti ti-download" style="font-size:12px"></i> 导出</span></div></div>
+      <table class="t-tbl"><tr><th>批次</th><th>面额</th><th>积分</th><th>数量</th><th>已用</th><th>状态</th><th></th></tr>
+        <tr><td>B-2406-01</td><td>¥9.9</td><td>10</td><td>500</td><td>318</td><td>启用</td><td style="color:var(--color-text-secondary)">作废</td></tr>
+        <tr><td>B-2406-02</td><td>¥29.9</td><td>32</td><td>200</td><td>91</td><td>启用</td><td style="color:var(--color-text-secondary)">作废</td></tr>
+        <tr><td>B-2405-09</td><td>¥9.9</td><td>10</td><td>300</td><td>300</td><td style="color:var(--color-text-tertiary)">已用尽</td><td style="color:var(--color-text-secondary)">—</td></tr></table>
+    </div>
+    <div class="t-card">
+      <div class="t-h" style="margin-bottom:10px">操作审计日志（只追加、不可改）</div>
+      <table class="t-tbl"><tr><th>时间</th><th>管理员</th><th>动作</th><th>对象</th><th>变更</th></tr>
+        <tr><td>06-21 14:02</td><td>admin</td><td>手动加积分</td><td>u_8831</td><td>+5 (补偿)</td></tr>
+        <tr><td>06-21 13:40</td><td>admin</td><td>封禁用户</td><td>u_7720</td><td>正常→封禁</td></tr>
+        <tr><td>06-21 11:15</td><td>admin</td><td>改充值文案</td><td>档位 ¥29.9</td><td>"超值"→"更划算"</td></tr></table>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>13. 后台 · 用户管理 + 套餐管理 + 全局参数 <span class="map">· §9</span></h2>
+  <div class="frame" style="display:flex;flex-direction:column;gap:14px">
+    <div class="u-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><span class="u-h">用户管理</span><span style="font-size:11px;color:var(--color-text-tertiary);border:0.5px solid var(--color-border-secondary);border-radius:7px;padding:5px 10px"><i class="ti ti-search" style="font-size:12px"></i> 按邮箱搜索</span></div>
+      <table class="u-tbl"><tr><th>邮箱</th><th>余额</th><th>并发</th><th>状态</th><th style="text-align:right">操作</th></tr>
+        <tr><td>a***@qq.com</td><td>5.86</td><td>2</td><td>正常</td><td style="text-align:right"><span style="display:inline-flex;width:22px;height:22px;border:0.5px solid var(--color-border-secondary);border-radius:6px;align-items:center;justify-content:center;color:var(--color-text-secondary)"><i class="ti ti-dots"></i></span></td></tr>
+        <tr><td>b***@163.com</td><td>0.00</td><td>2</td><td>正常</td><td style="text-align:right"><span style="display:inline-flex;width:22px;height:22px;border:0.5px solid var(--color-border-secondary);border-radius:6px;align-items:center;justify-content:center;color:var(--color-text-secondary)"><i class="ti ti-dots"></i></span></td></tr>
+        <tr><td>c***@gmail.com</td><td>22.1</td><td>4</td><td style="color:var(--color-text-danger)">封禁</td><td style="text-align:right"><span style="display:inline-flex;width:22px;height:22px;border:0.5px solid var(--color-border-secondary);border-radius:6px;align-items:center;justify-content:center;color:var(--color-text-secondary)"><i class="ti ti-dots"></i></span></td></tr></table>
+      <div style="font-size:10px;color:var(--color-text-tertiary);margin-top:8px">＊点行尾「⋯」展开下拉：看详情 / 调积分 / 调并发 / 改密 / 封禁。</div>
+    </div>
+    <div class="u-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span class="u-h">配置中心 · 套餐管理</span><span style="font-size:11px;border:0.5px solid var(--color-border-secondary);border-radius:7px;padding:5px 10px"><i class="ti ti-plus" style="font-size:12px"></i> 新建套餐</span></div>
+      <table class="u-tbl"><tr><th>标题</th><th>价格</th><th>积分</th><th>有效期</th><th>状态</th><th style="text-align:right">操作</th></tr>
+        <tr><td>基础档</td><td>¥9.9</td><td>10</td><td>30 天</td><td>上架</td><td style="text-align:right;color:var(--color-text-secondary)">编辑·删除</td></tr>
+        <tr><td>超值档</td><td>¥29.9</td><td>32</td><td>永久</td><td>上架</td><td style="text-align:right;color:var(--color-text-secondary)">编辑·删除</td></tr></table>
+      <div style="border-top:0.5px dashed var(--color-border-tertiary);margin-top:12px;padding-top:10px;font-size:12px;color:var(--color-text-secondary);margin-bottom:8px">新建 / 编辑套餐</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div><div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:4px">套餐标题</div><span class="u-in" style="display:block">超值档</span></div>
+        <div><div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:4px">价格（¥）</div><span class="u-in" style="display:block">29.9</span></div>
+        <div><div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:4px">到账积分</div><span class="u-in" style="display:block">32</span></div>
+        <div><div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:4px">积分有效期（天，可选「永久」）</div><span class="u-in" style="display:block">永久</span></div>
+        <div style="grid-column:1/-1"><div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:4px">购买跳转 URL（第三方店铺）</div><span class="u-in" style="display:block;color:var(--color-text-tertiary)">https://shop.example.com/item/…</span></div>
+        <div><div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:4px">排序</div><span class="u-in" style="display:block">2</span></div>
+        <div><div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:4px">是否上架</div><span class="u-in" style="display:block">是</span></div>
+      </div>
+    </div>
+    <div class="u-card">
+      <div class="u-h" style="margin-bottom:6px">全局参数（与套餐分开）</div>
+      <div class="u-fld"><span>单张扣费（积分）</span><span class="u-in">0.07</span></div>
+      <div class="u-fld"><span>新用户赠送（积分）</span><span class="u-in">0.14</span></div>
+      <div class="u-fld" style="border-bottom:none"><span>保留期 免费 / 付费（天）</span><span class="u-in">7 / 60</span></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>14. 后台 · 灵感库管理（CRUD）<span class="map">· §9 / §13</span></h2>
+  <div class="frame">
+    <div class="c-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><span class="c-h">灵感库管理</span><span class="c-btn"><i class="ti ti-plus" style="font-size:12px"></i> 新增灵感卡</span></div>
+      <div class="c-row"><div class="c-cov"><i class="ti ti-photo"></i></div><div style="flex:1;min-width:0"><div style="font-size:12px">电影海报</div><div style="font-size:10px;color:var(--color-text-tertiary)">标签:海报 · 上架</div></div><span style="font-size:11px;color:var(--color-text-secondary)">编辑 · 删除</span></div>
+      <div class="c-row"><div class="c-cov"><i class="ti ti-photo"></i></div><div style="flex:1;min-width:0"><div style="font-size:12px">晨雾海岸</div><div style="font-size:10px;color:var(--color-text-tertiary)">标签:风景 · 上架</div></div><span style="font-size:11px;color:var(--color-text-secondary)">编辑 · 删除</span></div>
+      <div style="font-size:10px;color:var(--color-text-tertiary);margin-top:8px">＊每张可编辑：封面、标题、品类标签、提示词、摘要、排序、是否上架。</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>15. 后台 · 图片生成记录（列表）<span class="map">· §9</span></h2>
+  <div class="frame">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span style="font-size:15px;font-weight:500">图片生成记录</span><span style="font-size:11px;color:var(--color-text-tertiary)">点图即放大 · 失败直接显示报错+状态码 · 纯记录</span></div>
+    <div style="margin-bottom:8px"><span style="font-size:11px;color:var(--color-text-secondary);border:0.5px solid var(--color-border-secondary);border-radius:7px;padding:4px 10px"><i class="ti ti-search" style="font-size:12px"></i> 按用户/时间筛选</span></div>
+    <table class="rv-tbl">
+      <colgroup><col style="width:42px"><col style="width:74px"><col style="width:48px"><col><col style="width:170px"></colgroup>
+      <tr><th>图</th><th>用户</th><th>时长</th><th>提示词</th><th>状态 / 报错</th></tr>
+      <tr><td><div class="rv-tn"><i class="ti ti-photo"></i></div></td><td>u_8831</td><td>14.2s</td><td>柴犬戴针织帽，窗边午后光，写实</td><td style="color:var(--color-text-success)">成功</td></tr>
+      <tr><td><div class="rv-tn"><i class="ti ti-photo"></i></div></td><td>u_7720</td><td>9.8s</td><td>赛博城市夜景，霓虹，雨后街道</td><td style="color:var(--color-text-success)">成功</td></tr>
+      <tr><td><div class="rv-tn"><i class="ti ti-photo"></i></div></td><td>u_6512</td><td>—</td><td>山间观星台，星空，长曝光</td><td style="color:var(--color-text-danger);white-space:normal">失败 · 504 中转网关超时</td></tr>
+      <tr><td><div class="rv-tn"><i class="ti ti-photo"></i></div></td><td>u_3310</td><td>—</td><td>都市夜景人像，霓虹反光</td><td style="color:var(--color-text-danger);white-space:normal">失败 · 502 upstream_error（模型不支持）</td></tr>
+      <tr><td><div class="rv-tn"><i class="ti ti-photo"></i></div></td><td>u_9043</td><td>11.3s</td><td>晨雾海岸，金色阳光穿透云层</td><td style="color:var(--color-text-success)">成功</td></tr>
+    </table>
+    <div style="font-size:11px;color:var(--color-text-tertiary);margin-top:10px;text-align:center">‹ 1 2 3 … 28 › · 每页 50 条</div>
+  </div>
+</section>
+
+<section>
+  <h2>16. 用户详情（从「用户管理」行尾「⋯ → 看详情」进入）<span class="map">· §9 / §16</span></h2>
+  <p class="cap" style="font-size:12px;color:var(--color-text-secondary);margin:0 0 10px">余额 + 流水 + 批次 + 会话/图片数 + 并发 + 注册/活跃时间；行尾「⋯」下拉里的操作在详情页平铺成操作栏。积分按毫积分底层存储，此处以积分展示。</p>
+  <div class="frame" style="display:flex;flex-direction:column;gap:14px">
+
+    <!-- ① 概要卡 + 操作栏 -->
+    <div class="u-card">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:10px;min-width:0">
+          <span class="c-cov" style="width:44px;height:44px;flex:0 0 44px"><i class="ti ti-user-circle" style="font-size:22px"></i></span>
+          <div style="min-width:0">
+            <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+              <span class="u-h">a***@qq.com</span>
+              <span style="font-size:11px;color:var(--color-text-success);background:var(--color-background-secondary);border-radius:999px;padding:2px 9px"><i class="ti ti-check" style="font-size:11px"></i> 正常</span>
+            </div>
+            <div style="font-size:11px;color:var(--color-text-tertiary);margin-top:3px">用户 ID：u_8831</div>
+          </div>
+        </div>
+        <!-- 操作栏：原「⋯」下拉项平铺 -->
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <span class="es-btn"><i class="ti ti-ban" style="font-size:12px"></i> 封禁</span>
+          <span class="es-btn"><i class="ti ti-lock" style="font-size:12px"></i> 改密</span>
+          <span class="es-btn"><i class="ti ti-coin" style="font-size:12px"></i> 调积分</span>
+          <span class="es-btn"><i class="ti ti-adjustments-horizontal" style="font-size:12px"></i> 调并发</span>
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--color-text-tertiary);margin-top:6px">＊已封禁用户此处显「解封」。「调积分」走 <code>adjust</code> 流水、<strong>必填原因</strong>（见下方调积分弹窗）。</div>
+
+      <!-- 概要指标行 -->
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin-top:12px">
+        <div class="ad-kpi"><div class="ad-kl">当前余额（积分）</div><div class="ad-kv">5.86</div></div>
+        <div class="ad-kpi"><div class="ad-kl">并发上限</div><div class="ad-kv">2</div></div>
+        <div class="ad-kpi"><div class="ad-kl">会话数</div><div class="ad-kv">18</div></div>
+        <div class="ad-kpi"><div class="ad-kl">图片数</div><div class="ad-kv">126</div></div>
+      </div>
+      <div style="display:flex;gap:18px;flex-wrap:wrap;margin-top:10px">
+        <span style="font-size:12px;color:var(--color-text-secondary)"><i class="ti ti-calendar" style="font-size:12px"></i> 注册时间：2026-03-02 14:21</span>
+        <span style="font-size:12px;color:var(--color-text-secondary)"><i class="ti ti-clock" style="font-size:12px"></i> 最近活跃：2026-06-21 09:47</span>
+      </div>
+    </div>
+
+    <!-- ② 积分流水 + ③ 积分批次 -->
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px">
+
+      <!-- 积分流水 credit_ledger -->
+      <div class="u-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span class="u-h">积分流水</span><span style="font-size:10px;color:var(--color-text-tertiary)">credit_ledger · 只追加</span></div>
+        <table class="u-tbl">
+          <tr><th>时间</th><th>类型</th><th style="text-align:right">变动</th><th>原因</th><th style="text-align:right">余额后</th></tr>
+          <tr><td>06-21 09:47</td><td>debit 扣费</td><td style="text-align:right;color:var(--color-text-danger)">-0.07</td><td>柴犬戴针织帽…</td><td style="text-align:right">5.86</td></tr>
+          <tr><td>06-15 20:10</td><td>adjust 手动</td><td style="text-align:right;color:var(--color-text-success)">+1.00</td><td>客服补偿（工单 #214）</td><td style="text-align:right">5.93</td></tr>
+          <tr><td>06-12 11:02</td><td>credit 兑换</td><td style="text-align:right;color:var(--color-text-success)">+10.00</td><td>兑换码 KX9F-3A2D（基础档）</td><td style="text-align:right">4.93</td></tr>
+          <tr><td>06-08 08:30</td><td>refund 退款</td><td style="text-align:right;color:var(--color-text-success)">+0.07</td><td>生图失败退回</td><td style="text-align:right">0.14</td></tr>
+          <tr><td>03-02 14:21</td><td>grant 赠送</td><td style="text-align:right;color:var(--color-text-success)">+0.14</td><td>注册赠送（2 张）</td><td style="text-align:right">0.14</td></tr>
+        </table>
+        <div style="font-size:10px;color:var(--color-text-tertiary);margin-top:8px">＊类型：grant / credit / debit / refund / expire / adjust。‹ 1 2 3 › · 每页 50 条</div>
+      </div>
+
+      <!-- 积分批次 credit_lots -->
+      <div class="u-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span class="u-h">积分批次</span><span style="font-size:10px;color:var(--color-text-tertiary)">credit_lots · FIFO 最早过期先扣</span></div>
+        <table class="u-tbl">
+          <tr><th>来源</th><th style="text-align:right">发放</th><th style="text-align:right">剩余</th><th>过期时间</th></tr>
+          <tr><td>code 兑换（基础档）</td><td style="text-align:right">10.00</td><td style="text-align:right">4.79</td><td>2026-07-12</td></tr>
+          <tr><td>adjust 手动</td><td style="text-align:right">1.00</td><td style="text-align:right">1.00</td><td style="color:var(--color-text-success)">永久</td></tr>
+          <tr style="color:var(--color-text-tertiary)"><td>signup 赠送</td><td style="text-align:right">0.14</td><td style="text-align:right">0.00</td><td>2026-04-01（已扣完）</td></tr>
+        </table>
+        <div style="font-size:10px;color:var(--color-text-tertiary);margin-top:8px">＊余额 = 未过期、剩余&gt;0 的批次之和；过期时间可为「永久」(expires_at=null)。</div>
+      </div>
+    </div>
+
+    <!-- ④ 最近生成 -->
+    <div class="u-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px"><span class="u-h">最近生成</span><span style="font-size:10px;color:var(--color-text-tertiary)">点缩略图放大 · 失败直显报错+状态码 · 纯记录</span></div>
+      <table class="rv-tbl">
+        <colgroup><col style="width:42px"><col style="width:96px"><col style="width:48px"><col><col style="width:160px"></colgroup>
+        <tr><th>图</th><th>时间</th><th>时长</th><th>提示词</th><th>状态 / 报错</th></tr>
+        <tr><td><div class="rv-tn"><i class="ti ti-photo"></i></div></td><td>06-21 09:47</td><td>14.2s</td><td>柴犬戴针织帽，窗边午后光，写实</td><td style="color:var(--color-text-success)">成功</td></tr>
+        <tr><td><div class="rv-tn"><i class="ti ti-photo"></i></div></td><td>06-20 22:05</td><td>11.3s</td><td>晨雾海岸，金色阳光穿透云层</td><td style="color:var(--color-text-success)">成功</td></tr>
+        <tr><td><div class="rv-tn"><i class="ti ti-photo"></i></div></td><td>06-19 18:32</td><td>—</td><td>山间观星台，星空，长曝光</td><td style="color:var(--color-text-danger);white-space:normal">失败 · 504 中转网关超时</td></tr>
+      </table>
+      <div style="font-size:11px;color:var(--color-text-tertiary);margin-top:8px;text-align:center">查看全部生成记录 ›</div>
+    </div>
+
+    <!-- ⑤ 「调积分」弹窗（必填原因）— 模拟一块屏（遮罩内 flex 居中，与 §18/§20 同范式） -->
+    <div style="position:relative;min-height:300px;border-radius:var(--border-radius-lg);background:var(--color-background-secondary);overflow:hidden">
+      <div style="position:absolute;inset:0;padding:12px 14px;color:var(--color-text-tertiary);font-size:11px">用户详情页 · 点「调积分」后弹出，操作写入审计日志</div>
+      <div style="position:absolute;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px">
+        <div style="width:300px;max-width:100%;background:#fff;border-radius:var(--border-radius-lg);padding:16px;box-shadow:0 8px 28px rgba(0,0,0,.22)">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px"><span class="u-h">调整积分（adjust）</span><i class="ti ti-x" style="color:var(--color-text-secondary)"></i></div>
+          <div class="l2-lab">用户</div>
+          <span class="l2-in" style="margin-bottom:12px">a***@qq.com · 当前 5.86</span>
+          <div class="l2-lab">增减积分（正=增、负=减）</div>
+          <span class="l2-in" style="margin-bottom:12px">+1.00</span>
+          <div class="l2-lab">原因 <span style="color:var(--color-text-danger)">＊必填</span></div>
+          <span class="l2-in" style="margin-bottom:6px;color:var(--color-text-tertiary)">客服补偿（工单 #214）</span>
+          <div style="font-size:10px;color:var(--color-text-tertiary);margin-bottom:8px">＊增加积分将新建一个「永久」批次；减积分按 FIFO 扣减、余额不出负；写 adjust 流水 + 审计日志。</div>
+          <div class="l2-btn">确认调整</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<section>
+  <h2>17. 灵感卡 新增 / 编辑表单（后台灵感库 CRUD）<span class="map">· §9 / §13</span></h2>
+  <p class="cap" style="font-size:12px;color:var(--color-text-secondary);margin:0 0 10px">由站长在后台编辑：封面图（站长上传，本期不支持用户上传）、标题、品类标签（可多选）、提示词、摘要、排序、是否上架。保存后用于用户端灵感库（§10）。</p>
+  <div class="frame">
+    <div class="c-card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;border-bottom:0.5px solid var(--color-border-tertiary);padding-bottom:10px">
+        <span class="c-h">编辑灵感卡</span>
+        <span style="font-size:10px;color:var(--color-text-tertiary)">＊新增时标题为「新增灵感卡」</span>
+      </div>
+
+      <div style="display:flex;gap:18px;flex-wrap:wrap">
+        <!-- 左侧：封面上传 -->
+        <div style="flex:0 0 180px;min-width:160px">
+          <div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:6px">封面图</div>
+          <div style="aspect-ratio:1;border-radius:var(--border-radius-md);background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;justify-content:center;color:var(--color-text-tertiary);font-size:26px;margin-bottom:8px"><i class="ti ti-photo"></i></div>
+          <span class="t-btn" style="display:inline-flex;align-items:center;gap:6px"><i class="ti ti-upload" style="font-size:12px"></i> 上传封面</span>
+          <div style="font-size:10px;color:var(--color-text-tertiary);margin-top:6px">建议示例出图，比例不限</div>
+        </div>
+
+        <!-- 右侧：字段 -->
+        <div style="flex:1;min-width:240px;display:flex;flex-direction:column;gap:12px">
+          <div>
+            <div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:4px">标题</div>
+            <span class="u-in" style="display:block">电影海报</span>
+          </div>
+
+          <div>
+            <div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:6px">品类标签（可多选）</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px">
+              <span class="i-tag" style="border-color:var(--color-text-primary);color:var(--color-text-primary);display:inline-flex;align-items:center;gap:5px">海报 <i class="ti ti-x" style="font-size:11px"></i></span>
+              <span class="i-tag" style="border-color:var(--color-text-primary);color:var(--color-text-primary);display:inline-flex;align-items:center;gap:5px">写实 <i class="ti ti-x" style="font-size:11px"></i></span>
+              <span class="i-tag" style="border-style:dashed;border-color:var(--color-border-secondary);display:inline-flex;align-items:center;gap:4px"><i class="ti ti-plus" style="font-size:11px"></i> 标签</span>
+            </div>
+          </div>
+
+          <div>
+            <div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:4px">提示词</div>
+            <span class="u-in" style="display:block;min-height:78px;color:var(--color-text-secondary);line-height:1.6">电影海报风格，戏剧性逆光，胶片颗粒，浓郁色调，主体居中，留白构图，高质感细节…</span>
+          </div>
+
+          <div>
+            <div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:4px">摘要（一行）</div>
+            <span class="u-in" style="display:block">高对比电影感海报，适合主视觉</span>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div>
+              <div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:4px">排序</div>
+              <span class="u-in" style="display:block">1</span>
+            </div>
+            <div>
+              <div style="font-size:11px;color:var(--color-text-secondary);margin-bottom:4px">是否上架</div>
+              <span class="u-in" style="display:block">是</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 底部按钮 -->
+      <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:16px;border-top:0.5px solid var(--color-border-tertiary);padding-top:12px">
+        <span class="t-btn">取消</span>
+        <span class="l2-btn" style="margin-top:0;height:32px;padding:0 16px;font-size:12px;display:inline-flex">保存</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>18. 生成兑换码弹窗（后台兑换码「生成一批」）<span class="map">· §9 / §7.2 / §16 / §24-4</span></h2>
+  <div class="frame" style="padding:0;border:none;background:transparent">
+    <div style="position:relative;min-height:340px;border-radius:var(--border-radius-lg);background:var(--color-background-secondary);overflow:hidden">
+
+      <!-- 模糊的后台背景示意（兑换码列表，被弹窗盖住） -->
+      <div style="padding:14px;opacity:.5">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><span class="t-h">兑换码</span><div style="display:flex;gap:8px"><span class="t-btn" style="border-color:var(--color-text-primary)"><i class="ti ti-plus" style="font-size:12px"></i> 生成一批</span><span class="t-btn"><i class="ti ti-download" style="font-size:12px"></i> 导出</span></div></div>
+        <table class="t-tbl"><tr><th>批次</th><th>面额</th><th>积分</th><th>数量</th><th>已用</th><th>状态</th></tr>
+          <tr><td>B-2406-01</td><td>¥9.9</td><td>10</td><td>500</td><td>318</td><td>启用</td></tr>
+          <tr><td>B-2406-02</td><td>¥29.9</td><td>32</td><td>200</td><td>91</td><td>启用</td></tr></table>
+      </div>
+
+      <!-- 暗遮罩盖满 -->
+      <div style="position:absolute;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;padding:16px">
+
+        <!-- 居中白色对话框 -->
+        <div style="width:380px;max-width:100%;background:#fff;border-radius:var(--border-radius-lg);padding:18px;box-shadow:0 12px 32px rgba(0,0,0,.22)">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
+            <div style="font-size:15px;font-weight:600">批量生成兑换码</div>
+            <i class="ti ti-x" style="font-size:17px;color:var(--color-text-secondary)"></i>
+          </div>
+
+          <!-- 选择套餐（带出价格/积分/有效期）-->
+          <div style="margin-bottom:12px">
+            <div class="l2-lab">选择套餐 <span style="color:var(--color-text-tertiary)">（决定面值 / 积分 / 有效期）</span></div>
+            <div class="a2-sel" style="height:38px;border-radius:8px;border-color:var(--color-border-secondary)"><span style="color:var(--color-text-primary)">基础档 ¥9.9 → 10 积分 / 有效期 30 天</span><i class="ti ti-chevron-down" style="font-size:14px;color:var(--color-text-tertiary)"></i></div>
+          </div>
+
+          <!-- 生成数量 -->
+          <div style="margin-bottom:12px">
+            <div class="l2-lab">生成数量</div>
+            <span class="u-in" style="display:block;padding:9px 12px;border-radius:8px;color:var(--color-text-primary)">500</span>
+          </div>
+
+          <!-- 批次号 -->
+          <div style="margin-bottom:10px">
+            <div class="l2-lab">批次号 <span style="color:var(--color-text-tertiary)">batch_id</span></div>
+            <span class="u-in" style="display:block;padding:9px 12px;border-radius:8px;color:var(--color-text-primary)">B-2406-03</span>
+            <div style="font-size:11px;color:var(--color-text-tertiary);margin-top:4px">留空自动生成</div>
+          </div>
+
+          <!-- 码格式说明小字 -->
+          <div style="font-size:11px;color:var(--color-text-secondary);background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:8px 10px;margin-bottom:14px;line-height:1.5"><i class="ti ti-key" style="font-size:12px"></i> 码格式：18 位随机 base32，去除易混字符 0 / O / 1 / I / l，无分隔。</div>
+
+          <!-- 底部按钮 -->
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <span class="es-btn" style="padding:9px 16px">取消</span>
+            <span class="l2-btn" style="margin-top:0;height:auto;padding:9px 20px;display:inline-flex">生成</span>
+          </div>
+
+          <!-- 生成后轻提示 + 导出 CSV -->
+          <div style="border-top:0.5px dashed var(--color-border-tertiary);margin-top:14px;padding-top:12px">
+            <div style="font-size:10px;color:var(--color-text-tertiary);margin-bottom:6px">↓ 生成成功后</div>
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;background:var(--color-background-info);border:0.5px solid var(--color-border-info);border-radius:var(--border-radius-md);padding:9px 11px">
+              <span style="font-size:12px;color:var(--color-text-info)"><i class="ti ti-check" style="font-size:13px"></i> 已生成 500 个，可导出 CSV</span>
+              <span class="es-btn" style="padding:6px 10px;background:#fff"><i class="ti ti-download" style="font-size:12px"></i> 导出 CSV</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="cap" style="font-size:12px;color:var(--color-text-secondary);margin:0 0 10px">注：「面值」实为选一个充值套餐（§16 redeem_codes 绑定 package_id，带出价格/积分/有效期）；CSV 交店铺发码。</p>
+</section>
+
+<section>
+  <h2>19. 账号设置（用户端，左栏「账号」进入）<span class="map">· §4 / §24-1</span></h2>
+  <div class="frame" style="background:var(--color-background-secondary)">
+    <div class="l2-card" style="max-width:420px;flex:none">
+      <div style="font-size:15px;font-weight:500;margin-bottom:2px">账号设置</div>
+      <div style="font-size:11px;color:var(--color-text-tertiary);margin-bottom:16px">账号仅用于身份识别、历史与积分隔离 · 无个人资料页</div>
+
+      <!-- ① 账号信息 -->
+      <div class="l2-lab" style="font-size:11px;font-weight:500;color:var(--color-text-secondary);text-transform:none;margin-bottom:8px">账号信息</div>
+      <div style="margin-bottom:6px"><div class="l2-lab">邮箱</div>
+        <div class="l2-in" style="background:var(--color-background-secondary);color:var(--color-text-secondary)"><i class="ti ti-mail" style="font-size:14px;margin-right:8px"></i>a***@qq.com</div>
+      </div>
+      <div style="font-size:10px;color:var(--color-text-tertiary);margin-bottom:18px"><i class="ti ti-lock" style="font-size:11px"></i> 邮箱为登录凭据，不可修改</div>
+
+      <!-- ② 修改密码 -->
+      <div style="border-top:0.5px solid var(--color-border-tertiary);padding-top:14px;margin-bottom:8px"><span style="font-size:11px;font-weight:500;color:var(--color-text-secondary)">修改密码</span></div>
+      <div style="margin-bottom:10px"><div class="l2-lab">当前密码</div><div class="l2-in">••••••••</div></div>
+      <div style="margin-bottom:10px"><div class="l2-lab">新密码</div><div class="l2-in">••••••••</div></div>
+      <div><div class="l2-lab">确认新密码</div><div class="l2-in">••••••••</div></div>
+      <div style="font-size:10px;color:var(--color-text-tertiary);margin-top:6px">密码至少 6 位</div>
+      <div class="l2-btn"><i class="ti ti-key" style="font-size:14px;margin-right:6px"></i>保存新密码</div>
+
+      <!-- ③ 其他 -->
+      <div style="border-top:0.5px solid var(--color-border-tertiary);margin-top:18px;padding-top:6px">
+        <div class="u-fld" style="border-bottom:none">
+          <span><i class="ti ti-coin" style="font-size:14px;margin-right:6px"></i>当前积分 <span style="font-weight:500">5.86</span> · 去充值</span>
+          <i class="ti ti-chevron-right" style="font-size:15px;color:var(--color-text-tertiary)"></i>
+        </div>
+      </div>
+      <div style="margin-top:10px"><span class="es-btn" style="color:var(--color-text-danger);border-color:var(--color-border-danger)"><i class="ti ti-logout" style="font-size:13px"></i> 退出登录</span></div>
+    </div>
+  </div>
+  <p class="cap" style="font-size:12px;color:var(--color-text-secondary);margin:0 0 10px">注：无社交登录 / 无找回密码入口（找回本期占位，登录页提示「联系站长重置」）；邮箱只读、仅可改密码。</p>
+</section>
+
+<section>
+  <h2>20. 删除确认弹窗（通用确认范式，资产库批量删除为例）<span class="map">· §12 / §24-9</span></h2>
+  <div class="frame" style="padding:0;border:none;background:transparent">
+    <div style="position:relative;min-height:300px;border-radius:var(--border-radius-lg);background:var(--color-background-secondary);overflow:hidden;display:flex;align-items:center;justify-content:center">
+      <div style="position:absolute;inset:0;padding:12px 14px;color:var(--color-text-tertiary);font-size:11px">资产库（已选 3 张）· 下方对话框盖在当前页之上</div>
+      <div style="position:absolute;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center">
+        <div style="width:320px;max-width:88%;background:#fff;border-radius:var(--border-radius-lg);padding:20px 18px 16px;box-shadow:0 8px 28px rgba(0,0,0,.22)">
+          <div style="width:42px;height:42px;border-radius:50%;background:var(--color-background-danger);display:flex;align-items:center;justify-content:center;margin:0 auto 12px"><i class="ti ti-alert-triangle" style="font-size:20px;color:var(--color-text-danger)"></i></div>
+          <div style="font-size:15px;font-weight:600;text-align:center">确定删除选中的 3 张图?</div>
+          <div style="font-size:12px;color:var(--color-text-secondary);text-align:center;margin-top:6px">删除后不可恢复</div>
+          <div style="display:flex;gap:10px;margin-top:18px">
+            <span class="es-btn" style="flex:1;justify-content:center;padding:8px 10px">取消</span>
+            <span class="es-btn" style="flex:1;justify-content:center;padding:8px 10px;color:var(--color-text-danger);border-color:var(--color-border-danger)"><i class="ti ti-trash" style="font-size:13px"></i> 删除</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <p class="cap" style="font-size:12px;color:var(--color-text-secondary);margin:0 0 10px">注：全站通用「不可恢复」二次确认范式 → 同款弹窗复用于作废兑换码 / 封禁用户 / 删除灵感卡等危险操作（替换图标、标题文案与确认按钮文字即可）。</p>
+</section>
+
+<section>
+  <h2>21. 忘记密码（占位页）<span class="map">· §24-1 / §4</span></h2>
+  <div class="frame" style="background:var(--color-background-secondary);display:flex;justify-content:center">
+    <div class="l2-card" style="flex:0 0 300px;max-width:300px;min-width:0">
+      <div style="font-size:14px;font-weight:500;margin-bottom:10px">忘记密码</div>
+      <p style="font-size:12px;color:var(--color-text-secondary);line-height:1.6;margin:0 0 14px">本期暂未开放邮件自助找回，请联系站长协助重置密码。</p>
+      <div style="display:flex;align-items:center;gap:8px;background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--color-text-tertiary)">
+        <i class="ti ti-mail"></i>站长邮箱：admin@example.com
+      </div>
+      <div class="l2-btn">返回登录</div>
+    </div>
+  </div>
+  <p class="cap">从登录页「忘记密码?」链接进入；纯占位说明页（本期无邮件基建，不做自助找回）。「返回登录」回到 §2 登录/注册页。</p>
+</section>
+
+</div>
+</body>
+</html>

@@ -1,0 +1,703 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI 图像工坊 · 视觉风格规范（design system）</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@3/dist/tabler-icons.min.css" />
+<style>
+/* =========================================================================
+   DESIGN TOKENS — v2 正式真相源。明暗两套；亮色默认（[data-theme="light"]）。
+   命名取代 wireframes.html 里的临时占位变量；未来 v2 代码即用本套。
+   ========================================================================= */
+:root, [data-theme="light"]{
+  /* — 字体（系统字体栈：拉丁走 Inter，中文走各平台原生黑体，零加载） — */
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC",
+    "Source Han Sans SC", "Hiragino Sans GB", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* — 中性面（微暖中性灰，与陶土点缀同源） — */
+  --bg-canvas:   #faf9f7;   /* 页面最底 */
+  --bg-surface:  #ffffff;   /* 卡片 / 面板 */
+  --bg-subtle:   #f3f2ef;   /* 药丸底 / 骨架 / KPI 卡 / 选中导航 */
+  --bg-muted:    #ecebe5;   /* hover / 更深一档填充 */
+
+  --text-primary:   #1a1a18;
+  --text-secondary: #6c6b66;
+  --text-tertiary:  #9b9a93;
+  --text-inverse:   #ffffff;
+
+  --border-subtle: rgba(0,0,0,.11);  /* 0.5px 细边·默认 */
+  --border-strong: rgba(0,0,0,.22);  /* 0.5px 细边·较显（输入/药丸轮廓） */
+
+  /* — 主操作（亮色=黑底白字；暗色见下方反相） — */
+  --primary-bg:       #1a1a18;
+  --primary-bg-hover: #000000;
+  --primary-fg:       #ffffff;
+
+  /* — 暖色点缀（唯一强调色·陶土；§17：仅推荐徽章/选中点睛/链接 hover，不大面积铺） — */
+  --accent:            #c26a3d;
+  --accent-hover:      #a8542c;
+  --accent-surface:    #f7ede5;  /* 浅底 */
+  --accent-on-surface: #8c4a24;  /* 浅底其上文字 */
+
+  /* — 语义色 — */
+  --success-text: #0f6e56; --success-surface: #e6f4ef; --success-border: #4faf93;
+  --danger-text:  #a32d2d; --danger-surface:  #fceaea; --danger-border:  #e24b4a;
+  --info-text:    #185fa5; --info-surface:    #e7f0fb; --info-border:    #378add;
+  --warning-text: #8a5a06; --warning-surface: #fbf2dd; --warning-border: #d8a93a; /* 过期提醒黄 */
+
+  /* — 圆角（柔和现代：偏大） — */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;   /* 卡片默认 */
+  --radius-xl: 20px;   /* 大面板 / 弹窗 */
+  --radius-full: 999px;/* 药丸 / 圆形发送键 / 头像 */
+
+  /* — 间距（4px 基准） — */
+  --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px;
+  --space-5:20px; --space-6:24px; --space-8:32px; --space-10:40px; --space-12:48px;
+
+  /* — 阴影（柔和、克制；亮色） — */
+  --shadow-xs: 0 1px 2px rgba(15,17,21,.05);
+  --shadow-sm: 0 1px 3px rgba(15,17,21,.07), 0 1px 2px rgba(15,17,21,.04);
+  --shadow-md: 0 6px 20px rgba(15,17,21,.10);   /* 浮层 / 下拉 */
+  --shadow-lg: 0 16px 48px rgba(15,17,21,.16);  /* 弹窗 / lightbox 内卡 */
+
+  --scrim: rgba(0,0,0,.62);  /* lightbox 遮罩 */
+
+  /* 宇宙星空"生成中"占位专属（生成态视觉，刻意不随明暗反相——深空恒为深色） */
+  --cosmic-top:#1b2740; --cosmic-mid:#131a2e; --cosmic-bot:#0a0d18;
+  --cosmic-edge:rgba(120,150,210,.16);
+}
+
+[data-theme="dark"]{
+  --bg-canvas:   #141310;
+  --bg-surface:  #1e1d1a;
+  --bg-subtle:   #28261f;
+  --bg-muted:    #34322a;
+
+  --text-primary:   #f5f3ee;
+  --text-secondary: #b4b0a6;
+  --text-tertiary:  #7f7c73;
+  --text-inverse:   #1a1a18;
+
+  --border-subtle: rgba(255,255,255,.11);
+  --border-strong: rgba(255,255,255,.22);
+
+  /* 主操作反相：亮色是黑底白字 → 暗色转为浅底深字，保持最高对比 */
+  --primary-bg:       #f5f3ee;
+  --primary-bg-hover: #ffffff;
+  --primary-fg:       #1a1a18;
+
+  /* 陶土在暗底提亮一档；浅底改用低透明度陶土 */
+  --accent:            #e0935e;
+  --accent-hover:      #eaa873;
+  --accent-surface:    rgba(224,147,94,.14);
+  --accent-on-surface: #e8a876;
+
+  --success-text:#7fd0b6; --success-surface:rgba(79,175,147,.15); --success-border:#3d7e6c;
+  --danger-text: #f0908f; --danger-surface: rgba(226,75,74,.15);  --danger-border: #9a4140;
+  --info-text:   #8cc0f5; --info-surface:   rgba(55,138,221,.16); --info-border:   #3a6da0;
+  --warning-text:#e6c069; --warning-surface:rgba(216,169,58,.16); --warning-border:#9a7d34;
+
+  --shadow-xs: 0 1px 2px rgba(0,0,0,.4);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.5);
+  --shadow-md: 0 6px 20px rgba(0,0,0,.5);
+  --shadow-lg: 0 16px 48px rgba(0,0,0,.6);
+  --scrim: rgba(0,0,0,.72);
+}
+
+/* ============================ 页面骨架（本预览自身就用上面这套 token） === */
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0; padding:0 0 96px;
+  background:var(--bg-canvas); color:var(--text-primary);
+  font-family:var(--font-sans); line-height:1.5;
+  -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+  transition:background .25s ease, color .25s ease;
+}
+.wrap{max-width:920px;margin:0 auto;padding:0 24px}
+i.ti{line-height:1}
+code{font-family:var(--font-mono);font-size:.86em;background:var(--bg-subtle);
+  border:0.5px solid var(--border-subtle);border-radius:6px;padding:1px 6px}
+
+/* 顶栏 */
+header.top{position:sticky;top:0;z-index:20;backdrop-filter:saturate(1.4) blur(8px);
+  background:color-mix(in srgb, var(--bg-canvas) 86%, transparent);
+  border-bottom:0.5px solid var(--border-subtle)}
+.top .wrap{display:flex;align-items:center;justify-content:space-between;height:60px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:600;font-size:15px}
+.brand .dot{width:22px;height:22px;border-radius:7px;background:var(--primary-bg);
+  color:var(--primary-fg);display:flex;align-items:center;justify-content:center;font-size:13px}
+.theme-toggle{display:inline-flex;align-items:center;gap:7px;height:36px;padding:0 14px;
+  border:0.5px solid var(--border-strong);border-radius:var(--radius-full);background:var(--bg-surface);
+  color:var(--text-primary);font:inherit;font-size:13px;cursor:pointer}
+.theme-toggle:hover{background:var(--bg-subtle)}
+
+/* 标题区 */
+.hero{padding:40px 0 8px}
+.hero h1{font-size:28px;font-weight:600;letter-spacing:-.01em;margin:0 0 10px}
+.hero p{color:var(--text-secondary);font-size:14px;max-width:60ch;margin:0 0 4px}
+.hero .meta{color:var(--text-tertiary);font-size:12px;margin-top:10px}
+
+/* section */
+section{margin:44px 0 0}
+.sec-h{display:flex;align-items:baseline;gap:10px;margin:0 0 4px}
+.sec-h h2{font-size:18px;font-weight:600;margin:0}
+.sec-h .ref{font-size:11px;color:var(--text-tertiary)}
+.sec-d{color:var(--text-secondary);font-size:13px;margin:0 0 18px;max-width:64ch}
+.card{background:var(--bg-surface);border:0.5px solid var(--border-subtle);
+  border-radius:var(--radius-lg);box-shadow:var(--shadow-xs);padding:22px}
+.grid{display:grid;gap:14px}
+.label{font-size:11px;color:var(--text-tertiary);letter-spacing:.02em;margin:0 0 10px;
+  text-transform:uppercase;font-weight:500}
+
+/* 色卡 */
+.swatches{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.sw{border:0.5px solid var(--border-subtle);border-radius:var(--radius-md);overflow:hidden;background:var(--bg-surface)}
+.sw .chip{height:64px;display:flex;align-items:flex-end;justify-content:flex-end;padding:6px}
+.sw .body{padding:8px 10px 10px}
+.sw .nm{font-size:12px;font-weight:500}
+.sw .vr{font-size:11px;color:var(--text-tertiary);font-family:var(--font-mono);margin-top:2px}
+.sw .hx{font-size:11px;color:var(--text-secondary);font-family:var(--font-mono);margin-top:1px}
+.sw .tag{font-size:10px;border-radius:var(--radius-full);padding:1px 7px;background:rgba(255,255,255,.7);color:#111}
+
+/* 字阶 */
+.type-row{display:flex;align-items:baseline;gap:16px;padding:12px 0;border-bottom:0.5px solid var(--border-subtle)}
+.type-row:last-child{border-bottom:none}
+.type-row .spec{flex:0 0 168px;font-size:11px;color:var(--text-tertiary);font-family:var(--font-mono)}
+
+/* scale 展示 */
+.scale-row{display:flex;align-items:center;gap:14px;padding:9px 0;border-bottom:0.5px solid var(--border-subtle);font-size:12px}
+.scale-row:last-child{border-bottom:none}
+.scale-row .nm{flex:0 0 150px;font-family:var(--font-mono);color:var(--text-secondary)}
+.scale-row .vl{flex:0 0 56px;color:var(--text-tertiary);font-family:var(--font-mono)}
+.radius-demo{height:40px;background:var(--bg-subtle);border:0.5px solid var(--border-strong)}
+.space-demo{height:16px;background:var(--accent)}
+.shadow-demo{width:64px;height:40px;background:var(--bg-surface);border:0.5px solid var(--border-subtle);border-radius:var(--radius-md)}
+
+/* 组件:按钮 */
+.row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+.btn{display:inline-flex;align-items:center;gap:7px;height:40px;padding:0 18px;border-radius:var(--radius-full);
+  font:inherit;font-size:13px;font-weight:500;border:0.5px solid transparent;cursor:pointer;transition:.15s}
+.btn-primary{background:var(--primary-bg);color:var(--primary-fg)}
+.btn-primary:hover{background:var(--primary-bg-hover)}
+.btn-secondary{background:var(--bg-surface);color:var(--text-primary);border-color:var(--border-strong)}
+.btn-secondary:hover{background:var(--bg-subtle)}
+.btn-ghost{background:transparent;color:var(--text-secondary)}
+.btn-ghost:hover{background:var(--bg-subtle);color:var(--text-primary)}
+.btn-danger{background:transparent;color:var(--danger-text);border-color:var(--danger-border)}
+.btn-danger:hover{background:var(--danger-surface)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.send{width:40px;height:40px;border-radius:var(--radius-full);background:var(--primary-bg);color:var(--primary-fg);
+  display:inline-flex;align-items:center;justify-content:center;border:none;cursor:pointer}
+
+/* 药丸 pill */
+.pill{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 13px;border-radius:var(--radius-full);
+  border:0.5px solid var(--border-strong);background:var(--bg-surface);font-size:12.5px;color:var(--text-primary)}
+.pill.active{border-color:transparent;box-shadow:inset 0 0 0 1.5px var(--text-primary)}
+.pill.placeholder{border-style:dashed;color:var(--text-tertiary);border-color:var(--border-strong)}
+.pill.credit{background:var(--bg-subtle);border-color:var(--border-subtle)}
+.pill .warn-dot{width:7px;height:7px;border-radius:50%;background:var(--warning-border)}
+
+/* 徽章 / 状态 */
+.badge{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 9px;border-radius:var(--radius-full);font-size:11px;font-weight:500}
+.badge-accent{background:var(--accent-surface);color:var(--accent-on-surface)}
+.badge-success{background:var(--success-surface);color:var(--success-text)}
+.badge-danger{background:var(--danger-surface);color:var(--danger-text)}
+.badge-info{background:var(--info-surface);color:var(--info-text)}
+.badge-warning{background:var(--warning-surface);color:var(--warning-text)}
+.badge-neutral{background:var(--bg-subtle);color:var(--text-secondary)}
+.dot-status{width:7px;height:7px;border-radius:50%}
+
+/* 输入 */
+.input{height:42px;border:0.5px solid var(--border-strong);border-radius:var(--radius-md);background:var(--bg-surface);
+  display:flex;align-items:center;padding:0 14px;font-size:13px;color:var(--text-tertiary)}
+.input.focus{border-color:var(--text-primary);box-shadow:0 0 0 3px color-mix(in srgb,var(--text-primary) 10%,transparent)}
+.composer{border:0.5px solid var(--border-strong);border-radius:var(--radius-lg);background:var(--bg-surface);padding:14px;box-shadow:var(--shadow-sm)}
+.composer .ph{font-size:13.5px;color:var(--text-tertiary);min-height:38px}
+.composer .bar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:10px;flex-wrap:wrap}
+
+/* toast */
+.toast{display:flex;align-items:center;gap:9px;padding:11px 14px;border-radius:var(--radius-md);
+  background:var(--bg-surface);box-shadow:var(--shadow-md);border:0.5px solid var(--border-subtle);font-size:13px;max-width:340px}
+.toast .ic{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;color:#fff;flex:0 0 20px}
+
+/* 骨架·宇宙星空"生成中"占位（§5 生成态）—— 设计赛胜出「深空银河·旋转极光」+ 评审嫁接（星点离散闪烁/掠星事件/底部暗角/reduced-motion 静态星）。自包含深空底、自适应任意比例、仅 transform·opacity GPU 友好 */
+.skel-cosmic{position:relative;overflow:hidden;isolation:isolate;border-radius:var(--radius-md);
+  background:radial-gradient(120% 100% at 50% 0%,var(--cosmic-top) 0%,var(--cosmic-mid) 38%,var(--cosmic-bot) 100%);
+  border:0.5px solid var(--cosmic-edge);box-shadow:inset 0 0 40px rgba(4,6,14,.7),inset 0 1px 0 rgba(150,180,255,.08)}
+.skel-cosmic>*{position:absolute;pointer-events:none}
+.skel-cosmic::after{content:"";position:absolute;inset:0;z-index:2;pointer-events:none;border-radius:inherit;box-shadow:inset 0 -30% 42% -26% rgba(0,0,0,.6)}
+.skel-cosmic .sc-galaxy{inset:-60%;z-index:0;filter:blur(16px);will-change:transform;background:conic-gradient(from 0deg at 50% 50%,rgba(60,90,170,0) 0deg,rgba(86,128,220,.34) 48deg,rgba(150,110,210,.26) 95deg,rgba(40,70,150,0) 150deg,rgba(70,150,190,.30) 210deg,rgba(120,90,200,.22) 268deg,rgba(60,90,170,0) 320deg,rgba(86,128,220,.30) 360deg);animation:sc-rot 26s linear infinite}
+.skel-cosmic .sc-neb{inset:-30%;z-index:0;mix-blend-mode:screen;filter:blur(22px);will-change:transform;background:conic-gradient(from 140deg at 42% 58%,rgba(0,0,0,0) 0deg,rgba(110,180,210,.20) 70deg,rgba(0,0,0,0) 150deg,rgba(150,120,220,.18) 250deg,rgba(0,0,0,0) 330deg);animation:sc-rot-rev 38s linear infinite}
+.skel-cosmic .sc-stars,.skel-cosmic .sc-stars2,.skel-cosmic .sc-stars3{inset:0;z-index:1;background-repeat:no-repeat}
+.skel-cosmic .sc-stars{background-image:radial-gradient(1.4px 1.4px at 12% 18%,#fff,transparent),radial-gradient(1.6px 1.6px at 44% 34%,#fff,transparent),radial-gradient(1.2px 1.2px at 78% 58%,#fff,transparent),radial-gradient(1.3px 1.3px at 16% 88%,#fff,transparent),radial-gradient(1.5px 1.5px at 70% 90%,#fff,transparent);animation:sc-tw 4.2s ease-in-out infinite}
+.skel-cosmic .sc-stars2{background-image:radial-gradient(1px 1px at 28% 72%,rgba(220,232,255,.95),transparent),radial-gradient(1px 1px at 62% 12%,rgba(200,220,255,.9),transparent),radial-gradient(1px 1px at 88% 28%,rgba(210,225,255,.9),transparent),radial-gradient(1px 1px at 52% 80%,rgba(225,235,255,.92),transparent),radial-gradient(1px 1px at 6% 46%,rgba(215,228,255,.85),transparent);animation:sc-tw 5.6s ease-in-out infinite;animation-delay:-1.4s}
+.skel-cosmic .sc-stars3{background-image:radial-gradient(1px 1px at 22% 40%,rgba(255,255,255,.8),transparent),radial-gradient(1.2px 1.2px at 66% 44%,rgba(255,255,255,.85),transparent),radial-gradient(1px 1px at 38% 22%,rgba(255,255,255,.75),transparent),radial-gradient(1.8px 1.8px at 58% 70%,var(--accent),transparent);animation:sc-tw 3.1s ease-in-out infinite;animation-delay:-.6s}
+.skel-cosmic .sc-sweep{inset:-30% -10%;z-index:1;will-change:transform;background:linear-gradient(115deg,transparent 38%,rgba(200,220,255,.10) 47%,rgba(235,242,255,.22) 50%,rgba(200,220,255,.10) 53%,transparent 62%);animation:sc-sweep 3.8s cubic-bezier(.45,0,.2,1) infinite}
+.skel-cosmic .sc-comet{z-index:1;top:28%;left:-12%;width:32%;height:1.5px;border-radius:var(--radius-full);background:linear-gradient(90deg,rgba(220,230,255,0),rgba(220,230,255,.5) 60%,rgba(255,255,255,.85));opacity:0;filter:blur(.3px);will-change:transform,opacity;animation:sc-comet 9s ease-in-out infinite}
+.skel-cosmic .sc-meta{left:9px;bottom:8px;z-index:3;display:flex;align-items:center;gap:6px;font-size:11.5px;line-height:1;letter-spacing:.02em;color:rgba(232,240,255,.92);text-shadow:0 1px 3px rgba(0,8,24,.85),0 0 10px rgba(0,4,16,.6);font-variant-numeric:tabular-nums}
+.skel-cosmic .sc-meta b{font-weight:600;color:var(--accent);text-shadow:0 1px 2px rgba(0,8,24,.7)}
+.skel-cosmic .sc-dot{position:relative;width:9px;height:9px;flex:none}
+.skel-cosmic .sc-dot::before{content:"";position:absolute;inset:0;border-radius:50%;border:1px solid rgba(150,185,255,.55);animation:sc-ring 2.4s ease-out infinite}
+.skel-cosmic .sc-dot::after{content:"";position:absolute;inset:2.5px;border-radius:50%;background:var(--accent);box-shadow:0 0 6px var(--accent),0 0 2px #fff;animation:sc-pulse 2.4s ease-in-out infinite}
+@keyframes sc-rot{to{transform:rotate(360deg)}}
+@keyframes sc-rot-rev{to{transform:rotate(-360deg)}}
+@keyframes sc-tw{0%,100%{opacity:.5}45%{opacity:1}}
+@keyframes sc-sweep{0%{transform:translateX(-120%)}60%,100%{transform:translateX(120%)}}
+@keyframes sc-comet{0%,80%{opacity:0;transform:translate3d(0,0,0)}84%{opacity:.85}100%{opacity:0;transform:translate3d(150%,34%,0)}}
+@keyframes sc-ring{0%{transform:scale(.6);opacity:.9}80%,100%{transform:scale(1.5);opacity:0}}
+@keyframes sc-pulse{0%,100%{transform:scale(.85);opacity:.7}50%{transform:scale(1.1);opacity:1}}
+@media (prefers-reduced-motion:reduce){.skel-cosmic .sc-galaxy,.skel-cosmic .sc-neb,.skel-cosmic .sc-sweep,.skel-cosmic .sc-comet,.skel-cosmic .sc-stars,.skel-cosmic .sc-stars2,.skel-cosmic .sc-stars3,.skel-cosmic .sc-dot::before,.skel-cosmic .sc-dot::after{animation:none}.skel-cosmic .sc-comet{opacity:0}.skel-cosmic .sc-stars,.skel-cosmic .sc-stars2,.skel-cosmic .sc-stars3{opacity:.7}}
+
+/* 尺寸选项（线框图标，§17：未选浅描边、选中实心黑） */
+.size-opt{display:flex;flex-direction:column;align-items:center;gap:7px;width:88px;padding:12px 8px;
+  border:0.5px solid var(--border-strong);border-radius:var(--radius-md);background:var(--bg-surface);cursor:pointer}
+.size-opt.sel{border-color:transparent;box-shadow:inset 0 0 0 1.5px var(--text-primary)}
+.size-opt .ico{border:1.5px solid var(--text-tertiary);border-radius:3px}
+.size-opt.sel .ico{border-color:var(--text-primary);background:var(--text-primary)}
+.size-opt .t{font-size:11px;color:var(--text-secondary)}
+.size-opt.sel .t{color:var(--text-primary);font-weight:500}
+
+/* 导航项 */
+.nav{display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:var(--radius-md);font-size:13px;color:var(--text-secondary)}
+.nav.on{background:var(--bg-subtle);color:var(--text-primary);font-weight:500}
+.nav:hover:not(.on){background:var(--bg-subtle)}
+
+/* KPI + 表格 */
+.kpi{background:var(--bg-subtle);border-radius:var(--radius-md);padding:14px 16px}
+.kpi .k{font-size:11px;color:var(--text-secondary)}
+.kpi .v{font-size:24px;font-weight:600;margin-top:5px}
+table.tbl{width:100%;border-collapse:collapse;font-size:12.5px}
+table.tbl th{text-align:left;color:var(--text-secondary);font-weight:400;padding:9px 10px;border-bottom:0.5px solid var(--border-subtle)}
+table.tbl td{padding:9px 10px;border-bottom:0.5px solid var(--border-subtle)}
+.link{color:var(--text-primary);text-decoration:none;border-bottom:1px solid transparent}
+.link:hover{color:var(--accent);border-bottom-color:var(--accent)}
+
+/* lightbox 示意 */
+.lb{position:relative;min-height:240px;border-radius:var(--radius-lg);background:var(--scrim);
+  display:flex;align-items:center;justify-content:center;overflow:hidden}
+.lb .x{position:absolute;top:12px;right:14px;width:30px;height:30px;border-radius:50%;
+  border:0.5px solid rgba(255,255,255,.4);color:#fff;display:flex;align-items:center;justify-content:center}
+.lb .img{width:150px;height:200px;border-radius:var(--radius-md);background:var(--bg-subtle);box-shadow:var(--shadow-lg);
+  display:flex;align-items:center;justify-content:center;color:var(--text-tertiary)}
+.lb .dl{margin-top:12px;display:inline-flex;gap:7px;align-items:center;color:#fff;font-size:12px;
+  border:0.5px solid rgba(255,255,255,.45);border-radius:var(--radius-sm);padding:7px 18px}
+
+/* 灵感 / 充值卡 */
+.insp{border:0.5px solid var(--border-subtle);border-radius:var(--radius-lg);overflow:hidden;background:var(--bg-surface);box-shadow:var(--shadow-xs)}
+.insp .cov{height:104px;background:var(--bg-subtle);display:flex;align-items:center;justify-content:center;color:var(--text-tertiary)}
+.insp .bd{padding:12px}
+/* 灵感卡 v2 · .insp2 —— 封面为主体 / 文字浮层叠图 / 瀑布流保留原始比例（整图可见，不裁切） */
+.insp2-wall{column-count:3;column-gap:var(--space-4)}
+@media(max-width:880px){.insp2-wall{column-count:2}}
+@media(max-width:520px){.insp2-wall{column-count:1}}
+.insp2{position:relative;display:block;width:100%;break-inside:avoid;margin:0 0 var(--space-4);padding:0;border:0.5px solid var(--border-subtle);border-radius:var(--radius-lg);overflow:hidden;background:var(--bg-surface);box-shadow:var(--shadow-xs);cursor:pointer;text-align:left;color:inherit;transition:box-shadow .18s ease,transform .18s ease}
+.insp2:hover{box-shadow:var(--shadow-md);transform:translateY(-2px)}
+.insp2:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.insp2 .cov{position:relative;width:100%;background:var(--bg-subtle);display:flex;align-items:center;justify-content:center;color:var(--text-tertiary)}
+.insp2 .cov>i{font-size:34px}
+.insp2 .cov>img{width:100%;height:100%;display:block;object-fit:cover}
+.insp2 .chip{position:absolute;top:10px;left:10px;z-index:2;display:inline-flex;align-items:center;gap:5px;height:24px;padding:0 11px;border-radius:var(--radius-full);font-size:11px;font-weight:500;color:#fff;background:rgba(20,18,14,.42);-webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}
+.insp2 .scrim{position:absolute;left:0;right:0;bottom:0;z-index:2;padding:38px var(--space-3) var(--space-3);background:linear-gradient(to top,rgba(15,12,8,.86) 0%,rgba(15,12,8,.62) 38%,rgba(15,12,8,.18) 72%,rgba(15,12,8,0) 100%)}
+.insp2 .ttl{margin:0;font-size:14px;font-weight:500;color:#fff;line-height:1.35}
+.insp2 .sum{margin:3px 0 0;font-size:12px;color:rgba(255,255,255,.78);line-height:1.4;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+.insp2 .use{margin-top:10px;display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 13px;border-radius:var(--radius-full);font-size:12px;font-weight:500;color:#fff;background:rgba(255,255,255,.14);border:0.5px solid rgba(255,255,255,.4);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);opacity:0;transform:translateY(4px);transition:opacity .18s ease,transform .18s ease,background .16s ease,border-color .16s ease,color .16s ease}
+.insp2:hover .use,.insp2:focus-visible .use,.insp2:focus-within .use{opacity:1;transform:translateY(0)}
+.insp2 .use:hover{background:#fff;border-color:#fff;color:var(--accent)}
+@media(hover:none){.insp2 .use{opacity:1;transform:none}}
+.recharge{border:0.5px solid var(--border-strong);border-radius:var(--radius-lg);background:var(--bg-surface);padding:18px;display:flex;flex-direction:column;gap:9px}
+.recharge.featured{border:1.5px solid var(--accent)}
+.recharge .desc{font-size:12.5px;line-height:1.45;color:var(--text-secondary);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin:1px 0 3px;min-height:2.9em}
+
+.note{font-size:12px;color:var(--text-tertiary);margin-top:14px;padding-left:14px;border-left:2px solid var(--accent)}
+.callout{background:var(--accent-surface);border:0.5px solid color-mix(in srgb,var(--accent) 30%,transparent);
+  border-radius:var(--radius-md);padding:14px 16px;font-size:13px;color:var(--accent-on-surface)}
+ul.rules{margin:8px 0 0;padding-left:20px;font-size:13px;color:var(--text-secondary);line-height:1.8}
+ul.rules code{color:var(--text-primary)}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div class="brand"><span class="dot"><i class="ti ti-sparkles"></i></span>AI 图像工坊 · 视觉风格规范</div>
+    <button class="theme-toggle" id="toggle"><i class="ti ti-moon" id="toggle-ic"></i><span id="toggle-tx">切到暗色</span></button>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <div class="hero">
+    <h1>视觉风格规范 v1</h1>
+    <p>这是 v2 的<strong>设计令牌（design token）真相源</strong>与核心组件样例。研发取色/取间距/取圆角一律引此处的 CSS 变量，不再硬编码。本文件自身即用这套 token 渲染——<strong>所见即所得</strong>。</p>
+    <p class="meta">基调（已定）：亮色默认 · 暗色一键可切 · 柔和现代（大圆角 / 充足留白 / 0.5px 细边） · 系统字体栈（中文原生黑体 + Inter 拉丁）。锁定项见规格 §17。点右上角切换明暗，下方所有色值实时更新。</p>
+  </div>
+
+  <!-- 1. 调色板 -->
+  <section>
+    <div class="sec-h"><h2>1 · 调色板</h2><span class="ref">§17 中性黑白 + 陶土点缀</span></div>
+    <p class="sec-d">中性面是<strong>微暖中性灰</strong>（不是纯灰），与陶土点缀同源、更耐看。主操作恒为黑（暗色下反相为浅）。<strong>陶土 <code>#C26A3D</code> 是全站唯一强调色，只用于「推荐」徽章 / 选中点睛 / 链接 hover，绝不大面积铺。</strong></p>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="label">中性面 surfaces</div>
+      <div class="swatches">
+        <div class="sw"><div class="chip" style="background:var(--bg-canvas)"></div><div class="body"><div class="nm">页面底</div><div class="vr">--bg-canvas</div><div class="hx" data-var="--bg-canvas"></div></div></div>
+        <div class="sw"><div class="chip" style="background:var(--bg-surface)"></div><div class="body"><div class="nm">卡片 / 面板</div><div class="vr">--bg-surface</div><div class="hx" data-var="--bg-surface"></div></div></div>
+        <div class="sw"><div class="chip" style="background:var(--bg-subtle)"></div><div class="body"><div class="nm">次级填充</div><div class="vr">--bg-subtle</div><div class="hx" data-var="--bg-subtle"></div></div></div>
+        <div class="sw"><div class="chip" style="background:var(--bg-muted)"></div><div class="body"><div class="nm">hover / 更深</div><div class="vr">--bg-muted</div><div class="hx" data-var="--bg-muted"></div></div></div>
+      </div>
+      <div class="label" style="margin-top:18px">文字 text</div>
+      <div class="swatches">
+        <div class="sw"><div class="chip" style="background:var(--text-primary)"><span class="tag">主</span></div><div class="body"><div class="nm">主文字</div><div class="vr">--text-primary</div><div class="hx" data-var="--text-primary"></div></div></div>
+        <div class="sw"><div class="chip" style="background:var(--text-secondary)"><span class="tag">次</span></div><div class="body"><div class="nm">次文字</div><div class="vr">--text-secondary</div><div class="hx" data-var="--text-secondary"></div></div></div>
+        <div class="sw"><div class="chip" style="background:var(--text-tertiary)"><span class="tag">弱</span></div><div class="body"><div class="nm">弱 / 占位</div><div class="vr">--text-tertiary</div><div class="hx" data-var="--text-tertiary"></div></div></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="label">主操作 primary（黑底白字；暗色自动反相为浅底深字）</div>
+      <div class="swatches">
+        <div class="sw"><div class="chip" style="background:var(--primary-bg)"></div><div class="body"><div class="nm">主操作底</div><div class="vr">--primary-bg</div><div class="hx" data-var="--primary-bg"></div></div></div>
+        <div class="sw"><div class="chip" style="background:var(--primary-fg);border:0.5px solid var(--border-subtle)"></div><div class="body"><div class="nm">主操作字</div><div class="vr">--primary-fg</div><div class="hx" data-var="--primary-fg"></div></div></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:14px">
+      <div class="label">暖色点缀 accent · 陶土（唯一强调色）</div>
+      <div class="swatches">
+        <div class="sw"><div class="chip" style="background:var(--accent)"><span class="tag">accent</span></div><div class="body"><div class="nm">陶土</div><div class="vr">--accent</div><div class="hx" data-var="--accent"></div></div></div>
+        <div class="sw"><div class="chip" style="background:var(--accent-hover)"></div><div class="body"><div class="nm">hover</div><div class="vr">--accent-hover</div><div class="hx" data-var="--accent-hover"></div></div></div>
+        <div class="sw"><div class="chip" style="background:var(--accent-surface)"></div><div class="body"><div class="nm">浅底</div><div class="vr">--accent-surface</div><div class="hx" data-var="--accent-surface"></div></div></div>
+        <div class="sw"><div class="chip" style="background:var(--accent-on-surface)"></div><div class="body"><div class="nm">浅底上文字</div><div class="vr">--accent-on-surface</div><div class="hx" data-var="--accent-on-surface"></div></div></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="label">语义色 semantic</div>
+      <div class="swatches">
+        <div class="sw"><div class="chip" style="background:var(--success-surface);color:var(--success-text);align-items:center;justify-content:center;font-size:12px">成功</div><div class="body"><div class="nm">success</div><div class="vr">--success-*</div></div></div>
+        <div class="sw"><div class="chip" style="background:var(--danger-surface);color:var(--danger-text);align-items:center;justify-content:center;font-size:12px">失败</div><div class="body"><div class="nm">danger</div><div class="vr">--danger-*</div></div></div>
+        <div class="sw"><div class="chip" style="background:var(--info-surface);color:var(--info-text);align-items:center;justify-content:center;font-size:12px">信息</div><div class="body"><div class="nm">info</div><div class="vr">--info-*</div></div></div>
+        <div class="sw"><div class="chip" style="background:var(--warning-surface);color:var(--warning-text);align-items:center;justify-content:center;font-size:12px">过期提醒</div><div class="body"><div class="nm">warning</div><div class="vr">--warning-*</div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. 字体 -->
+  <section>
+    <div class="sec-h"><h2>2 · 字体与字阶</h2><span class="ref">系统字体栈</span></div>
+    <p class="sec-d">字体栈：<code>Inter</code>（拉丁/数字）→ 各平台原生黑体（苹方 / 微软雅黑 / 思源）。零加载、首屏即渲染。字重只用 <strong>400 / 500 / 600</strong> 三档，正文行高 1.5、紧凑标题 1.3。</p>
+    <div class="card">
+      <div class="type-row"><span class="spec">28 / 600 · display</span><span style="font-size:28px;font-weight:600;letter-spacing:-.01em">今天想画点什么？</span></div>
+      <div class="type-row"><span class="spec">22 / 600 · h1</span><span style="font-size:22px;font-weight:600">资产库 Asset Library</span></div>
+      <div class="type-row"><span class="spec">18 / 600 · h2</span><span style="font-size:18px;font-weight:600">充值档位</span></div>
+      <div class="type-row"><span class="spec">16 / 500 · h3</span><span style="font-size:16px;font-weight:500">本次对话图片</span></div>
+      <div class="type-row"><span class="spec">14 / 400 · body</span><span style="font-size:14px">描述画面、选好比例，剩下的交给 AI。正文默认字号。</span></div>
+      <div class="type-row"><span class="spec">13 / 400 · body-sm</span><span style="font-size:13px;color:var(--text-secondary)">次要正文 / 表单说明 / 按钮文字。</span></div>
+      <div class="type-row"><span class="spec">12 / 400 · caption</span><span style="font-size:12px;color:var(--text-secondary)">辅助说明、时间戳、字段标签。</span></div>
+      <div class="type-row"><span class="spec">11 / 500 · micro</span><span style="font-size:11px;color:var(--text-tertiary)">徽章、角标、表头。</span></div>
+    </div>
+  </section>
+
+  <!-- 3. 形态 -->
+  <section>
+    <div class="sec-h"><h2>3 · 圆角 · 间距 · 阴影</h2><span class="ref">柔和现代</span></div>
+    <p class="sec-d">柔和现代基调：圆角偏大、留白充足、阴影克制（用 0.5px 细边而非重阴影界定层级）。</p>
+    <div class="grid" style="grid-template-columns:1fr 1fr;gap:14px">
+      <div class="card">
+        <div class="label">圆角 radius</div>
+        <div class="scale-row"><span class="nm">--radius-sm</span><span class="vl">8</span><div class="radius-demo" style="flex:1;border-radius:8px"></div></div>
+        <div class="scale-row"><span class="nm">--radius-md</span><span class="vl">12</span><div class="radius-demo" style="flex:1;border-radius:12px"></div></div>
+        <div class="scale-row"><span class="nm">--radius-lg</span><span class="vl">16</span><div class="radius-demo" style="flex:1;border-radius:16px"></div></div>
+        <div class="scale-row"><span class="nm">--radius-xl</span><span class="vl">20</span><div class="radius-demo" style="flex:1;border-radius:20px"></div></div>
+        <div class="scale-row"><span class="nm">--radius-full</span><span class="vl">∞</span><div class="radius-demo" style="flex:1;border-radius:999px"></div></div>
+      </div>
+      <div class="card">
+        <div class="label">间距 spacing（4px 基准）</div>
+        <div class="scale-row"><span class="nm">--space-1</span><span class="vl">4</span><div class="space-demo" style="width:4px"></div></div>
+        <div class="scale-row"><span class="nm">--space-2</span><span class="vl">8</span><div class="space-demo" style="width:8px"></div></div>
+        <div class="scale-row"><span class="nm">--space-3</span><span class="vl">12</span><div class="space-demo" style="width:12px"></div></div>
+        <div class="scale-row"><span class="nm">--space-4</span><span class="vl">16</span><div class="space-demo" style="width:16px"></div></div>
+        <div class="scale-row"><span class="nm">--space-6</span><span class="vl">24</span><div class="space-demo" style="width:24px"></div></div>
+        <div class="scale-row"><span class="nm">--space-8</span><span class="vl">32</span><div class="space-demo" style="width:32px"></div></div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <div class="label">阴影 shadow</div>
+      <div class="row" style="gap:32px">
+        <div style="text-align:center"><div class="shadow-demo" style="box-shadow:var(--shadow-xs)"></div><div class="vr" style="font-size:11px;color:var(--text-tertiary);margin-top:8px;font-family:var(--font-mono)">xs · 卡片</div></div>
+        <div style="text-align:center"><div class="shadow-demo" style="box-shadow:var(--shadow-sm)"></div><div class="vr" style="font-size:11px;color:var(--text-tertiary);margin-top:8px;font-family:var(--font-mono)">sm · composer</div></div>
+        <div style="text-align:center"><div class="shadow-demo" style="box-shadow:var(--shadow-md)"></div><div class="vr" style="font-size:11px;color:var(--text-tertiary);margin-top:8px;font-family:var(--font-mono)">md · 浮层/下拉</div></div>
+        <div style="text-align:center"><div class="shadow-demo" style="box-shadow:var(--shadow-lg)"></div><div class="vr" style="font-size:11px;color:var(--text-tertiary);margin-top:8px;font-family:var(--font-mono)">lg · 弹窗</div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. 按钮 -->
+  <section>
+    <div class="sec-h"><h2>4 · 按钮 / 发送键</h2><span class="ref">§5.1 黑色主操作</span></div>
+    <p class="sec-d">主操作恒为黑（暗色反相为浅）。陶土<strong>不</strong>做主按钮——它只点睛。次操作走描边，危险操作走红描边。</p>
+    <div class="card">
+      <div class="row">
+        <button class="btn btn-primary"><i class="ti ti-sparkles"></i>生成图像</button>
+        <button class="btn btn-secondary">重新生成</button>
+        <button class="btn btn-ghost"><i class="ti ti-copy"></i>复制提示词</button>
+        <button class="btn btn-danger"><i class="ti ti-trash"></i>删除</button>
+        <button class="btn btn-primary" disabled>禁用态</button>
+        <button class="send" title="发送"><i class="ti ti-arrow-up" style="font-size:16px"></i></button>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. 药丸 + Composer -->
+  <section>
+    <div class="sec-h"><h2>5 · 药丸 · Composer</h2><span class="ref">§5.1</span></div>
+    <p class="sec-d">Composer 一排药丸：参考图（占位虚线）/ 比例 / 高级设置 / 优化提示词（占位虚线）+ 圆形发送。占位功能用<strong>虚线弱色</strong>药丸明确「敬请期待」。</p>
+    <div class="card">
+      <div class="label">药丸状态</div>
+      <div class="row" style="margin-bottom:18px">
+        <span class="pill"><i class="ti ti-crop"></i>比例 · 智能<i class="ti ti-chevron-down" style="font-size:13px"></i></span>
+        <span class="pill active"><i class="ti ti-crop"></i>比例 · 2:3</span>
+        <span class="pill"><i class="ti ti-adjustments-horizontal"></i>高级设置</span>
+        <span class="pill placeholder"><i class="ti ti-photo"></i>参考图 · 敬请期待</span>
+        <span class="pill placeholder"><i class="ti ti-wand"></i>优化提示词</span>
+        <span class="pill credit"><i class="ti ti-coin"></i>积分 5.86</span>
+        <span class="pill credit"><span class="warn-dot"></span><i class="ti ti-coin"></i>5.86 · 将于 06-30 过期</span>
+      </div>
+      <div class="label">Composer（欢迎态）</div>
+      <div class="composer">
+        <div class="ph">描述你想生成的画面…</div>
+        <div class="bar">
+          <div class="row" style="gap:7px">
+            <span class="pill placeholder" style="height:32px;padding:0 10px"><i class="ti ti-photo"></i></span>
+            <span class="pill" style="height:32px"><i class="ti ti-crop"></i>智能<i class="ti ti-chevron-down" style="font-size:12px"></i></span>
+            <span class="pill" style="height:32px"><i class="ti ti-adjustments-horizontal"></i>高级</span>
+            <span class="pill placeholder" style="height:32px"><i class="ti ti-wand"></i>优化</span>
+          </div>
+          <div class="row" style="gap:10px">
+            <span style="font-size:11px;color:var(--text-tertiary)">本次 0.07 · 剩 5.86</span>
+            <button class="send" style="width:36px;height:36px"><i class="ti ti-arrow-up" style="font-size:15px"></i></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6. 尺寸选择 -->
+  <section>
+    <div class="sec-h"><h2>6 · 尺寸选项（线框图标）</h2><span class="ref">§17 / §5.1</span></div>
+    <p class="sec-d">复用 v1 的 6 个「按用途」场景选项。<strong>未选浅描边线框图标、选中实心黑 + 黑边</strong>（§17）。</p>
+    <div class="card">
+      <div class="row" style="gap:10px">
+        <div class="size-opt sel"><div class="ico" style="width:28px;height:28px;border-radius:50%"></div><span class="t">智能</span></div>
+        <div class="size-opt"><div class="ico" style="width:28px;height:28px"></div><span class="t">1:1</span></div>
+        <div class="size-opt"><div class="ico" style="width:22px;height:30px"></div><span class="t">2:3</span></div>
+        <div class="size-opt"><div class="ico" style="width:30px;height:22px"></div><span class="t">3:2</span></div>
+        <div class="size-opt"><div class="ico" style="width:18px;height:30px"></div><span class="t">9:16</span></div>
+        <div class="size-opt"><div class="ico" style="width:30px;height:18px"></div><span class="t">16:9</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 7. 徽章 / 状态 -->
+  <section>
+    <div class="sec-h"><h2>7 · 徽章 · 状态</h2><span class="ref">§9 / §6.1 / §24</span></div>
+    <p class="sec-d">「推荐 / 更划算」走<strong>陶土</strong>徽章（唯一允许的陶土铺面，面积也极小）；生成状态、过期倒计时用语义色。</p>
+    <div class="card">
+      <div class="label">徽章</div>
+      <div class="row" style="margin-bottom:18px">
+        <span class="badge badge-accent"><i class="ti ti-star" style="font-size:11px"></i>推荐</span>
+        <span class="badge badge-accent">更划算</span>
+        <span class="badge badge-success"><span class="dot-status" style="background:var(--success-text)"></span>成功</span>
+        <span class="badge badge-warning"><span class="dot-status" style="background:var(--warning-border)"></span>3 天后过期</span>
+        <span class="badge badge-danger">封禁</span>
+        <span class="badge badge-info">进行中</span>
+        <span class="badge badge-neutral">已用尽</span>
+      </div>
+      <div class="label">链接 hover（陶土）</div>
+      <div style="font-size:13px;color:var(--text-secondary)">这是一段正文，其中有一个 <a href="#" class="link">可点击链接</a>，hover 时下划线与文字转陶土色。</div>
+    </div>
+  </section>
+
+  <!-- 8. 输入 / Toast / 骨架 -->
+  <section>
+    <div class="sec-h"><h2>8 · 输入 · Toast · 骨架占位</h2><span class="ref">§24-11 / §24-12</span></div>
+    <div class="grid" style="grid-template-columns:1fr 1fr;gap:14px">
+      <div class="card">
+        <div class="label">输入框</div>
+        <div class="input" style="margin-bottom:10px">you@example.com</div>
+        <div class="input focus">输入兑换码…</div>
+        <div class="label" style="margin-top:18px">Toast（右上角·自动 3 秒消失）</div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <div class="toast"><span class="ic" style="background:var(--success-text)"><i class="ti ti-check"></i></span>已存入资产库</div>
+          <div class="toast"><span class="ic" style="background:var(--danger-text)"><i class="ti ti-x"></i></span>兑换码已被使用</div>
+          <div class="toast"><span class="ic" style="background:var(--text-tertiary)"><i class="ti ti-info-small"></i></span>已复制提示词</div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="label">骨架占位格 · 宇宙星空（生成中 · 按比例 · 非纯转圈）</div>
+        <div class="row" style="align-items:flex-start;gap:14px">
+          <div class="skel-cosmic" style="width:96px;height:144px" role="img" aria-label="生成中"><div class="sc-galaxy"></div><div class="sc-neb"></div><div class="sc-stars"></div><div class="sc-stars2"></div><div class="sc-stars3"></div><div class="sc-sweep"></div><div class="sc-comet"></div><div class="sc-meta"><span class="sc-dot"></span>生成中 <b>0:08</b></div></div>
+          <div class="skel-cosmic" style="width:120px;height:120px" role="img" aria-label="生成中"><div class="sc-galaxy"></div><div class="sc-neb"></div><div class="sc-stars"></div><div class="sc-stars2"></div><div class="sc-stars3"></div><div class="sc-sweep"></div><div class="sc-comet"></div><div class="sc-meta"><span class="sc-dot"></span>生成中 <b>0:03</b></div></div>
+          <div class="skel-cosmic" style="width:170px;height:96px" role="img" aria-label="生成中"><div class="sc-galaxy"></div><div class="sc-neb"></div><div class="sc-stars"></div><div class="sc-stars2"></div><div class="sc-stars3"></div><div class="sc-sweep"></div><div class="sc-comet"></div><div class="sc-meta"><span class="sc-dot"></span>生成中 <b>0:12</b></div></div>
+        </div>
+        <div class="note">深空星云 + 旋转极光 + 错峰星点 + 偶发掠星（Gemini 式高级等待感）。自适应任意比例（2:3 / 1:1 / 16:9 同款铺满），仅 transform·opacity、星点写死、含 <code>prefers-reduced-motion</code> 降级；计时数字陶土点睛。一旦开始不可取消。</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 9. 卡片样例 -->
+  <section>
+    <div class="sec-h"><h2>9 · 卡片（充值）· 导航 · 后台</h2><span class="ref">§7 / §9</span></div>
+    <div class="grid" style="grid-template-columns:1fr 1fr;gap:14px">
+      <div class="card">
+        <div class="label">充值档卡片（推荐档用陶土描边 + 徽章）</div>
+        <div class="grid" style="grid-template-columns:1fr 1fr;gap:12px">
+          <div class="recharge">
+            <div style="font-size:13px;font-weight:600">基础档</div>
+            <div style="font-size:24px;font-weight:600">¥9.9</div>
+            <div style="font-size:12px;color:var(--text-secondary)"><i class="ti ti-check" style="font-size:13px"></i> 到账 10 积分</div>
+            <div class="desc">适合偶尔尝鲜、轻量出图的个人，先试试手感再说。</div>
+            <button class="btn btn-primary" style="height:38px;justify-content:center"><i class="ti ti-external-link"></i>去购买</button>
+          </div>
+          <div class="recharge featured">
+            <div class="row" style="gap:7px"><span style="font-size:13px;font-weight:600">超值档</span><span class="badge badge-accent">更划算</span></div>
+            <div style="font-size:24px;font-weight:600">¥29.9</div>
+            <div style="font-size:12px;color:var(--text-secondary)"><i class="ti ti-check" style="font-size:13px"></i> 到账 32 积分</div>
+            <div class="desc">高频创作、批量出图的主力之选，多送积分、单张更划算。</div>
+            <button class="btn btn-primary" style="height:38px;justify-content:center"><i class="ti ti-external-link"></i>去购买</button>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="label">侧栏导航（选中态 = 次级填充底）</div>
+        <div style="display:flex;flex-direction:column;gap:3px">
+          <div class="nav on"><i class="ti ti-plus"></i>新建生成</div>
+          <div class="nav"><i class="ti ti-search"></i>搜索</div>
+          <div class="nav"><i class="ti ti-history"></i>最近</div>
+          <div class="nav"><i class="ti ti-photo"></i>资产库</div>
+          <div class="nav"><i class="ti ti-bulb"></i>灵感库</div>
+        </div>
+        <div class="note" style="border-color:var(--text-tertiary)">灵感卡见下方独立一节（封面为主体的瀑布流）。</div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:14px">
+      <div class="label">数据看板 KPI + 表格</div>
+      <div class="grid" style="grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px">
+        <div class="kpi"><div class="k">今日注册</div><div class="v">37</div></div>
+        <div class="kpi"><div class="k">今日收入(面值)</div><div class="v">¥358</div></div>
+        <div class="kpi"><div class="k">平均生图时长</div><div class="v">14.2s</div></div>
+        <div class="kpi"><div class="k">队列 待/跑</div><div class="v">2/5</div></div>
+      </div>
+      <table class="tbl">
+        <tr><th>用户</th><th>时长</th><th>提示词</th><th>状态</th></tr>
+        <tr><td>u_8831</td><td>14.2s</td><td>柴犬戴针织帽，窗边午后光</td><td><span class="badge badge-success">成功</span></td></tr>
+        <tr><td>u_6512</td><td>—</td><td>山间观星台，长曝光</td><td><span class="badge badge-danger">504 超时</span></td></tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- 9b. 灵感卡 v2 -->
+  <section>
+    <div class="sec-h"><h2>10 · 灵感卡（封面为主体 · 瀑布流自适应）</h2><span class="ref">§13</span></div>
+    <p class="sec-d">封面图为视觉主体、尽量大；标题/摘要/操作以<strong>半透明渐变浮层</strong>叠在图片下半部，上半部图片完全可见。品类标签浮左上、"用此提示词" hover 浮现（陶土点睛）。<strong>封面保留图片原始比例（瀑布流），整图不裁切</strong>——下方 2:3 / 1:1 / 16:9 / 3:2 四种比例同墙自适应（真实数据把占位换成 <code>&lt;img&gt;</code>、并把该图宽高比写进 <code>.cov</code> 的 <code>aspect-ratio</code> 即可）。</p>
+    <div class="card">
+      <div class="insp2-wall">
+        <button class="insp2" type="button">
+          <div class="cov" style="aspect-ratio:2/3"><i class="ti ti-photo" aria-hidden="true"></i></div>
+          <span class="chip"><i class="ti ti-user-circle" style="font-size:13px" aria-hidden="true"></i>人像</span>
+          <div class="scrim"><p class="ttl">暮色侧光肖像</p><p class="sum">柔和窗光，35mm，电影感暖调与浅景深</p><span class="use"><i class="ti ti-wand" style="font-size:14px" aria-hidden="true"></i>用此提示词</span></div>
+        </button>
+        <button class="insp2" type="button">
+          <div class="cov" style="aspect-ratio:1/1"><i class="ti ti-photo" aria-hidden="true"></i></div>
+          <span class="chip"><i class="ti ti-cube" style="font-size:13px" aria-hidden="true"></i>3D</span>
+          <div class="scrim"><p class="ttl">等距迷你工作室</p><p class="sum">柔和黏土材质，等距视角，粉橘配色</p><span class="use"><i class="ti ti-wand" style="font-size:14px" aria-hidden="true"></i>用此提示词</span></div>
+        </button>
+        <button class="insp2" type="button">
+          <div class="cov" style="aspect-ratio:16/9"><i class="ti ti-photo" aria-hidden="true"></i></div>
+          <span class="chip"><i class="ti ti-mountain" style="font-size:13px" aria-hidden="true"></i>风景</span>
+          <div class="scrim"><p class="ttl">雾气山谷晨光全景</p><p class="sum">广角宽幅，层叠远山，丁达尔光束穿过云层</p><span class="use"><i class="ti ti-wand" style="font-size:14px" aria-hidden="true"></i>用此提示词</span></div>
+        </button>
+        <button class="insp2" type="button">
+          <div class="cov" style="aspect-ratio:3/2"><i class="ti ti-photo" aria-hidden="true"></i></div>
+          <span class="chip"><i class="ti ti-building-arch" style="font-size:13px" aria-hidden="true"></i>建筑</span>
+          <div class="scrim"><p class="ttl">极简混凝土中庭</p><p class="sum">对称构图，清水混凝土与天光</p><span class="use"><i class="ti ti-wand" style="font-size:14px" aria-hidden="true"></i>用此提示词</span></div>
+        </button>
+      </div>
+      <div class="note">瀑布流（CSS columns，宽度收窄自动 3→2→1 列）+ 每卡按图片真实比例设 <code>aspect-ratio</code>，故整图可见不裁切。浮层文字/标签固定白色（永远叠在不可预测的图上，保证可读），卡片外框/底/阴影仍走 token 随明暗切换。</div>
+    </div>
+  </section>
+
+  <!-- 11. lightbox -->
+  <section>
+    <div class="sec-h"><h2>11 · 图片放大预览（lightbox）</h2><span class="ref">§17 全局</span></div>
+    <p class="sec-d">点任意图 → 屏幕居中模态浮层，暗遮罩覆盖全屏；浮层内<strong>仅「下载」</strong>，不放再生成。</p>
+    <div class="card" style="padding:0;overflow:hidden">
+      <div class="lb">
+        <div style="position:absolute;top:12px;left:14px;color:rgba(255,255,255,.7);font-size:11px">遮罩覆盖全屏 · 点遮罩或 × 关闭</div>
+        <div class="x"><i class="ti ti-x" style="font-size:16px"></i></div>
+        <div style="display:flex;flex-direction:column;align-items:center">
+          <div class="img"><i class="ti ti-photo" style="font-size:32px"></i></div>
+          <span class="dl"><i class="ti ti-download" style="font-size:13px"></i>下载</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 12. 用法红线 -->
+  <section>
+    <div class="sec-h"><h2>12 · 用法约定 / 红线</h2><span class="ref">落地必守</span></div>
+    <div class="callout" style="margin-bottom:14px">
+      <strong>陶土 = 点睛，不是主色。</strong>全站陶土只出现在 4 处：① 「推荐 / 更划算」徽章 ② 选中 / 激活的细节点睛 ③ 链接 hover ④ 推荐档卡片描边。主操作、大面积背景一律中性。
+    </div>
+    <div class="card">
+      <ul class="rules">
+        <li>取色 / 间距 / 圆角一律用 CSS 变量，<strong>不硬编码</strong>（取代 v1 <code>styles.css</code> 的散落色值）。</li>
+        <li>层级用 <strong>0.5px 细边 + 微阴影</strong>界定，不用重边框、不用大投影。</li>
+        <li>主操作按钮恒 <code>--primary-bg</code>（亮黑 / 暗浅自动反相），保证最高对比。</li>
+        <li>暗色不是把亮色取反——已单独调校（陶土提亮、语义色降饱和、阴影加深）。</li>
+        <li>圆角默认：卡片 <code>lg(16)</code>、输入/下拉 <code>md(12)</code>、药丸/按钮/发送 <code>full</code>。</li>
+        <li>所有图片可点击放大（lightbox），浮层内仅下载。</li>
+      </ul>
+    </div>
+    <p class="note">确认本风格后：① 同步进规格 §17（把抽象描述替换为本 token 表）② 更新 PROGRESS / 原型 README 索引 ③ 阶段一开发时把这套变量落成 <code>tokens.css</code> 全局引入。</p>
+  </section>
+
+  <div style="height:40px"></div>
+</div>
+
+<script>
+(function(){
+  var root = document.documentElement;
+  var btn = document.getElementById('toggle');
+  var ic = document.getElementById('toggle-ic');
+  var tx = document.getElementById('toggle-tx');
+
+  function refreshSwatches(){
+    var cs = getComputedStyle(root);
+    document.querySelectorAll('.hx[data-var]').forEach(function(el){
+      var v = cs.getPropertyValue(el.getAttribute('data-var')).trim();
+      el.textContent = v;
+    });
+  }
+  function setTheme(t){
+    root.setAttribute('data-theme', t);
+    var dark = t === 'dark';
+    ic.className = 'ti ' + (dark ? 'ti-sun' : 'ti-moon');
+    tx.textContent = dark ? '切到亮色' : '切到暗色';
+    refreshSwatches();
+  }
+  btn.addEventListener('click', function(){
+    setTheme(root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+  });
+  setTheme('light');
+})();
+</script>
+</body>
+</html>
