@@ -1,54 +1,31 @@
-import { createGenerateHandler } from '../../src/server/asyncImageJob';
-import { connectJobsStore, getJobsStore } from '../../src/server/jobStore';
+// POST /api/generate（同步入队，真相源 04 §5.2）。轻/快/只校验+入队，**绝不 await 中转**。
+// requireUserStrict（敏感写·每请求查 DB·封禁拦截）→ enqueue 三闸(402/409/429) → 触发真后台(fire-and-forget) → 202。
+import { httpError } from "../../src/contracts/error";
+import { GenerateRequest } from "../../src/contracts/generate";
+import { requireUserStrict } from "../../src/lib/guard";
+import { enqueueGeneration } from "../../src/server/generation/enqueue";
+import { triggerBackground } from "../../src/server/generation/trigger";
 
-type NetlifyEvent = {
-  httpMethod: string;
-  body: string | null;
-  fetchImpl?: typeof fetch;
-};
-
-type NetlifyResponse = {
-  statusCode: number;
-  headers: Record<string, string>;
-  body: string;
-};
-
-export async function handler(event: NetlifyEvent): Promise<NetlifyResponse> {
-  connectJobsStore(event);
-
-  const handleGenerate = createGenerateHandler({
-    jobsStore: getJobsStore(),
-    triggerBackgroundJob,
-  });
-
-  const response = await handleGenerate({
-    method: event.httpMethod,
-    body: event.body ?? '',
-  });
-
-  return {
-    statusCode: response.status,
-    headers: response.headers,
-    body: response.body,
-  };
-}
-
-async function triggerBackgroundJob(jobId: string, input: unknown): Promise<void> {
-  // 本地 netlify dev 下 URL/DEPLOY_PRIME_URL 可能缺失 → 回退本地；都缺失才抛错（F-trigger）。
-  const baseUrl =
-    process.env.URL ||
-    process.env.DEPLOY_PRIME_URL ||
-    (process.env.NETLIFY_DEV ? 'http://localhost:8888' : undefined);
-  if (!baseUrl) {
-    throw new Error('Missing Netlify site URL for background function trigger.');
+export default async function handler(req: Request): Promise<Response> {
+  try {
+    if (req.method !== "POST") return httpError(405, "INVALID_PARAM", "method_not_allowed");
+    const ctx = await requireUserStrict(req); // 抛 Response 401/403
+    let input: GenerateRequest;
+    try {
+      input = GenerateRequest.parse(await req.json());
+    } catch {
+      return httpError(400, "INVALID_PARAM", "参数无效");
+    }
+    // 三闸 + 建会话 + INSERT generations(queued)（同一 FOR UPDATE 事务）；抛 Response 402/409/429/404。
+    const { generationId } = await enqueueGeneration({
+      user: { id: ctx.userId, maxConcurrency: ctx.maxConcurrency },
+      input,
+    });
+    await triggerBackground(generationId); // fire-and-forget（不抛、不阻塞）
+    return Response.json({ generationId, status: "queued" }, { status: 202 });
+  } catch (e) {
+    if (e instanceof Response) return e; // guard / enqueue 抛出的统一错误信封
+    console.error("[generate] error", e);
+    return httpError(500, "INTERNAL", "服务异常，请重试");
   }
-
-  // fire-and-forget：job 已写入 Blobs、202 已可返回，触发失败只记日志、不阻塞、不抛。
-  void fetch(`${baseUrl}/.netlify/functions/generate-background`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ jobId, input }),
-  }).catch((error) => {
-    console.error('triggerBackgroundJob failed', error);
-  });
 }

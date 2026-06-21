@@ -1,39 +1,16 @@
-import { runImageJob } from '../../src/server/asyncImageJob';
-import type { ImageProxyInput } from '../../src/server/imageProxy';
-import { connectJobsStore, getJobsStore } from '../../src/server/jobStore';
+// Background Function（**-background 后缀 = Netlify 异步派发、15min、平台会自动重试**，真相源 04 §5.3）。
+// 内部触发（无鉴权），body 仅 {generationId} → runGenerationJob（抢占→中转→落图→扣费；幂等、可重试）。
+// 正因平台会重试，runGenerationJob 入口的抢占式状态机（铁律③）+ 扣费 ⓪双守卫挡重复下单/扣费。
+import { runGenerationJob } from "../../src/server/generation/process";
 
-type NetlifyEvent = {
-  body: string | null;
-};
-
-type NetlifyResponse = {
-  statusCode: number;
-  headers: Record<string, string>;
-  body: string;
-};
-
-export async function handler(event: NetlifyEvent): Promise<NetlifyResponse> {
-  connectJobsStore(event);
-
-  const payload = JSON.parse(event.body ?? '{}') as { jobId?: string; input?: ImageProxyInput };
-
-  if (!payload.jobId || !payload.input) {
-    return jsonResponse(400, { error: 'Missing job input' });
+export default async function handler(req: Request): Promise<Response> {
+  try {
+    const { generationId } = (await req.json().catch(() => ({}))) as { generationId?: string };
+    if (!generationId) return Response.json({ error: "missing generationId" }, { status: 400 });
+    const outcome = await runGenerationJob(generationId);
+    return Response.json({ ok: true, outcome }, { status: 202 });
+  } catch (e) {
+    console.error("[generate-background] error", e);
+    return Response.json({ error: "internal" }, { status: 500 });
   }
-
-  await runImageJob({
-    jobId: payload.jobId,
-    input: payload.input,
-    jobsStore: getJobsStore(),
-  });
-
-  return jsonResponse(202, { status: 'accepted' });
-}
-
-function jsonResponse(statusCode: number, payload: unknown): NetlifyResponse {
-  return {
-    statusCode,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  };
 }

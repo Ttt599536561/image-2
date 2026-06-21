@@ -93,17 +93,17 @@ describe("扣费事务（debit）", () => {
 
   it("FIFO 跨批：先扣最早过期批次到 0，再扣下一批；各批不出负", async () => {
     const uid = await ctx.createUser({ balanceMp: 140 });
-    await ctx.addLot(uid, 40, { source: "code", expiresInDays: 1 }); // 早过期，先扣
-    await ctx.addLot(uid, 100, { source: "code", expiresInDays: 60 }); // 晚过期
+    // 按 lot id 断言（确定性）：不靠 expires_at 字符串排序（neon 返 Date，String(Date) 按星期名排序会随日历漂）。
+    const early = await ctx.addLot(uid, 40, { source: "code", expiresInDays: 1 }); // 早过期，FIFO 先扣
+    const late = await ctx.addLot(uid, 100, { source: "code", expiresInDays: 60 }); // 晚过期
     const { generationId } = await ctx.createGeneration(uid, { status: "running" });
 
     const r = await chargeOnSuccess({ userId: uid, ...PUT(generationId) });
     expect(r.charged).toBe(70);
 
     const lots = await ctx.lots(uid);
-    const byExp = lots.sort((x, y) => String(x.expires_at).localeCompare(String(y.expires_at)));
-    expect(Number(byExp[0].remaining_mp)).toBe(0); // 早过期批次扣空
-    expect(Number(byExp[1].remaining_mp)).toBe(70); // 100 - 30
+    expect(Number(lots.find((l) => l.id === early)?.remaining_mp)).toBe(0); // 早过期批次扣空
+    expect(Number(lots.find((l) => l.id === late)?.remaining_mp)).toBe(70); // 100 - 30
     expect(await ctx.balanceMp(uid)).toBe(70);
   });
 

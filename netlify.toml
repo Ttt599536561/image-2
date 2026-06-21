@@ -6,8 +6,13 @@
   publish = "build/client"
   functions = "netlify/functions"
 
-# 阶段一保留经典 Netlify Function 入口（生图提交）；阶段二全链路打通真后台
+# 生图 REST：同步入队 /api/generate + 短轮询 /api/generate-status → 经典 Functions（v2 Request 处理器）。
+# generate-background 由 generate 内部 fire-and-forget 触发（/.netlify/functions/generate-background，-background=15min 后台）。
 [[redirects]]
   from = "/api/generate"
   to = "/.netlify/functions/generate"
+  status = 200
+[[redirects]]
+  from = "/api/generate-status"
+  to = "/.netlify/functions/generate-status"
   status = 200
