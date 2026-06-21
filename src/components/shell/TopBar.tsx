@@ -59,7 +59,8 @@ export function TopBar({
             title="本次对话图片"
           >
             <LayoutGrid size={15} />
-            本次·{thisCount ?? 0}
+            <span className={styles.panelLabelFull}>本次·</span>
+            {thisCount ?? 0}
           </button>
         ) : null}
 
@@ -69,9 +70,14 @@ export function TopBar({
           {expMp > 0 ? <span className={styles.warnDot} aria-hidden="true" /> : null}
         </Link>
 
-        <button type="button" className={styles.iconBtn} aria-label="通知">
+        <button
+          type="button"
+          className={styles.iconBtn}
+          aria-label="通知（敬请期待）"
+          title="通知（敬请期待）"
+          disabled
+        >
           <Bell size={17} />
-          <span className={styles.redDot} aria-hidden="true" />
         </button>
 
         <button

@@ -152,7 +152,7 @@
 @media (max-width: 767px) {
   .aside {
     position: fixed;
-    z-index: 50;
+    z-index: var(--z-sidebar-drawer);
     left: 0;
     top: 0;
     transform: translateX(-100%);
@@ -166,7 +166,7 @@
     display: block;
     position: fixed;
     inset: 0;
-    z-index: 49;
+    z-index: var(--z-sidebar-drawer);
     background: var(--scrim);
   }
 }

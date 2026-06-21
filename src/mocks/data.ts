@@ -14,6 +14,7 @@ export const MOCK_USER: MockUser = {
   id: "00000000-0000-4000-8000-000000000001",
   email: "demo@aiworkshop.test",
   role: "user",
+  createdAt: "2026-05-18T00:00:00.000Z",
 };
 
 export const DEFAULT_MAX_CONCURRENCY = 2;

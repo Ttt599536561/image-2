@@ -19,7 +19,7 @@ import type { Conversation, ExpiringSoon, MockUser, Turn } from "./types";
 // 阶段一 mock 会话/积分客户端态（单一 Provider）。阶段二把读写换成 loader/REST + Neon/Better Auth。
 
 export type RedeemResult =
-  | { ok: true; creditsMp: number; balanceMp: number }
+  | { ok: true; creditsMp: number }
   | { ok: false; code: "CODE_NOT_FOUND" | "CODE_USED" | "CODE_DISABLED" };
 
 interface MockState {
@@ -132,15 +132,10 @@ export function MockProvider({ children }: { children: ReactNode }) {
       if (entry.kind === "used") return { ok: false, code: "CODE_USED" };
       if (entry.kind === "disabled") return { ok: false, code: "CODE_DISABLED" };
       const creditsMp = entry.creditsMp ?? 0;
-      let next = balanceMp;
-      setBalanceMp((b) => {
-        next = b + creditsMp;
-        return next;
-      });
-      setHasPaid(true);
-      return { ok: true, creditsMp, balanceMp: next };
+      credit(creditsMp); // 函数式更新 + 置 hasPaid，避免 stale 闭包
+      return { ok: true, creditsMp };
     },
-    [balanceMp],
+    [credit],
   );
 
   const value = useMemo<MockApi>(

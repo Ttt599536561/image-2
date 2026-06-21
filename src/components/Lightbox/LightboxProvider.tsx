@@ -4,11 +4,13 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type JSX,
   type ReactNode,
 } from "react";
 import { Download, X } from "lucide-react";
+import { useLockBodyScroll } from "../../lib/useLockBodyScroll";
 import styles from "./Lightbox.module.css";
 
 export interface LightboxApi {
@@ -41,6 +43,7 @@ export function LightboxProvider({ children }: { children: ReactNode }): JSX.Ele
   }, []);
 
   const api = useMemo<LightboxApi>(() => ({ open, close }), [open, close]);
+  const closeRef = useRef<HTMLButtonElement>(null);
 
   // ESC 关闭（仅打开时绑定）。
   useEffect(() => {
@@ -54,6 +57,12 @@ export function LightboxProvider({ children }: { children: ReactNode }): JSX.Ele
 
   const isOpen = mounted && state !== null;
 
+  // 打开时锁背景滚动 + 把初始焦点移到关闭键（键盘可达）。
+  useLockBodyScroll(isOpen);
+  useEffect(() => {
+    if (isOpen) closeRef.current?.focus();
+  }, [isOpen]);
+
   return (
     <LightboxContext.Provider value={api}>
       {children}
@@ -66,6 +75,7 @@ export function LightboxProvider({ children }: { children: ReactNode }): JSX.Ele
           onClick={close}
         >
           <button
+            ref={closeRef}
             type="button"
             className={styles.close}
             aria-label="关闭"

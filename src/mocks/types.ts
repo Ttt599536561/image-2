@@ -57,6 +57,7 @@ export interface MockUser {
   id: string;
   email: string;
   role: "user" | "admin";
+  createdAt: string;
 }
 
 /** 3 天内即将过期（对齐 07 §8.3 expiringSoon；mp 走 string codec）。 */

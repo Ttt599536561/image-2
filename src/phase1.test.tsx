@@ -1,5 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, renderHook, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import { Composer } from "./components/composer/Composer";
@@ -9,9 +10,11 @@ import {
   SIZE_OPTIONS,
 } from "./components/composer/sizeOptions";
 import type { GenerateRequest } from "./contracts/generate";
+import { imageExt, imageFilename } from "./lib/download";
 import { formatCredits, formatTimer } from "./lib/format";
 import { mockGenerate } from "./mocks/api";
 import { makePlaceholderImage } from "./mocks/images";
+import { MockProvider, useMock } from "./mocks/store";
 
 // 阶段一前端形态冒烟测试（替代 v1 App.test.tsx，对齐新 Composer UI）。
 const baseReq: GenerateRequest = {
@@ -91,5 +94,51 @@ describe("Composer 五态边界", () => {
     await user.click(screen.getByRole("button", { name: /比例/ }));
     expect(screen.getByText("1:1 方形")).toBeInTheDocument();
     expect(screen.getByText("16:9 横屏")).toBeInTheDocument();
+  });
+});
+
+describe("下载命名（按 URL 推断扩展名）", () => {
+  it("svg / png / 默认 png", () => {
+    expect(imageExt("data:image/svg+xml,<svg/>")).toBe("svg");
+    expect(imageExt("https://img.example.com/a.png")).toBe("png");
+    expect(imageExt("https://img.example.com/a")).toBe("png");
+    expect(imageFilename("data:image/svg+xml,x", "abc123")).toBe("图像工坊_abc123.svg");
+  });
+});
+
+describe("mock 兑换（store）", () => {
+  const wrapper = ({ children }: { children: ReactNode }) => <MockProvider>{children}</MockProvider>;
+
+  it("有效码到账：物化余额 +10 积分", () => {
+    const { result } = renderHook(() => useMock(), { wrapper });
+    const before = result.current.balanceMp;
+    let res: ReturnType<typeof result.current.redeem> | undefined;
+    act(() => {
+      res = result.current.redeem("AAAAAAAAAAAAAAAAAA");
+    });
+    expect(res).toEqual({ ok: true, creditsMp: 10000 });
+    expect(result.current.balanceMp).toBe(before + 10000);
+  });
+
+  it("已用 / 已失效 / 不存在码各自报错且余额不变", () => {
+    const { result } = renderHook(() => useMock(), { wrapper });
+    const before = result.current.balanceMp;
+    let used: RedeemRet;
+    let disabled: RedeemRet;
+    let missing: RedeemRet;
+    type RedeemRet = ReturnType<typeof result.current.redeem>;
+    act(() => {
+      used = result.current.redeem("BBBBBBBBBBBBBBBBBB");
+    });
+    act(() => {
+      disabled = result.current.redeem("CCCCCCCCCCCCCCCCCC");
+    });
+    act(() => {
+      missing = result.current.redeem("ZZZZZZZZZZZZZZZZZZ");
+    });
+    expect(used!).toEqual({ ok: false, code: "CODE_USED" });
+    expect(disabled!).toEqual({ ok: false, code: "CODE_DISABLED" });
+    expect(missing!).toEqual({ ok: false, code: "CODE_NOT_FOUND" });
+    expect(result.current.balanceMp).toBe(before);
   });
 });

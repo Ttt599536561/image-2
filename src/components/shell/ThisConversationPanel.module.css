@@ -11,10 +11,16 @@
   height: 100%;
   min-height: 0;
 }
+/* 列仅在 ≥1024 显示；<1024 由 CSS 隐藏（本次面板改走抽屉），不用 JS 门控→无首帧闪烁 */
+@media (max-width: 1023px) {
+  .column {
+    display: none;
+  }
+}
 
 .drawer {
   position: fixed;
-  z-index: 60;
+  z-index: var(--z-drawer);
   top: 0;
   right: 0;
   width: 320px;
@@ -24,10 +30,26 @@
   animation: slideIn 0.2s ease;
 }
 
+/* <768：底部抽屉（bottom sheet），对齐规格 §24.7 */
+@media (max-width: 767px) {
+  .drawer {
+    top: auto;
+    right: 0;
+    left: 0;
+    bottom: 0;
+    width: 100%;
+    max-width: none;
+    height: auto;
+    max-height: 80dvh;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    animation: slideUp 0.2s ease;
+  }
+}
+
 .scrim {
   position: fixed;
   inset: 0;
-  z-index: 59;
+  z-index: var(--z-drawer);
   background: var(--scrim);
 }
 
@@ -121,6 +143,15 @@
   }
   to {
     transform: translateX(0);
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
   }
 }
 

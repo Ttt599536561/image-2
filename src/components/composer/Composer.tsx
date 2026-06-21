@@ -8,8 +8,8 @@ import {
   Sparkles,
   Wand2,
 } from "lucide-react";
-import type { Ref } from "react";
-import { Link } from "react-router";
+import { type Ref, useCallback, useEffect, useRef } from "react";
+import { Link, useNavigate } from "react-router";
 import type { Background, GenerateRequest, Quality } from "../../contracts/generate";
 import { formatCredits } from "../../lib/format";
 import { usePopover } from "../../lib/usePopover";
@@ -45,6 +45,28 @@ export function Composer({
 }: ComposerProps) {
   const sizePop = usePopover();
   const advPop = usePopover();
+  const navigate = useNavigate();
+  const popoverDir = variant === "compact" ? styles.popoverUp : "";
+
+  // 合并 ref：本地 ref 做自适应高度，同时把 node 透传给父级（聚焦/滚动）。
+  const localRef = useRef<HTMLTextAreaElement>(null);
+  const setRefs = useCallback(
+    (node: HTMLTextAreaElement | null) => {
+      localRef.current = node;
+      if (typeof textareaRef === "function") textareaRef(node);
+      else if (textareaRef)
+        (textareaRef as { current: HTMLTextAreaElement | null }).current = node;
+    },
+    [textareaRef],
+  );
+
+  // 自适应高度（随受控值变化，覆盖用户输入与程序回填/清空），上限 200px 后滚动。
+  useEffect(() => {
+    const ta = localRef.current;
+    if (!ta) return;
+    ta.style.height = "auto";
+    ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
+  }, [request.prompt, variant]);
 
   const set = <K extends keyof GenerateRequest>(key: K, value: GenerateRequest[K]) =>
     onChange({ ...request, [key]: value });
@@ -54,14 +76,16 @@ export function Composer({
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (canSend && canAfford) onSubmit();
+      if (!canSend) return;
+      if (canAfford) onSubmit();
+      else navigate("/billing"); // 积分不足时回车也给反馈→去充值
     }
   };
 
   return (
     <div className={styles.composer}>
       <textarea
-        ref={textareaRef}
+        ref={setRefs}
         className={`${styles.textarea} ${variant === "full" ? styles.textareaFull : ""}`}
         placeholder={variant === "full" ? "描述你想生成的画面…" : "继续在当前对话生图…"}
         value={request.prompt}
@@ -87,7 +111,7 @@ export function Composer({
               <ChevronDown size={13} />
             </button>
             {sizePop.open ? (
-              <div className={`${styles.popover} ${styles.popoverSize}`}>
+              <div className={`${styles.popover} ${styles.popoverSize} ${popoverDir}`}>
                 <p className={styles.popoverTitle}>选择比例</p>
                 <div className={styles.sizeGrid}>
                   {SIZE_OPTIONS.map((opt) => {
@@ -132,9 +156,16 @@ export function Composer({
             >
               <SlidersHorizontal size={15} />
               高级设置
+              <ChevronDown
+                size={13}
+                style={{
+                  transform: advPop.open ? "rotate(180deg)" : "none",
+                  transition: "transform 0.15s",
+                }}
+              />
             </button>
             {advPop.open ? (
-              <div className={`${styles.popover} ${styles.popoverAdv}`}>
+              <div className={`${styles.popover} ${styles.popoverAdv} ${popoverDir}`}>
                 <p className={styles.popoverTitle}>高级设置</p>
                 <div className={styles.advField}>
                   <span className={styles.advLabel}>质量</span>

@@ -2,7 +2,9 @@ import { AlertTriangle, Bookmark, Check, Copy, Download, FileText, RefreshCw, X 
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import type { GenerateRequest } from "../../contracts/generate";
+import { downloadImage, imageFilename } from "../../lib/download";
 import { redactText } from "../../lib/redaction";
+import { useLockBodyScroll } from "../../lib/useLockBodyScroll";
 import { useMediaQuery } from "../../lib/useMediaQuery";
 import { PRICE_PER_IMAGE_MP } from "../../mocks/api";
 import { MOCK_INSPIRATIONS } from "../../mocks/data";
@@ -10,6 +12,7 @@ import { useMock } from "../../mocks/store";
 import type { Turn } from "../../mocks/types";
 import { useGeneration } from "../../hooks/useGeneration";
 import { Composer } from "../composer/Composer";
+import { sizeLabel } from "../composer/sizeOptions";
 import { CosmicSkeleton } from "../composer/CosmicSkeleton";
 import { InspirationGallery } from "../InspirationGallery/InspirationGallery";
 import { useLightbox } from "../Lightbox/LightboxProvider";
@@ -25,15 +28,6 @@ const EMPTY_REQUEST: GenerateRequest = {
   quality: "auto",
   background: "auto",
 };
-
-function downloadImage(src: string, name: string) {
-  const a = document.createElement("a");
-  a.href = src;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-}
 
 function rawResponseOf(turn: Turn): string {
   const obj =
@@ -78,22 +72,34 @@ export function ConversationView({ conversationId }: { conversationId: string | 
   const succeededCount = turns.filter((t) => t.status === "succeeded").length;
   const canAfford = mock.balanceMp >= PRICE_PER_IMAGE_MP;
 
-  // 新轮加入后滚到底
+  const lastTurn = turns[turns.length - 1];
+
+  // 新轮加入 OR 末轮态变化（骨架→成品/失败，结果通常更高）后滚到底
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     flowRef.current?.scrollTo({ top: flowRef.current.scrollHeight, behavior: "smooth" });
-  }, [turns.length]);
+  }, [turns.length, lastTurn?.status]);
 
-  // 跨路由一键带回（来自 /inspiration）：读 location.state.bringPrompt 注入 Composer 后清除。
+  // 跨路由一键带回（来自 /inspiration）：走与欢迎态同一受控路径（isGenerating 拦截 + 非空确认），再清 state。
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     const bring = (location.state as { bringPrompt?: string } | null)?.bringPrompt;
-    if (bring) {
-      setRequest((r) => ({ ...r, prompt: bring }));
-      navigate(location.pathname, { replace: true });
-      textareaRef.current?.focus();
-    }
+    if (!bring) return;
+    navigate(location.pathname, { replace: true });
+    bringBackPrompt(bring);
   }, [location.key]);
+
+  // 原始响应弹窗：打开时锁背景滚动 + ESC 关闭
+  useLockBodyScroll(rawTurn !== null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!rawTurn) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setRawTurn(null);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [rawTurn]);
 
   const focusComposer = () => {
     textareaRef.current?.focus();
@@ -127,6 +133,10 @@ export function ConversationView({ conversationId }: { conversationId: string | 
   };
 
   const regenerate = (turn: Turn) => {
+    if (isGenerating) {
+      toast.info("生成中，请稍候");
+      return;
+    }
     setRequest({
       prompt: turn.prompt,
       size: turn.size,
@@ -202,7 +212,12 @@ export function ConversationView({ conversationId }: { conversationId: string | 
             <div className={styles.flowInner}>
               {turns.map((turn) => (
                 <div className={styles.turn} key={turn.id}>
-                  <div className={styles.userBubble}>{turn.prompt}</div>
+                  <div className={styles.userBubble}>
+                    {turn.prompt}
+                    {turn.size !== "auto" ? (
+                      <span className={styles.bubbleSize}> · {sizeLabel(turn.size)}</span>
+                    ) : null}
+                  </div>
                   {renderResult(turn)}
                 </div>
               ))}
@@ -212,9 +227,10 @@ export function ConversationView({ conversationId }: { conversationId: string | 
             <div className={styles.composerDockInner}>{composer}</div>
           </div>
         </div>
-        {isDesktop && panelOpen ? <ThisConversationPanel turns={turns} mode="column" /> : null}
+        {/* 列在 ≥1024 由 CSS 显示、<1024 由 CSS 隐藏（不用 JS isDesktop 门控，避免首帧三栏闪烁） */}
+        {panelOpen ? <ThisConversationPanel turns={turns} mode="column" /> : null}
       </div>
-      {!isDesktop && drawerOpen ? (
+      {drawerOpen ? (
         <ThisConversationPanel turns={turns} mode="drawer" onClose={() => setDrawerOpen(false)} />
       ) : null}
       {rawModal()}
@@ -257,7 +273,10 @@ export function ConversationView({ conversationId }: { conversationId: string | 
               className={styles.resultImage}
               src={turn.image.publicUrl}
               alt={turn.prompt}
-              onClick={() => lightbox.open(turn.image!.publicUrl, `图像工坊_${turn.id}.svg`)}
+              onClick={() =>
+                turn.image &&
+                lightbox.open(turn.image.publicUrl, imageFilename(turn.image.publicUrl, turn.id))
+              }
             />
           </div>
         ) : null}
@@ -265,7 +284,9 @@ export function ConversationView({ conversationId }: { conversationId: string | 
           <button
             type="button"
             className={styles.chip}
-            onClick={() => turn.image && downloadImage(turn.image.publicUrl, `图像工坊_${turn.id}.svg`)}
+            onClick={() =>
+              turn.image && downloadImage(turn.image.publicUrl, imageFilename(turn.image.publicUrl, turn.id))
+            }
           >
             <Download size={13} />
             下载
@@ -300,7 +321,13 @@ export function ConversationView({ conversationId }: { conversationId: string | 
     if (!rawTurn) return null;
     return (
       <div className={styles.rawScrim} onClick={() => setRawTurn(null)}>
-        <div className={styles.rawCard} onClick={(e) => e.stopPropagation()}>
+        <div
+          className={styles.rawCard}
+          role="dialog"
+          aria-modal="true"
+          aria-label="原始响应"
+          onClick={(e) => e.stopPropagation()}
+        >
           <div className={styles.rawHead}>
             <span className={styles.rawTitle}>原始响应（已脱敏）</span>
             <button type="button" className={styles.rawClose} onClick={() => setRawTurn(null)} aria-label="关闭">

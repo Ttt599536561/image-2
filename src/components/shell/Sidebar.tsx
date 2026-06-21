@@ -1,11 +1,24 @@
 import { Image as ImageIcon, Lightbulb, Plus, Search, Sparkles, User } from "lucide-react";
+import { useEffect } from "react";
 import { NavLink, useNavigate } from "react-router";
+import { useLockBodyScroll } from "../../lib/useLockBodyScroll";
 import { useMock } from "../../mocks/store";
 import styles from "./Sidebar.module.css";
 
 export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: () => void }) {
   const mock = useMock();
   const navigate = useNavigate();
+
+  // 移动端抽屉：锁背景滚动 + ESC 关闭
+  useLockBodyScroll(open);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose?.();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
 
   const startNew = () => {
     mock.startNewConversation();

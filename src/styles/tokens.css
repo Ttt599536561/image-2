@@ -62,6 +62,14 @@
 
   --scrim: rgba(0, 0, 0, 0.62);
 
+  /* 层叠层级（统一一套，避免各组件各写一个数；toast 恒在 lightbox 之上） */
+  --z-popover: 40;
+  --z-sidebar-drawer: 50;
+  --z-drawer: 60;
+  --z-modal: 80;
+  --z-lightbox: 1100;
+  --z-toast: 1200;
+
   /* 宇宙星空「生成中」占位专属（不随明暗反相——深空恒深） */
   --cosmic-top: #1b2740;
   --cosmic-mid: #131a2e;

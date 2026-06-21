@@ -1,16 +1,10 @@
 import { Download, X } from "lucide-react";
-import { useLightbox } from "../Lightbox/LightboxProvider";
+import { useEffect } from "react";
+import { downloadImage, imageFilename } from "../../lib/download";
+import { useLockBodyScroll } from "../../lib/useLockBodyScroll";
 import type { Turn } from "../../mocks/types";
+import { useLightbox } from "../Lightbox/LightboxProvider";
 import styles from "./ThisConversationPanel.module.css";
-
-function downloadImage(src: string, name: string) {
-  const a = document.createElement("a");
-  a.href = src;
-  a.download = name;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-}
 
 export function ThisConversationPanel({
   turns,
@@ -24,6 +18,17 @@ export function ThisConversationPanel({
   const lightbox = useLightbox();
   const images = turns.filter((t) => t.status === "succeeded" && t.image).slice().reverse();
 
+  // 抽屉态：锁背景滚动 + ESC 关闭
+  useLockBodyScroll(mode === "drawer");
+  useEffect(() => {
+    if (mode !== "drawer") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose?.();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [mode, onClose]);
+
   const body = (
     <div className={`${styles.panel} ${mode === "column" ? styles.column : styles.drawer}`}>
       <div className={styles.header}>
@@ -34,8 +39,8 @@ export function ThisConversationPanel({
               type="button"
               className={styles.downloadAll}
               onClick={() =>
-                images.forEach((t, i) =>
-                  t.image ? downloadImage(t.image.publicUrl, `图像工坊_${i + 1}.svg`) : null,
+                images.forEach((t) =>
+                  t.image ? downloadImage(t.image.publicUrl, imageFilename(t.image.publicUrl, t.id)) : null,
                 )
               }
             >
@@ -61,7 +66,7 @@ export function ThisConversationPanel({
                 key={t.id}
                 type="button"
                 className={styles.thumb}
-                onClick={() => lightbox.open(t.image!.publicUrl, `图像工坊_${t.id}.svg`)}
+                onClick={() => lightbox.open(t.image!.publicUrl, imageFilename(t.image!.publicUrl, t.id))}
               >
                 <img src={t.image.publicUrl} alt={t.prompt} />
               </button>

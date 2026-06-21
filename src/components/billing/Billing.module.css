@@ -64,9 +64,25 @@
   background: var(--bg-surface);
   border: 0.5px solid var(--border-subtle);
   border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: box-shadow 0.15s, border-color 0.15s;
 }
-.pkgRecommended {
-  border: 1.5px solid var(--accent);
+.pkg:hover {
+  border-color: var(--border-strong);
+}
+.pkg:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* 选中=陶土内描边环（点睛，不改 border 宽度→零回流） */
+.pkgSelected {
+  border-color: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+@media (prefers-reduced-motion: reduce) {
+  .pkg {
+    transition: none;
+  }
 }
 .badge {
   position: absolute;
@@ -112,6 +128,10 @@
 .buyBtn {
   margin-top: var(--space-2);
   height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
   border: none;
   border-radius: var(--radius-full);
   background: var(--primary-bg);

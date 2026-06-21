@@ -18,7 +18,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     e.preventDefault();
     setError(null);
     setShowLoginLink(false);
-    if (!email.trim()) return setError("请输入邮箱");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) return setError("请输入有效邮箱");
     if (password.length < 6) return setError("密码至少 6 位");
     if (mode === "register") {
       if (email.trim().toLowerCase() === TAKEN_EMAIL) {
@@ -75,6 +75,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
           onChange={(e) => setEmail(e.target.value)}
           placeholder="you@example.com"
           autoComplete="email"
+          required
         />
       </div>
 

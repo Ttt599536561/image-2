@@ -96,11 +96,11 @@
   font-size: 14px;
   line-height: 1.5;
 }
-.userMeta {
-  display: block;
-  margin-top: var(--space-1);
-  font-size: 11px;
+.bubbleSize {
   color: var(--text-tertiary);
+  font-size: 12px;
+  margin-left: var(--space-1);
+  white-space: nowrap;
 }
 
 .resultMedia {
@@ -197,7 +197,7 @@
 .rawScrim {
   position: fixed;
   inset: 0;
-  z-index: 80;
+  z-index: var(--z-modal);
   background: var(--scrim);
   display: grid;
   place-items: center;

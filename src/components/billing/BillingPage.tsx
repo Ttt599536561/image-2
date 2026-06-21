@@ -1,4 +1,4 @@
-import { Clock, Coins, Ticket } from "lucide-react";
+import { Clock, Coins, ExternalLink, Ticket } from "lucide-react";
 import { useState } from "react";
 import { formatCash, formatCredits, formatMonthDay, formatValidDays } from "../../lib/format";
 import { MOCK_PACKAGES } from "../../mocks/data";
@@ -21,8 +21,20 @@ export function BillingPage() {
   const shell = useShell();
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string>(
+    MOCK_PACKAGES.find((p) => p.recommended)?.id ?? MOCK_PACKAGES[0].id,
+  );
 
   const expMp = Number(mock.expiringSoon.mp || "0");
+
+  const buy = (pkg: (typeof MOCK_PACKAGES)[number]) => {
+    setSelectedId(pkg.id);
+    if (pkg.redirectUrl && pkg.redirectUrl !== "#") {
+      window.open(pkg.redirectUrl, "_blank", "noopener");
+    } else {
+      toast.info("购买将跳转第三方店铺（链接待站长配置）");
+    }
+  };
 
   const onRedeem = () => {
     setError(null);
@@ -64,13 +76,21 @@ export function BillingPage() {
               {MOCK_PACKAGES.map((p) => (
                 <div
                   key={p.id}
-                  className={`${styles.pkg} ${p.recommended ? styles.pkgRecommended : ""}`}
+                  role="button"
+                  tabIndex={0}
+                  aria-pressed={selectedId === p.id}
+                  className={`${styles.pkg} ${selectedId === p.id ? styles.pkgSelected : ""}`}
+                  onClick={() => setSelectedId(p.id)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSelectedId(p.id);
+                    }
+                  }}
                 >
                   {p.recommended ? <span className={styles.badge}>更划算</span> : null}
                   <span className={styles.pkgTitle}>{p.title}</span>
-                  <span className={styles.pkgPrice}>
-                    ¥{formatCash(p.priceCash)}
-                  </span>
+                  <span className={styles.pkgPrice}>¥{formatCash(p.priceCash)}</span>
                   <span className={styles.pkgCredits}>
                     <Coins size={12} /> {formatCredits(p.creditsMp)} 积分
                   </span>
@@ -79,9 +99,13 @@ export function BillingPage() {
                   <button
                     type="button"
                     className={styles.buyBtn}
-                    onClick={() => toast.info("购买将跳转第三方店铺（链接待站长配置）")}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      buy(p);
+                    }}
                   >
                     去购买
+                    <ExternalLink size={13} />
                   </button>
                 </div>
               ))}
@@ -97,7 +121,14 @@ export function BillingPage() {
               <input
                 className={styles.redeemInput}
                 value={code}
-                onChange={(e) => setCode(e.target.value.toUpperCase())}
+                onChange={(e) => {
+                  setCode(e.target.value.toUpperCase());
+                  if (error) setError(null);
+                }}
+                onBlur={() => {
+                  const v = code.trim().toUpperCase();
+                  if (v && !REDEEM_RE.test(v)) setError("兑换码无效");
+                }}
                 placeholder="输入 18 位兑换码"
                 maxLength={18}
                 onKeyDown={(e) => e.key === "Enter" && onRedeem()}

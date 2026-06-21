@@ -17,6 +17,7 @@ export function AccountPage() {
 
   const savePw = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!pw.current) return toast.error("请输入当前密码");
     if (pw.next.length < 6) return toast.error("密码至少 6 位");
     if (pw.next !== pw.confirm) return toast.error("两次输入的新密码不一致");
     setPw({ current: "", next: "", confirm: "" });
@@ -34,6 +35,22 @@ export function AccountPage() {
               <span className={styles.label}>邮箱</span>
               <input className={`${styles.input} ${styles.inputReadonly}`} value={mock.user.email} readOnly />
               <p className={styles.note}>邮箱不可修改</p>
+            </div>
+            <div className={styles.field}>
+              <span className={styles.label}>注册时间</span>
+              <input
+                className={`${styles.input} ${styles.inputReadonly}`}
+                value={mock.user.createdAt.slice(0, 10)}
+                readOnly
+              />
+            </div>
+            <div className={styles.field}>
+              <span className={styles.label}>并发上限</span>
+              <input
+                className={`${styles.input} ${styles.inputReadonly}`}
+                value={`${mock.maxConcurrency} 个同时生成`}
+                readOnly
+              />
             </div>
           </div>
 
