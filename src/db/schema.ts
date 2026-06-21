@@ -320,3 +320,22 @@ export const appConfig = pgTable("app_config", {
   valueJson: jsonb("value_json").notNull(),
   updatedAt: timestamp("updated_at", tz).notNull().defaultNow(),
 });
+
+// ========== inspirations（灵感库；阶段二 §6 后台 CRUD，09 §10.4） ==========
+export const inspirations = pgTable(
+  "inspirations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    title: text("title").notNull(),
+    coverKey: text("cover_key"), // R2 内部 key（multipart 上传时填；贴 URL 时可空）
+    coverUrl: text("cover_url").notNull(), // 前端只读公有 URL（06 §7.6）
+    category: text("category"), // 品类标签（单值，本期）
+    prompt: text("prompt").notNull(), // 「用此提示词」一键带回（§24-10）
+    summary: text("summary"), // 一行摘要
+    sort: integer("sort").notNull().default(0),
+    active: boolean("active").notNull().default(true), // 前台只展示 active
+    createdAt: timestamp("created_at", tz).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", tz).notNull().defaultNow(),
+  },
+  (t) => [index("ix_insp_active_sort").on(t.active, t.sort)],
+);

@@ -1,0 +1,96 @@
+// 后台契约（09 §10.1）。前后端单一真相源；🔴 客户端可达 → 手写 Zod，绝不 value-import db/schema（⑤ 教训）。
+// 写端点用 op 判别联合（一个资源一个 action 端点，减面）；响应形状由 server 模块的 TS 接口给（loader 直出类型）。
+import { z } from "zod";
+import { passwordField } from "./account";
+import { REDEEM_ALPHABET } from "./redeem";
+
+export { REDEEM_ALPHABET };
+
+// ===================== 兑换码 =====================
+export const GenerateCodesAction = z.object({
+  op: z.literal("generate"),
+  packageId: z.uuid(),
+  count: z.number().int().positive().max(5000), // 软上限防超大事务（09 §10.2）
+});
+export const DisableBatchAction = z.object({
+  op: z.literal("disable_batch"),
+  batchId: z.uuid(),
+});
+export const CodeAction = z.discriminatedUnion("op", [GenerateCodesAction, DisableBatchAction]);
+export type CodeAction = z.infer<typeof CodeAction>;
+
+// ===================== 用户操作（行尾「⋯」下拉，09 §10.3）=====================
+export const BanAction = z.object({
+  op: z.literal("ban"),
+  banned: z.boolean(),
+  reason: z.string().max(500).optional(),
+});
+export const ResetPwAction = z.object({
+  op: z.literal("reset_pw"),
+  newPassword: passwordField, // ≥6 且 ≤72 字节（防 bcrypt 截断，05 §6.4）
+});
+export const AdjustCreditAction = z.object({
+  op: z.literal("adjust_credit"),
+  deltaMp: z.number().int().refine((n) => n !== 0, "调整额不能为 0"),
+  reason: z.string().min(1, "原因必填").max(500),
+  validDays: z.number().int().positive().nullable().optional(), // 仅增额生效；NULL=永久
+});
+export const ConcurrencyAction = z.object({
+  op: z.literal("set_concurrency"),
+  maxConcurrency: z.number().int().min(1).max(50),
+});
+export const UserAction = z.discriminatedUnion("op", [BanAction, ResetPwAction, AdjustCreditAction, ConcurrencyAction]);
+export type UserAction = z.infer<typeof UserAction>;
+
+// ===================== 套餐 CRUD（软删，09 §10.6）=====================
+const packageFields = {
+  title: z.string().min(1, "标题必填").max(100),
+  description: z.string().max(500).nullable().optional(),
+  priceCash: z.number().int().positive("价格须 >0"),
+  creditsMp: z.number().int().positive("积分须 >0"),
+  validDays: z.number().int().positive().nullable(), // ≥1 或 NULL=永久
+  redirectUrl: z.string().max(1000).nullable().optional(),
+  sort: z.number().int().optional(),
+  active: z.boolean().optional(),
+};
+export const CreatePackageAction = z.object({ op: z.literal("create"), ...packageFields });
+export const UpdatePackageAction = z.object({ op: z.literal("update"), id: z.uuid(), ...packageFields });
+export const DeletePackageAction = z.object({ op: z.literal("delete"), id: z.uuid() }); // 软删 active=false
+export const PackageAction = z.discriminatedUnion("op", [CreatePackageAction, UpdatePackageAction, DeletePackageAction]);
+export type PackageAction = z.infer<typeof PackageAction>;
+
+// ===================== 全局参数（app_config，09 §10.6）=====================
+// 本期可改的数值键（relay_base_url 字符串键留增强）。每键最小值约束在 config.server 按 key 校验。
+export const CONFIG_KEYS = [
+  "price_per_image_mp",
+  "signup_grant_mp",
+  "signup_grant_valid_days",
+  "retention_free_days",
+  "retention_paid_days",
+  "default_max_concurrency",
+  "daily_relay_budget_calls",
+  "daily_relay_budget_ms",
+] as const;
+export type ConfigKey = (typeof CONFIG_KEYS)[number];
+export const ConfigUpdateRequest = z.object({
+  updates: z
+    .array(z.object({ key: z.enum(CONFIG_KEYS), value: z.number().int().nonnegative() }))
+    .min(1, "无改动"),
+});
+export type ConfigUpdateRequest = z.infer<typeof ConfigUpdateRequest>;
+
+// ===================== 灵感库 CRUD（09 §10.4）=====================
+const inspFields = {
+  title: z.string().min(1, "标题必填").max(100),
+  cover: z.string().min(1, "封面必填").max(2000), // cover_url（admin 贴公有 URL；multipart 上传留增强）
+  category: z.string().max(50).nullable().optional(),
+  prompt: z.string().min(1, "提示词必填").max(4000),
+  summary: z.string().max(500).nullable().optional(),
+  sort: z.number().int().optional(),
+  active: z.boolean().optional(),
+};
+export const CreateInspAction = z.object({ op: z.literal("create"), ...inspFields });
+export const UpdateInspAction = z.object({ op: z.literal("update"), id: z.uuid(), ...inspFields });
+export const DeleteInspAction = z.object({ op: z.literal("delete"), id: z.uuid() });
+export const InspirationAction = z.discriminatedUnion("op", [CreateInspAction, UpdateInspAction, DeleteInspAction]);
+export type InspirationAction = z.infer<typeof InspirationAction>;

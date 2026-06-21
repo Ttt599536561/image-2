@@ -17,6 +17,19 @@ export default [
   route("api/notifications/read", "routes/api.notifications.read.ts"),
   route("api/account/ledger", "routes/api.account.ledger.ts"),
   route("api/redeem", "routes/api.redeem.ts"),
+  // 阶段二 ⑥：后台 API（资源路由，server-only；每个各自 requireAdmin = 双守卫之一）。
+  route("api/admin/users", "routes/api.admin.users.ts"),
+  route("api/admin/users/:id", "routes/api.admin.users.$id.ts"),
+  route("api/admin/codes", "routes/api.admin.codes.ts"),
+  route("api/admin/codes/export", "routes/api.admin.codes.export.ts"),
+  route("api/admin/codes/batch/:batchId", "routes/api.admin.codes.batch.$batchId.ts"),
+  route("api/admin/codes/:code", "routes/api.admin.codes.$code.ts"),
+  route("api/admin/packages", "routes/api.admin.packages.ts"),
+  route("api/admin/config", "routes/api.admin.config.ts"),
+  route("api/admin/inspirations", "routes/api.admin.inspirations.ts"),
+  route("api/admin/generations", "routes/api.admin.generations.ts"),
+  route("api/admin/audit", "routes/api.admin.audit.ts"),
+  route("api/admin/dashboard", "routes/api.admin.dashboard.ts"),
   layout("routes/_app.tsx", [
     index("routes/_app._index.tsx"), // 主对话 /（新建生成）
     route("c/:id", "routes/_app.c.$id.tsx"), // 某会话线程

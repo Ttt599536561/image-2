@@ -8,7 +8,7 @@ export async function loader({ request }: Route.LoaderArgs) {
   try {
     await requireUser(request);
     const p = new URL(request.url).searchParams;
-    return Response.json(loadInspirations(p.get("category") ?? undefined, p.get("q") ?? undefined));
+    return Response.json(await loadInspirations(p.get("category") ?? undefined, p.get("q") ?? undefined));
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("[api.inspirations] error", e);

@@ -4,8 +4,8 @@ import type { Route } from "./+types/_app._index";
 
 // 主对话页 /（新建生成）—— 无 conversationId，首次提交懒建会话。
 // loader 取灵感画廊种子（欢迎态展示；鉴权由 _app 父 loader 守卫）。
-export function loader() {
-  return { inspirations: loadInspirations() };
+export async function loader() {
+  return { inspirations: await loadInspirations() };
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {

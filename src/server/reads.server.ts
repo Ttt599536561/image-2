@@ -6,7 +6,7 @@
 //    SUM 留 ::text；前端只读 images.public_url；删除同时尽力删 Supabase 对象（孤儿由清理 cron 兜底）。
 import type { ConversationDetail, ConversationListResponse } from "../contracts/conversation";
 import type { ImageRange, ImagesResponse, SaveResponse } from "../contracts/image";
-import type { InspirationsResponse } from "../contracts/inspiration";
+import type { InspirationItem, InspirationsResponse } from "../contracts/inspiration";
 import type { LedgerResponse } from "../contracts/account";
 import type { MeResponse } from "../contracts/me";
 import type { NotificationListResponse } from "../contracts/notification";
@@ -293,17 +293,38 @@ export async function markNotificationsRead(userId: string, ids?: string[]): Pro
   return { marked: rows.length };
 }
 
-// ===================== /api/inspirations（灵感库，只读；§6 建表前用服务端种子） =====================
-export function loadInspirations(category?: string, q?: string): InspirationsResponse {
+// ===================== /api/inspirations（灵感库，只读） =====================
+// 优先查 inspirations 表（§6 admin 维护）；表未建/为空 → 回退服务端种子（保证欢迎画廊不空）。品类/搜索本地过滤。
+export async function loadInspirations(category?: string, q?: string): Promise<InspirationsResponse> {
+  let base: InspirationItem[] = SEED_INSPIRATIONS;
+  try {
+    const rows = (await getSql()`
+      SELECT id, cover_url, title, summary, prompt, category FROM inspirations
+      WHERE active = true ORDER BY sort ASC, created_at DESC`) as Row[];
+    if (rows.length > 0) {
+      base = rows.map((r) => ({
+        id: r.id as string,
+        cover: r.cover_url as string,
+        title: r.title as string,
+        summary: (r.summary as string | null) ?? null,
+        prompt: r.prompt as string,
+        category: (r.category as string | null) ?? null,
+        width: null,
+        height: null,
+      }));
+    }
+  } catch {
+    // 表未建 → 回退种子
+  }
   const needle = (q ?? "").trim().toLowerCase();
-  const items = SEED_INSPIRATIONS.filter(
-    (i) => !category || category === "全部" || i.category === category,
-  ).filter(
-    (i) =>
-      !needle ||
-      i.title.toLowerCase().includes(needle) ||
-      (i.summary ?? "").toLowerCase().includes(needle) ||
-      i.prompt.toLowerCase().includes(needle),
-  );
+  const items = base
+    .filter((i) => !category || category === "全部" || i.category === category)
+    .filter(
+      (i) =>
+        !needle ||
+        i.title.toLowerCase().includes(needle) ||
+        (i.summary ?? "").toLowerCase().includes(needle) ||
+        i.prompt.toLowerCase().includes(needle),
+    );
   return { items };
 }
