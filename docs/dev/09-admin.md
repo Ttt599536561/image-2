@@ -181,10 +181,13 @@ await tx(async (c) => {
     await c.query(`UPDATE credit_accounts SET balance_mp=balance_mp+$1, updated_at=now() WHERE user_id=$2`, [delta_mp, uid]);
     moved = delta_mp;
   } else {
-    // 减：FIFO 锁批次扣 |delta|，扣到 0 为止不出负（余额不足则只扣到 0、并在 reason 标注）——同步动 lots 与物化余额
+    // 减：FIFO 锁「可用（未过期）」批次扣 |delta|，扣到 0 为止不出负（余额不足则只扣到 0、并在 reason 标注）——同步动 lots 与物化余额
+    // 🔴 必须带 `AND (expires_at IS NULL OR expires_at>now())`，与 debit（03 §4.3）/对账权威 SUM（10 §11.3）/余额闸（03 §4.9）口径一致；
+    //    否则减额可能落在「过期 cron 尚未清零」的批次上、被对账以 SUM(未过期) 为准反转抵消（下方红线）。
     const want = -delta_mp;
     const lots = await c.query(`SELECT id,remaining_mp FROM credit_lots
-       WHERE user_id=$1 AND remaining_mp>0 ORDER BY expires_at ASC NULLS LAST, created_at ASC FOR UPDATE`, [uid]);
+       WHERE user_id=$1 AND remaining_mp>0 AND (expires_at IS NULL OR expires_at>now())
+       ORDER BY expires_at ASC NULLS LAST, created_at ASC FOR UPDATE`, [uid]);
     let need = want;
     for (const lot of lots.rows) { if (need<=0) break;
       const take = Math.min(lot.remaining_mp, need);
