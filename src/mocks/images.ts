@@ -1,5 +1,5 @@
 import { dimensionsFor } from "../components/composer/sizeOptions";
-import type { GeneratedImage, Size } from "../contracts/generate";
+import type { Size } from "../contracts/generate";
 
 // 阶段一无真出图：用按比例的渐变 SVG 占位图（data URL），不同提示词给不同色相，体验更真。
 
@@ -17,8 +17,12 @@ function escapeXml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/** 生成按所选比例的占位成品图（渐变 + 提示词截断 + 比例标签）。 */
-export function makePlaceholderImage(prompt: string, size: Size): GeneratedImage {
+/** 生成按所选比例的占位成品图（渐变 + 提示词截断 + 比例标签）。占位图维度恒非空，
+ *  返回非空 dims 类型（可赋给可空的 GeneratedImage / succeeded 契约，亦满足非空的 InspirationItem）。 */
+export function makePlaceholderImage(
+  prompt: string,
+  size: Size,
+): { publicUrl: string; width: number; height: number } {
   const { width, height } = dimensionsFor(size);
   const hue = hashHue(prompt || "image");
   const hue2 = (hue + 48) % 360;

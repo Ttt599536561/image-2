@@ -15,7 +15,7 @@
 
 | 服务 | 变量 | 何时需要 | 状态 |
 |---|---|---|---|
-| **Neon Postgres**（AWS 美东，与 Netlify 同区） | `DATABASE_URL`(pooled) · `DATABASE_URL_UNPOOLED`(direct) · 每 PR 一个 test branch | ①起 | ⬜ 待开通 |
+| **Neon Postgres**（AWS 美东，与 Netlify 同区） | `DATABASE_URL`(pooled) · `DATABASE_URL_UNPOOLED`(direct) · 每 PR 一个 test branch | ①起 | 🟡 direct 串已配（PG18.4，迁移+seed 已跑通）；pooled 串(带 -pooler)+每 PR test branch 待补 |
 | **Cloudflare R2**（公有 bucket + 自定义域，非 *.r2.dev） | `R2_ACCOUNT_ID`/`R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`/`R2_BUCKET`/`R2_PUBLIC_BASE_URL` | ① | ⬜ 待开通 |
 | **Better Auth** | `BETTER_AUTH_SECRET`(可生成) · `BETTER_AUTH_URL` | ② | ⬜ |
 | **中转**（v1 已有，确认） | `RELAY_API_KEY` · `RELAY_BASE_URL`(+可选 `RELAY_BASE_URL_BACKUP`) · `DAILY_RELAY_BUDGET_CALLS/_MS` | ④ | ⬜ 确认 |
@@ -28,37 +28,40 @@
 ---
 
 ## §1 地基（Foundation）— 连接 / 表 / 存储（无钱逻辑）
-- [ ] 装依赖：drizzle-orm · drizzle-kit · @neondatabase/serverless · ws · @aws-sdk/client-s3 · zod · drizzle-zod · @types/ws（`package.json`）
-- [ ] **DB 双连接** `src/db/db.server.ts`：`getPool()`(Pool/WS over `DATABASE_URL_UNPOOLED`，`neonConfig.webSocketConstructor=ws`) 给事务；`sql=neon(DATABASE_URL)` HTTP 给看板/单语句。开-用-关单 handler 内，不跨请求复用
-- [ ] **Schema** `src/db/schema.ts`：13 张业务表（users/credit_accounts/credit_lots/credit_ledger/packages/redeem_codes/conversations/generations/images/audit_log/notifications/events/app_config），金额列 `bigint`(`_mp`/`_cash`)，全二级索引 + **5 个部分唯一索引**(uq_debit/uq_refund/uq_grant_signup/uq_credit_code/uq_expire_lot，均 ON `credit_ledger(ref_id)` + WHERE 谓词) + `uq_notif_dedupe`
-- [ ] **迁移** `drizzle.config.ts` + `drizzle/*.sql`：`drizzle-kit generate` 后**人工核对** 5 个 partial-unique 的 WHERE 在 SQL 里（drizzle 推断不可靠），缺了手写补迁移
-- [ ] **种子** `src/db/seed.ts`：admin(注册后翻 role) · packages(¥9.9→990/10000mp，¥29.9→2990/32000mp) · app_config(70/140/30/7/60/2 + 预算阈值)
-- [ ] **R2** `src/server/r2.server.ts`：`putToR2(userId,generationId,relayImage)` · `buildStorageKey`={uid}/{yyyy}/{mm}/{genId}-{rand}.png(crypto rand 防猜) · `publicUrl()` · `retentionExpiry(user,cfg)` · 删除助手；S3Client `region:'auto'`，`CacheControl: immutable`
+> **状态（2026-06-21）**：离线代码全部完成并通过 tsc 0 / vitest 45 / build / 7 维多代理对抗校验（schema-ddl/money-redlines/failure 零发现；5 条 minor 已修）。**接真已对真 Neon(PG18.4) 跑通：迁移应用 + 13/13 表 + 7/7 关键索引 WHERE 谓词在库校验 + FOR UPDATE 交互式事务冒烟 + seed(2 套餐/8 config，幂等) ✅**（`scripts/db-smoke.ts`/`db-verify.ts`，`node --env-file=.env --import tsx …`）。**仅 putToR2 往返待 R2 密钥（§0）。**
+- [x] 装依赖：drizzle-orm · drizzle-kit · @neondatabase/serverless · ws · @aws-sdk/client-s3 · zod · drizzle-zod · @types/ws（+tsx）（`package.json`）
+- [x] **DB 双连接** `src/db/db.server.ts`：`getPool()`(Pool/WS over `DATABASE_URL_UNPOOLED`，`neonConfig.webSocketConstructor=ws`) 给事务；`getSql()=neon(DATABASE_URL)` HTTP 给看板/单语句。开-用-关单 handler 内，不跨请求复用
+- [x] **Schema** `src/db/schema.ts`：13 张业务表（users/credit_accounts/credit_lots/credit_ledger/packages/redeem_codes/conversations/generations/images/audit_log/notifications/events/app_config），金额列 `bigint`(`_mp`/`_cash`)，全二级索引 + **5 个部分唯一索引**(uq_debit/uq_refund/uq_grant_signup/uq_credit_code/uq_expire_lot，均 ON `credit_ledger(ref_id)` + WHERE 谓词) + `uq_notif_dedupe`
+- [x] **迁移** `drizzle.config.ts` + `drizzle/0000_phase2_foundation.sql`：`drizzle-kit generate` 后**已人工核对** 5 个 partial-unique 的 WHERE 谓词逐条正确（含 uq_grant_signup 复合 `entry_type='grant' AND ref_type='signup'`）；手工补 `CREATE EXTENSION pgcrypto`
+- [x] **种子** `src/db/seed.ts`：admin(SEED_ADMIN_EMAIL 提权翻 role) · packages(¥9.9→990/10000mp，¥29.9→2990/32000mp，固定 UUID 幂等) · app_config(70/140/30/7/60/2 + 预算阈值；非数值 env 当场报错)
+- [x] **R2** `src/server/r2.server.ts`：`putToR2(userId,generationId,relayImage)` · `buildStorageKey`={uid}/{yyyy}/{mm}/{genId}-{rand}.png(crypto rand 防猜) · `publicUrl()` · `retentionExpiry(user,cfg)` · 删除助手(单/批，批量自动分片 ≤1000 + 返回失败 key)；S3Client `region:'auto'`，`CacheControl: immutable`
 
 🔴 **红线**：金额整数（绝不 float/NUMERIC）；`users.id` 无 DB default（鉴权 hook 写 Better Auth UUID）；两种连接不可混用（防双花读改写必须 Pool/WS+FOR UPDATE）；storage_key 的 rand 段是唯一软隔离，前端只读 public_url、绝不拼 key/碰中转临时 URL。
-✅ **验证**：连真库跑迁移 + FOR UPDATE 锁冒烟 + putToR2 往返拿到可访问 public_url。
+✅ **验证**：tsc/vitest/build 绿 + 客户端 bundle 0 密钥泄露 + 迁移 WHERE 谓词人工核对通过（离线已过）。**真 Neon(PG18.4)：迁移已应用 + 13/13 表 + 7/7 关键索引 WHERE 谓词在库校验 + FOR UPDATE 交互式事务冒烟 + seed(幂等) 全过 ✅。** putToR2 往返拿到可访问 public_url ← 待 R2 密钥。
 
 ## §2 鉴权（Better Auth）
-- [ ] 钉版装包：better-auth + admin 插件**精确钉版**(避 multi-session CVE，不启 multi-session) + bcryptjs
-- [ ] **单实例** `src/lib/auth.ts`：email+password(min6/max72 字节断言/autoSignIn/不验邮箱) · session(7d/updateAge24h/cookieCache300s) · `advanced.database.generateId:'uuid'`(**字面量**) · admin 插件 · databaseHooks
-- [ ] `@better-auth/cli generate` 生成 user/session/account/verification（同库，**不写进 schema.ts**），确认 user.id 原生 uuid
-- [ ] catch-all handler `app/routes/api.auth.$.ts` / `netlify/functions/auth.ts`：loader+action=`auth.handler(request)`
-- [ ] 密码契约 `src/contracts/auth.ts`：Zod min6 + `TextEncoder().encode(p).length<=72`
-- [ ] 守卫 `src/lib/guard.ts`：`requireUser`(普通读) · `requireUserStrict`(敏感路径 disableCookieCache + 查业务 users role/banned/并发) · `requireAdmin`
-- [ ] 注册发放钩子 `src/lib/auth-hooks.ts`：`onUserRegistered`(单事务原子发 0.14，复用 ③ grant) · `onSessionCreated`(孤儿账号惰性补发)
-- [ ] 封禁/改密 route：走 Better Auth API(自动吊销会话) + 同步 audit
+> **状态（2026-06-21）**：核心完成并对真 Neon 验证（注册→送 140mp→幂等、user.id 原生 uuid、4/4 表）；tsc 0·vitest 45·build·客户端 0 泄露 + 6 维多代理对抗校验（auth/grant/hooks/guards/红线 零发现，1 条 doc-drift minor 已修）。**封禁/改密 route 归 ⑥（admin 端点）**。
+- [x] 钉版装包：better-auth@1.6.20 + admin 插件（精确钉版、不启 multi-session）+ bcryptjs@3.0.3 + @better-auth/cli（dev）
+- [x] **单实例** `src/lib/auth.ts`：email+password(min6/**password.hash 内 72 字节断言**/autoSignIn/不验邮箱) · session(7d/updateAge24h/cookieCache300s) · `advanced.database.generateId:'uuid'`(字面量，已验 native uuid 列) · admin 插件 · databaseHooks
+- [x] `@better-auth/cli migrate` 生成 user/session/account/verification（同库，**不写进 schema.ts**）；已验 user.id=uuid
+- [x] catch-all handler `app/routes/api.auth.$.ts`（RR 资源路由 loader+action=`auth.handler(request)`）+ routes.ts 注册 `api/auth/*`
+- [x] 密码契约 `src/contracts/auth.ts`：Zod `z.email` + `passwordField`(min6 + `TextEncoder().encode(p).length<=72`，复用 account.ts)
+- [x] 守卫 `src/lib/guard.ts`：`requireUser`(cookieCache) · `requireUserStrict`(disableCookieCache + 查业务 users role/banned/并发，ban 双源 fail-closed) · `requireAdmin`
+- [x] 注册发放钩子 `src/lib/auth-hooks.ts`：`onUserRegistered`(awaits grant→失败则注册失败) · `onSessionCreated`(孤儿惰性补发，email 取自 `"user"` 表)
+- [ ] 封禁/改密 route（→ 归 ⑥ admin-users-*）：走 Better Auth API(自动吊销会话) + 同步 audit
 
 🔴 **红线**：`generateId:'uuid'` 必须字面量；**bcrypt 72 字节断言在 `password.hash` 内**；敏感/钱/封禁路径必须 disableCookieCache 每请求查 DB；会话存废只走 Better Auth API；signup grant 靠 `uq_grant_signup` 幂等、钩子失败→注册失败。
+> ⚠️ **待 ⑦**：`scripts/assert-no-secrets-in-bundle.ts` 尚未建（密钥进 bundle 的 CI 兜底）；`auth.ts`/`guard.ts` 用 `★server-only` 注释约定（非 `.server.ts` 后缀，依 PHASE2-PLAN 命名），当前 build 实测 0 泄露安全，CI 断言留 ⑦。
 
 ## §3 钱链路（命门 — 最不容错）
 > 全部走 `src/server/tx.server.ts`(Pool/WS+FOR UPDATE)；SQL 照 03-money 逐条落 TS。
-- [ ] `src/server/tx.server.ts`：`tx(async c=>…)` connect→BEGIN→COMMIT/ROLLBACK→release
+- [x] `src/server/tx.server.ts`：`tx(async c=>…)` connect→BEGIN→COMMIT/ROLLBACK→release→end（+ `config.server.ts` readConfigInt/getConfigInt）。**②鉴权 grant 已用并对真库验**
 - [ ] **预算熔断（铁律①）** `src/server/budget.server.ts`：软闸 `isDailyBudgetExhausted(c)` + **硬上限** `incCallIfUnderCap()`=`UPDATE…WHERE calls<阈值 RETURNING`(原子防 TOCTOU) + `incMs`
 - [ ] **入队三闸** `src/server/generation/enqueue.ts`：并发(409)/余额(402，**只判不扣**)/软预算(429) + 建会话 + `INSERT generations(queued)` **同一 FOR UPDATE 事务** → 202
 - [ ] **抢占状态机（铁律③）** `src/server/money/preempt.server.ts`：`claim`=`UPDATE…WHERE status='queued' RETURNING`(后台第一步，affected=0 即退) · `markRunning` 写 started_at
 - [ ] **扣费（核心）** `src/server/money/debit.server.ts`：putToR2 在**事务外**；事务内 **⓪双守卫**(⓪a `SELECT status FOR UPDATE` 断言 running · ⓪b 探 uq_debit 已存在→幂等 no-op) → ① FIFO 锁 lots(`ORDER BY expires_at ASC NULLS LAST,created_at ASC`) → ② 扣 `charged`(实扣量、不出负、零头记 credit_shortfall) → ③ `INSERT images ON CONFLICT(generation_id) DO NOTHING` → ④ 物化余额 `-charged` RETURNING → ⑤ ledger debit(uq_debit ON CONFLICT) → ⑥ generations→succeeded + `duration_ms=(EXTRACT(EPOCH…)*1000)::int` + events
 - [ ] 兑换 `src/server/money/redeem.server.ts`：`UPDATE…WHERE status='active' RETURNING`→0 行再查状态分 404/410；同事务入账 lots+ledger(uq_credit_code)+余额；首兑升级 has_paid + 旧图顺延 60 天；失败限流 5/10min
-- [ ] 注册发放 `src/server/money/grant.server.ts`：单事务 users+account+signup lot+ledger(uq_grant_signup)+events，GRANT_MP/有效期读 app_config
+- [x] 注册发放 `src/server/money/grant.server.ts`：单事务 users+account+signup lot+ledger(uq_grant_signup)+events，GRANT_MP/有效期读 app_config。**幂等强化**：以 credit_accounts(user_id PK) INSERT…ON CONFLICT DO NOTHING RETURNING 作串行化闸，杜绝重入/并发重复 lot/events（强于 03 §4.4 字面顺序）；修真库 42P08（user_id uuid / ref_id text 分参 $1/$3）。对真 Neon 验：注册→140mp→幂等
 - [ ] 过期 `src/server/money/expire.server.ts`：每日 FIFO 清零到期 lot(永久 lot 跳过)，uq_expire_lot 幂等
 - [ ] 调账 `src/server/money/adjust.server.ts`：admin ±，**同事务动 credit_lots + 物化余额 + ledger(adjust) + audit**，记真实 moved 量，不出负
 - [ ] 对账 `src/server/money/reconcile.server.ts`：每日 `SUM(lots.remaining)` vs 物化余额，**先告警再以 lots 为准修正**
@@ -66,9 +69,9 @@
 🔴 **红线**：⓪双守卫是扣费事务**第一步**(同时挡重入重复扣 & 超时翻 failed 后仍扣)；**成功才扣**；ledger/lots/物化余额三者用同一 charged、balance_after 取 RETURNING；`duration_ms` 用 `EXTRACT(EPOCH…)*1000`（绝不 `EXTRACT(MILLISECONDS…)`）；预算硬上限原子条件自增；adjust 必动 lots；5 个 partial-unique 迁移后人工核对 WHERE。
 
 ## §4 生图管线 + API 契约
-- [ ] 契约 `src/contracts/{error,generate,redeem,me,notification,conversation,image,package,inspiration,account}.ts`：统一错误信封 + `GenerateStatusResponse` 判别联合 + SIZES + 6 值 ERROR_CODES + `REDEEM_CODE_RE`；单笔 number、SUM string codec（注：`generate.ts` 阶段一已有雏形，补全）
-- [ ] **relay 封装（铁律④）** `src/server/relay.ts`：Key 只从 `process.env.RELAY_API_KEY`；主/备 Base；AbortController 4.5min 软超时→provider_timeout；F-429(HTTP200+error body)守卫；**AbortError 不重试**；复用 v1 `imageGeneration.ts` build/parse + `redaction.ts`
-- [ ] 失败归一 `src/server/generation/failure.ts`：先脱敏 → 6 值枚举，message≤500
+- [x] 契约 `src/contracts/{error,generate,redeem,me,notification,conversation,image,package,inspiration,account}.ts` + `index.ts` barrel：统一错误信封 + `GenerateStatusResponse` 判别联合 + SIZES + 6 值 ERROR_CODES + `REDEEM_ALPHABET/REDEEM_CODE_RE`；单笔 number、SUM(expiringSoon.mp) string codec；`package.ts` drizzle-zod 派生；`generate.ts` 雏形升级为 Zod（向后兼容，消费端全 `import type`）。**离线先行（§4 其余 generate*/限流/前端接真待 ④ 推进）**
+- [x] **relay 封装（铁律④）** `src/server/relay.ts`：Key 只从 `process.env.RELAY_API_KEY`；主/备 Base（DB 不可达回退 env）；AbortController 4.5min 软超时→provider_timeout；F-429(HTTP200+error body)守卫；**AbortError 不重试**；复用 v1 `imageGeneration.ts` build/parse + `redaction.ts`；`toRelayImage` 桥接 ParsedImage→putToR2 入参(任意 base64 data URL 提 b64_json)
+- [x] 失败归一 `src/server/generation/failure.ts`：先脱敏 → 6 值枚举（precedence: timeout→unreachable→quota→content→5xx→unknown），message≤500
 - [ ] 提交(同步) `netlify/functions/generate.ts`：requireUserStrict→parse→enqueue→`triggerBackground`(fire-and-forget，body 仅 `{generationId}`)→202；**绝不 await relay**
 - [ ] 后台(15min) `netlify/functions/generate-background.ts`：`-background` 后缀；claim→running→预算硬闸→callRelay→putToR2→debit；catch→归一 failed；finally→incMs
 - [ ] 状态 `netlify/functions/generate-status.ts`：`WHERE id AND user_id`(owner-scoped 否则 404)→判别联合；失败也 200；只回 R2 public_url

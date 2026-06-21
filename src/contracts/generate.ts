@@ -1,6 +1,6 @@
-// 生成契约（形状对齐 docs/dev 07-api §8.5 的 GenerateRequest / GenerateStatusResponse 判别联合）。
-// 阶段一不引 zod（phase-2 才上 zod/drizzle-zod），这里用纯 TS 类型 + const 数组，
-// 让 mock 与 UI 共享同一形状；阶段二只把「mock fetch」换成真 REST，类型不变。
+// 生成契约（07 §8.5 / 04 §5.4）。阶段二补全为 Zod（前后端单一真相源）。
+// 兼容：阶段一以纯 TS 类型消费（全部 `import type`），故 const+inferred type 同名不破坏既有 import。
+import { z } from "zod";
 
 export const SIZES = [
   "auto",
@@ -18,16 +18,7 @@ export type Quality = (typeof QUALITIES)[number];
 export const BACKGROUNDS = ["auto", "transparent", "opaque"] as const;
 export type Background = (typeof BACKGROUNDS)[number];
 
-export interface GenerateRequest {
-  prompt: string;
-  size: Size;
-  quality?: Quality;
-  background?: Background;
-  conversationId?: string;
-  // 服务端固定：model=gpt-image-2 / n=1 / moderation=low，前端不收不发。
-}
-
-// 归一化失败枚举（六值，对齐 04 §5.8 / 09 §10.5）。
+// 归一化失败枚举（六值，唯一权威 04 §5.8；09 §10.5 直显）。
 export const ERROR_CODES = [
   "insufficient_quota",
   "relay_5xx",
@@ -40,27 +31,53 @@ export type ErrorCode = (typeof ERROR_CODES)[number];
 
 export interface GeneratedImage {
   publicUrl: string;
-  width: number;
-  height: number;
+  width: number | null; // PNG 维度解析失败可空（与 DB images.width/height、succeeded 契约同口径）
+  height: number | null;
 }
 
-// 按 status 的判别联合（与 07 §8.5 逐字段一致）。
-export type GenerateStatusResponse =
-  | { status: "queued" | "claimed" | "running"; startedAt?: string; elapsedMs?: number }
-  | {
-      status: "succeeded";
-      image: GeneratedImage;
-      creditsChargedMp: number;
-      durationMs: number;
-    }
-  | {
-      status: "failed";
-      errorCode: ErrorCode;
-      error: string;
-      httpStatus: number | null;
-    };
+// POST /api/generate 请求体。model/n/moderation/apiKey 服务端固定，前端不收不发（07 §8.3）。
+export const GenerateRequest = z.object({
+  prompt: z.string().min(1, "prompt 不能为空").max(4000),
+  size: z.enum(SIZES),
+  quality: z.enum(QUALITIES).optional(),
+  background: z.enum(BACKGROUNDS).optional(),
+  conversationId: z.uuid().optional(),
+});
+export type GenerateRequest = z.infer<typeof GenerateRequest>;
+
+// 按 status 的判别联合（与 04 §5.4 逐字段一致）：进行中无 creditsChargedMp，succeeded/failed 字段各异。
+export const GenerateStatusResponse = z.discriminatedUnion("status", [
+  z.object({
+    status: z.enum(["queued", "claimed", "running"]),
+    startedAt: z.string().optional(),
+    elapsedMs: z.number().int().nonnegative().optional(),
+  }),
+  z.object({
+    status: z.literal("succeeded"),
+    // width/height 可空：PNG 头解析失败时 images.width/height 为 NULL（02 §3.2 / 06 §7.3 readPngDims 可选），
+    // 与 DB 列及 image.ts/conversation.ts 同口径，避免成功行因维度缺失 .parse() 失败。
+    image: z.object({
+      publicUrl: z.url(),
+      width: z.number().int().nullable(),
+      height: z.number().int().nullable(),
+    }),
+    creditsChargedMp: z.number().int().nonnegative(),
+    durationMs: z.number().int().nonnegative(),
+  }),
+  z.object({
+    status: z.literal("failed"),
+    errorCode: z.enum(ERROR_CODES),
+    error: z.string(), // 脱敏可读串（可含状态码原文）
+    httpStatus: z.number().int().nullable(), // 中转 HTTP 状态码，无则 null
+  }),
+]);
+export type GenerateStatusResponse = z.infer<typeof GenerateStatusResponse>;
 
 // POST /api/generate 入队成功（202）。
+export const GenerateAcceptedResponse = z.object({
+  generationId: z.uuid(),
+  status: z.literal("queued"),
+});
 export interface GenerateAccepted {
   generationId: string;
   status: "queued";

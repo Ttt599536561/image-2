@@ -240,7 +240,8 @@ export const GenerateStatusResponse = z.discriminatedUnion('status', [
   }),
   z.object({
     status: z.literal('succeeded'),
-    image: z.object({ publicUrl: z.url(), width: z.number().int(), height: z.number().int() }),
+    // width/height 可空：PNG 头解析失败时 images.width/height 为 NULL（[02 §3.2](02-database.md) / [06 §7.3](06-storage.md) readPngDims 可选），与 DB 列同口径
+    image: z.object({ publicUrl: z.url(), width: z.number().int().nullable(), height: z.number().int().nullable() }),
     creditsChargedMp: z.number().int().nonnegative(),  // 单笔 ≤ 安全整数，number 即可
     durationMs: z.number().int().nonnegative(),
   }),

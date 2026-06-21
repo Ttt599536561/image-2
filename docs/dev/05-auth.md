@@ -225,7 +225,8 @@ export async function onUserRegistered(user: { id: string; email: string }) {
 
 ```ts
 // src/lib/auth-hooks.ts —— 孤儿兜底：每次登录校验缺则补发
-export async function onSessionCreated({ session }: { session: { userId: string } }) {
+// ⚠️ Better Auth 把 session 行作第一个实参直接传入（非 { session } 包裹）；签名以此为准。
+export async function onSessionCreated(session: { userId: string }) {
   const has = await sql`SELECT 1 FROM credit_accounts WHERE user_id=${session.userId} LIMIT 1`;
   if (has.length === 0) {
     const u = await sql`SELECT id, email FROM users WHERE id=${session.userId} LIMIT 1`;
