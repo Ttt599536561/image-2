@@ -106,6 +106,24 @@
   color: var(--text-tertiary);
   margin: var(--space-1) 0 0;
 }
+/* 表单内联反馈（就近，不丢右上角） */
+.formError,
+.formOk {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+}
+.formError {
+  background: var(--danger-surface);
+  border: 0.5px solid var(--danger-border);
+  color: var(--danger-text);
+}
+.formOk {
+  background: var(--success-surface);
+  border: 0.5px solid var(--success-border);
+  color: var(--success-text);
+}
 .pwGrid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);

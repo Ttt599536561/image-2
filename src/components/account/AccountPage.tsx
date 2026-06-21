@@ -5,23 +5,24 @@ import { formatCredits } from "../../lib/format";
 import { useMock } from "../../mocks/store";
 import { useShell } from "../shell/ShellContext";
 import { TopBar } from "../shell/TopBar";
-import { useToast } from "../Toast/ToastProvider";
 import styles from "./Account.module.css";
 
 export function AccountPage() {
   const mock = useMock();
-  const toast = useToast();
   const shell = useShell();
   const navigate = useNavigate();
   const [pw, setPw] = useState({ current: "", next: "", confirm: "" });
+  // 表单反馈就近内联（不丢到右上角 toast）
+  const [pwMsg, setPwMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   const savePw = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!pw.current) return toast.error("请输入当前密码");
-    if (pw.next.length < 6) return toast.error("密码至少 6 位");
-    if (pw.next !== pw.confirm) return toast.error("两次输入的新密码不一致");
+    setPwMsg(null);
+    if (!pw.current) return setPwMsg({ ok: false, text: "请输入当前密码" });
+    if (pw.next.length < 6) return setPwMsg({ ok: false, text: "密码至少 6 位" });
+    if (pw.next !== pw.confirm) return setPwMsg({ ok: false, text: "两次输入的新密码不一致" });
     setPw({ current: "", next: "", confirm: "" });
-    toast.success("密码已更新（mock）");
+    setPwMsg({ ok: true, text: "密码已更新（mock）" });
   };
 
   return (
@@ -107,6 +108,9 @@ export function AccountPage() {
                 />
               </div>
             </div>
+            {pwMsg ? (
+              <p className={pwMsg.ok ? styles.formOk : styles.formError}>{pwMsg.text}</p>
+            ) : null}
             <button type="submit" className={styles.save}>
               保存新密码
             </button>

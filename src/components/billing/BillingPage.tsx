@@ -21,6 +21,7 @@ export function BillingPage() {
   const shell = useShell();
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [redeemOk, setRedeemOk] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string>(
     MOCK_PACKAGES.find((p) => p.recommended)?.id ?? MOCK_PACKAGES[0].id,
   );
@@ -38,6 +39,7 @@ export function BillingPage() {
 
   const onRedeem = () => {
     setError(null);
+    setRedeemOk(null);
     const value = code.trim().toUpperCase();
     if (!REDEEM_RE.test(value)) {
       setError("兑换码无效");
@@ -45,7 +47,7 @@ export function BillingPage() {
     }
     const result = mock.redeem(value);
     if (result.ok) {
-      toast.success("积分到账");
+      setRedeemOk(`兑换成功，到账 ${formatCredits(result.creditsMp)} 积分`);
       setCode("");
     } else {
       setError(REDEEM_ERRORS[result.code] ?? "兑换码无效");
@@ -124,6 +126,7 @@ export function BillingPage() {
                 onChange={(e) => {
                   setCode(e.target.value.toUpperCase());
                   if (error) setError(null);
+                  if (redeemOk) setRedeemOk(null);
                 }}
                 onBlur={() => {
                   const v = code.trim().toUpperCase();
@@ -138,6 +141,7 @@ export function BillingPage() {
               </button>
             </div>
             {error ? <p className={styles.redeemError}>{error}</p> : null}
+            {redeemOk ? <p className={styles.redeemOk}>{redeemOk}</p> : null}
           </div>
         </div>
       </div>
