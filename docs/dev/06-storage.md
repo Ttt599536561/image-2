@@ -1,6 +1,8 @@
 # 7 · 对象存储与媒体
 
-> 结果图从中转临时 URL/base64 **落到 Cloudflare R2**（S3 兼容、零出口费），DB 只存 `storage_key + public_url`，前端永远读稳定 `public_url`。
+> 🔀 **后端变更（2026-06-21，站长选定）**：对象存储从 **Cloudflare R2 改为 Supabase Storage**（同为 S3 兼容；R2 需自定义域 + 绑卡，Supabase 公有桶自带公开 URL、免域名、免卡）。**代码抽象不变**——`src/server/r2.server.ts` 走 S3 协议（`@aws-sdk/client-s3`），`putToR2`/`publicUrl`/`retentionExpiry`/删除助手签名照旧；只换 env 为厂商中立 `STORAGE_*`（`STORAGE_S3_ENDPOINT`/`STORAGE_S3_REGION`/`STORAGE_S3_ACCESS_KEY_ID`/`STORAGE_S3_SECRET_ACCESS_KEY`/`STORAGE_BUCKET`/`STORAGE_PUBLIC_BASE_URL`，见 [PHASE2-PLAN §0](PHASE2-PLAN.md) / `.env.example`），换回 R2/B2/S3 只改值不改码。本章下文「R2」指**对象存储后端**（现为 Supabase Storage）；R2 特定的自定义域细节以 Supabase 公有桶等价物替代。
+>
+> 结果图从中转临时 URL/base64 **落到对象存储**（S3 兼容、公有桶），DB 只存 `storage_key + public_url`，前端永远读稳定 `public_url`。
 > 规则真相源：规格 [§6.1](../redesign-requirements.md)（保留期 7/60、升级顺延、过期清理/提醒）/ [§12](../redesign-requirements.md)（资产库只展示自己生成的图、本期不支持上传）/ [§15 第二步](../redesign-requirements.md)（对象存储选型）。
 > 工程上落图嵌在扣费链路里：落图在**扣费事务外**先做，结果存临时变量，再开扣费事务（[03-money.md §4.3](03-money.md)）。
 

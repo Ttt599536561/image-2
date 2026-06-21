@@ -1,7 +1,10 @@
-// ★server-only：Cloudflare R2（S3 兼容、零出口费）。落地图 + 删除 + 不可枚举 key。
+// ★server-only：对象存储（S3 兼容）。落地图 + 删除 + 不可枚举 key。
+// 后端 = **Supabase Storage**（S3 协议；站长 2026-06-21 选定，替代原选型 Cloudflare R2——免自定义域/免绑卡，
+//   公有桶自带公开 URL）。代码厂商中立：env 用 `STORAGE_*`（显式 endpoint），换 R2/B2/S3 只改值不改码。
+// 文件名/函数名（r2.server / putToR2）为历史命名，保留以对齐规格稳定签名（03 §4.3 / 06 §7.3）。
 // 真相源 06-storage.md §7.1–§7.5。前端永远只读 images.public_url（§7.6），绝不读中转临时 URL。
 //
-// 🔴 红线：R2 凭据全在服务端 env，构建期断言不进 bundle（00 §1.4）；storage_key 末尾随机段是唯一软隔离；
+// 🔴 红线：存储凭据全在服务端 env，构建期断言不进 bundle（00 §1.4）；storage_key 末尾随机段是唯一软隔离；
 //    落图在「扣费事务外」先做、结果存临时变量，再开扣费事务（03 §4.3 / 06 §7.3）。
 
 import { randomBytes } from "node:crypto";
@@ -14,7 +17,7 @@ import {
 
 function env(name: string): string {
   const v = process.env[name];
-  if (!v) throw new Error(`[r2] 缺少环境变量 ${name}（接真 R2 前需配置，见 PHASE2-PLAN §0）`);
+  if (!v) throw new Error(`[storage] 缺少环境变量 ${name}（接真存储前需配置，见 PHASE2-PLAN §0）`);
   return v;
 }
 
@@ -23,11 +26,13 @@ let _client: S3Client | null = null;
 export function getR2Client(): S3Client {
   if (!_client) {
     _client = new S3Client({
-      region: "auto",
-      endpoint: `https://${env("R2_ACCOUNT_ID")}.r2.cloudflarestorage.com`,
+      // 显式 endpoint（厂商中立）：Supabase = https://<ref>.storage.supabase.co/storage/v1/s3；R2/B2 各自 endpoint。
+      endpoint: env("STORAGE_S3_ENDPOINT"),
+      region: process.env.STORAGE_S3_REGION || "auto", // Supabase 填项目 region；R2 用 auto
+      forcePathStyle: true, // Supabase Storage（及多数非 AWS S3）走 path-style 寻址
       credentials: {
-        accessKeyId: env("R2_ACCESS_KEY_ID"),
-        secretAccessKey: env("R2_SECRET_ACCESS_KEY"),
+        accessKeyId: env("STORAGE_S3_ACCESS_KEY_ID"),
+        secretAccessKey: env("STORAGE_S3_SECRET_ACCESS_KEY"),
       },
     });
   }
@@ -43,9 +48,10 @@ export interface PutResult {
   sizeBytes: number;
 }
 
-/** 中转返回（临时 URL 或 base64）→ 公有 URL（§7.2）。前端只读它。 */
+/** 中转返回（临时 URL 或 base64）→ 公有 URL（§7.2）。前端只读它。
+ *  STORAGE_PUBLIC_BASE_URL：Supabase 公有桶 = https://<ref>.supabase.co/storage/v1/object/public/<bucket>（结尾不带 /）。 */
 export function publicUrl(storageKey: string): string {
-  return `${env("R2_PUBLIC_BASE_URL")}/${storageKey}`;
+  return `${env("STORAGE_PUBLIC_BASE_URL")}/${storageKey}`;
 }
 
 /** 不可枚举 key（§7.2）：{userId}/{yyyy}/{mm}/{generationId}-{rand}.png。 */
@@ -61,7 +67,7 @@ export function buildStorageKey(userId: string, generationId: string): string {
 async function putObject(key: string, body: Uint8Array, contentType: string): Promise<void> {
   await getR2Client().send(
     new PutObjectCommand({
-      Bucket: env("R2_BUCKET"),
+      Bucket: env("STORAGE_BUCKET"),
       Key: key,
       Body: body,
       ContentType: contentType,
@@ -128,7 +134,7 @@ export function retentionExpiry(
 
 /** 删单个对象（清理 cron 单 key 失败兜底，§7.5）。 */
 export async function deleteFromR2(storageKey: string): Promise<void> {
-  await getR2Client().send(new DeleteObjectCommand({ Bucket: env("R2_BUCKET"), Key: storageKey }));
+  await getR2Client().send(new DeleteObjectCommand({ Bucket: env("STORAGE_BUCKET"), Key: storageKey }));
 }
 
 /**
@@ -139,7 +145,7 @@ export async function deleteFromR2(storageKey: string): Promise<void> {
 export async function deleteManyFromR2(storageKeys: string[]): Promise<string[]> {
   if (storageKeys.length === 0) return [];
   const client = getR2Client();
-  const bucket = env("R2_BUCKET");
+  const bucket = env("STORAGE_BUCKET");
   const failed: string[] = [];
   for (let i = 0; i < storageKeys.length; i += 1000) {
     const chunk = storageKeys.slice(i, i + 1000);

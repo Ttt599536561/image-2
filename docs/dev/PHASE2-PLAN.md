@@ -16,7 +16,7 @@
 | 服务 | 变量 | 何时需要 | 状态 |
 |---|---|---|---|
 | **Neon Postgres**（AWS 美东，与 Netlify 同区） | `DATABASE_URL`(pooled) · `DATABASE_URL_UNPOOLED`(direct) · 每 PR 一个 test branch | ①起 | 🟡 direct 串已配（PG18.4，迁移+seed 已跑通）；pooled 串(带 -pooler)+每 PR test branch 待补 |
-| **Cloudflare R2**（公有 bucket + 自定义域，非 *.r2.dev） | `R2_ACCOUNT_ID`/`R2_ACCESS_KEY_ID`/`R2_SECRET_ACCESS_KEY`/`R2_BUCKET`/`R2_PUBLIC_BASE_URL` | ① | ⬜ 待开通 |
+| **对象存储（S3 兼容）= Supabase Storage**（公有桶，免自定义域/免绑卡；代码厂商中立 `STORAGE_*`，换 R2/B2/S3 只改值。原选型 Cloudflare R2 因需自定义域+绑卡，站长 2026-06-21 改 Supabase Storage） | `STORAGE_S3_ENDPOINT`/`STORAGE_S3_REGION`/`STORAGE_S3_ACCESS_KEY_ID`/`STORAGE_S3_SECRET_ACCESS_KEY`/`STORAGE_BUCKET`/`STORAGE_PUBLIC_BASE_URL` | ①/④ | ⬜ 待开通（Supabase 建 project + public 桶 + S3 Access Keys） |
 | **Better Auth** | `BETTER_AUTH_SECRET`(可生成) · `BETTER_AUTH_URL` | ② | ⬜ |
 | **中转**（v1 已有，确认） | `RELAY_API_KEY` · `RELAY_BASE_URL`(+可选 `RELAY_BASE_URL_BACKUP`) · `DAILY_RELAY_BUDGET_CALLS/_MS` | ④ | ⬜ 确认 |
 | 可观测/告警（可后补） | `SENTRY_DSN` · `ADMIN_ALERT_WEBHOOK` | ⑦ | ⬜ |
