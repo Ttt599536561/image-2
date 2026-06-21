@@ -3,7 +3,7 @@
   overflow-y: auto;
 }
 .inner {
-  max-width: 480px;
+  max-width: 760px;
   margin: 0 auto;
   padding: var(--space-8) var(--space-5) var(--space-10);
   display: flex;
@@ -14,14 +14,61 @@
   background: var(--bg-surface);
   border: 0.5px solid var(--border-subtle);
   border-radius: var(--radius-lg);
-  padding: var(--space-5);
+  padding: var(--space-6);
 }
 .h {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
-  margin: 0 0 var(--space-4);
+  margin: 0 0 var(--space-5);
 }
+.readonlyTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-tertiary);
+}
+
+/* 只读账号信息：横向自适应网格（桌面 2–4 列，不需滚动） */
+.infoGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-5) var(--space-8);
+  margin: 0;
+}
+.infoItem {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.infoLabel {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.infoValue {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 15px;
+  color: var(--text-primary);
+  word-break: break-all;
+}
+.inlineLink {
+  font-size: 13px;
+  color: var(--accent-on-surface);
+  text-decoration: none;
+}
+.inlineLink:hover {
+  text-decoration: underline;
+}
+
+/* 修改密码表单 */
 .field {
   margin-bottom: var(--space-4);
 }
@@ -46,29 +93,25 @@
   font-size: 14px;
   outline: none;
 }
-.inputReadonly {
-  background: var(--bg-subtle);
-  color: var(--text-secondary);
+.input:focus {
+  border-color: var(--text-secondary);
 }
 .note {
   font-size: 12px;
   color: var(--text-tertiary);
   margin: var(--space-1) 0 0;
 }
-.row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.pwGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
 }
-.link {
-  color: var(--accent-on-surface);
-  text-decoration: none;
-  font-size: 13px;
-}
-.link:hover {
-  text-decoration: underline;
+.pwGrid .field {
+  margin-bottom: 0;
 }
 .save {
+  margin-top: var(--space-2);
   height: 40px;
   padding: 0 var(--space-5);
   border: none;
@@ -95,4 +138,13 @@
 }
 .danger:hover {
   background: var(--danger-surface);
+}
+
+@media (max-width: 560px) {
+  .pwGrid {
+    grid-template-columns: 1fr;
+  }
+  .pwGrid .field {
+    margin-bottom: var(--space-4);
+  }
 }

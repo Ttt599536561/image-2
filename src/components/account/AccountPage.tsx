@@ -1,4 +1,4 @@
-import { ChevronRight } from "lucide-react";
+import { Lock } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { formatCredits } from "../../lib/format";
@@ -29,36 +29,48 @@ export function AccountPage() {
       <TopBar title="账号设置" onOpenMenu={shell.openMenu} />
       <div className={styles.page}>
         <div className={styles.inner}>
+          {/* 账号信息：只读，标签+文本横向铺开（非输入框），一眼可见不可编辑 */}
           <div className={styles.section}>
-            <h2 className={styles.h}>账号信息</h2>
-            <div className={styles.field}>
-              <span className={styles.label}>邮箱</span>
-              <input className={`${styles.input} ${styles.inputReadonly}`} value={mock.user.email} readOnly />
-              <p className={styles.note}>邮箱不可修改</p>
-            </div>
-            <div className={styles.field}>
-              <span className={styles.label}>注册时间</span>
-              <input
-                className={`${styles.input} ${styles.inputReadonly}`}
-                value={mock.user.createdAt.slice(0, 10)}
-                readOnly
-              />
-            </div>
-            <div className={styles.field}>
-              <span className={styles.label}>并发上限</span>
-              <input
-                className={`${styles.input} ${styles.inputReadonly}`}
-                value={`${mock.maxConcurrency} 个同时生成`}
-                readOnly
-              />
-            </div>
+            <h2 className={styles.h}>
+              账号信息
+              <span className={styles.readonlyTag}>
+                <Lock size={11} /> 仅展示
+              </span>
+            </h2>
+            <dl className={styles.infoGrid}>
+              <div className={styles.infoItem}>
+                <dt className={styles.infoLabel}>邮箱</dt>
+                <dd className={styles.infoValue}>{mock.user.email}</dd>
+              </div>
+              <div className={styles.infoItem}>
+                <dt className={styles.infoLabel}>注册时间</dt>
+                <dd className={styles.infoValue}>{mock.user.createdAt.slice(0, 10)}</dd>
+              </div>
+              <div className={styles.infoItem}>
+                <dt className={styles.infoLabel}>并发上限</dt>
+                <dd className={styles.infoValue}>{mock.maxConcurrency}</dd>
+              </div>
+              <div className={styles.infoItem}>
+                <dt className={styles.infoLabel}>当前积分</dt>
+                <dd className={styles.infoValue}>
+                  {formatCredits(mock.balanceMp)}
+                  <Link to="/billing" className={styles.inlineLink}>
+                    去充值
+                  </Link>
+                </dd>
+              </div>
+            </dl>
           </div>
 
+          {/* 修改密码：可编辑表单 */}
           <form className={styles.section} onSubmit={savePw}>
             <h2 className={styles.h}>修改密码</h2>
             <div className={styles.field}>
-              <span className={styles.label}>当前密码</span>
+              <label className={styles.label} htmlFor="pw-current">
+                当前密码
+              </label>
               <input
+                id="pw-current"
                 type="password"
                 className={styles.input}
                 value={pw.current}
@@ -66,47 +78,46 @@ export function AccountPage() {
                 autoComplete="current-password"
               />
             </div>
-            <div className={styles.field}>
-              <span className={styles.label}>新密码</span>
-              <input
-                type="password"
-                className={styles.input}
-                value={pw.next}
-                onChange={(e) => setPw({ ...pw, next: e.target.value })}
-                autoComplete="new-password"
-              />
-              <p className={styles.note}>密码至少 6 位</p>
-            </div>
-            <div className={styles.field}>
-              <span className={styles.label}>确认新密码</span>
-              <input
-                type="password"
-                className={styles.input}
-                value={pw.confirm}
-                onChange={(e) => setPw({ ...pw, confirm: e.target.value })}
-                autoComplete="new-password"
-              />
+            <div className={styles.pwGrid}>
+              <div className={styles.field}>
+                <label className={styles.label} htmlFor="pw-next">
+                  新密码
+                </label>
+                <input
+                  id="pw-next"
+                  type="password"
+                  className={styles.input}
+                  value={pw.next}
+                  onChange={(e) => setPw({ ...pw, next: e.target.value })}
+                  autoComplete="new-password"
+                />
+                <p className={styles.note}>密码至少 6 位</p>
+              </div>
+              <div className={styles.field}>
+                <label className={styles.label} htmlFor="pw-confirm">
+                  确认新密码
+                </label>
+                <input
+                  id="pw-confirm"
+                  type="password"
+                  className={styles.input}
+                  value={pw.confirm}
+                  onChange={(e) => setPw({ ...pw, confirm: e.target.value })}
+                  autoComplete="new-password"
+                />
+              </div>
             </div>
             <button type="submit" className={styles.save}>
               保存新密码
             </button>
           </form>
 
+          {/* 账号操作 */}
           <div className={styles.section}>
-            <h2 className={styles.h}>其他</h2>
-            <div className={styles.field}>
-              <Link to="/billing" className={styles.row} style={{ textDecoration: "none" }}>
-                <span className={styles.label} style={{ margin: 0 }}>
-                  当前积分 {formatCredits(mock.balanceMp)} · 去充值
-                </span>
-                <ChevronRight size={16} color="var(--text-tertiary)" />
-              </Link>
-            </div>
-            <div className={styles.field}>
-              <button type="button" className={styles.danger} onClick={() => navigate("/login")}>
-                退出登录
-              </button>
-            </div>
+            <h2 className={styles.h}>账号操作</h2>
+            <button type="button" className={styles.danger} onClick={() => navigate("/login")}>
+              退出登录
+            </button>
           </div>
         </div>
       </div>

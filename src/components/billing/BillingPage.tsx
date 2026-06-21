@@ -138,9 +138,6 @@ export function BillingPage() {
               </button>
             </div>
             {error ? <p className={styles.redeemError}>{error}</p> : null}
-            <p className={styles.redeemHint}>
-              演示码：AAAAAAAAAAAAAAAAAA（成功 +10）· BBBBBBBBBBBBBBBBBB（已使用）· CCCCCCCCCCCCCCCCCC（已失效）
-            </p>
           </div>
         </div>
       </div>

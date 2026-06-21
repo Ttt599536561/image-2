@@ -175,7 +175,10 @@ export function Composer({
                         key={q.value}
                         type="button"
                         className={`${styles.segBtn} ${(request.quality ?? "auto") === q.value ? styles.segBtnActive : ""}`}
-                        onClick={() => set("quality", q.value as Quality)}
+                        onClick={() => {
+                          set("quality", q.value as Quality);
+                          advPop.setOpen(false);
+                        }}
                       >
                         {q.label}
                       </button>
@@ -190,7 +193,10 @@ export function Composer({
                         key={b.value}
                         type="button"
                         className={`${styles.segBtn} ${(request.background ?? "auto") === b.value ? styles.segBtnActive : ""}`}
-                        onClick={() => set("background", b.value as Background)}
+                        onClick={() => {
+                          set("background", b.value as Background);
+                          advPop.setOpen(false);
+                        }}
                       >
                         {b.label}
                       </button>

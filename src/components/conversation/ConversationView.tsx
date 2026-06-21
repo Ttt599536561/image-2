@@ -125,9 +125,7 @@ export function ConversationView({ conversationId }: { conversationId: string | 
       toast.info("生成中，请稍候");
       return;
     }
-    if (request.prompt.trim() && request.prompt.trim() !== prompt.trim()) {
-      if (!window.confirm("替换当前输入?")) return;
-    }
+    // 直接回填，不再弹「替换当前输入?」确认（按站长要求）
     setRequest((r) => ({ ...r, prompt }));
     focusComposer();
   };
