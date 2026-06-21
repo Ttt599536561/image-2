@@ -1,5 +1,8 @@
 node_modules/
 dist/
+build/
+.react-router/
+.netlify/
 coverage/
 .env
 .env.*

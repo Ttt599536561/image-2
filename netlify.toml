@@ -1,14 +1,13 @@
+# RR8 framework 模式（SSR）+ @netlify/vite-plugin-react-router。
+# 构建产出 build/client（静态资源）+ SSR server handler（插件自动接管路由，
+# 无需 SPA 回退 /* → index.html）。经典 Functions（生图后台/状态）保留，阶段二接真后台。
 [build]
   command = "npm run build"
-  publish = "dist"
+  publish = "build/client"
   functions = "netlify/functions"
 
+# 阶段一保留经典 Netlify Function 入口（生图提交）；阶段二全链路打通真后台
 [[redirects]]
   from = "/api/generate"
   to = "/.netlify/functions/generate"
-  status = 200
-
-[[redirects]]
-  from = "/*"
-  to = "/index.html"
   status = 200

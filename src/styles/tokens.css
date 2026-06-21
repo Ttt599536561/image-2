@@ -1,0 +1,139 @@
+/* ============================================================================
+ * tokens.css — 设计令牌真相源（落地自 docs/prototypes/design-system.html）
+ * 明色默认 + 暗色单独调校（非反相）。取值一律 var(--token)，禁硬编码。
+ * --cosmic-* 为「生成中宇宙星空」专属，刻意不随明暗反相（深空恒深）。
+ * ==========================================================================*/
+
+:root,
+[data-theme="light"] {
+  /* 字体（系统字体栈：拉丁走 Inter，中文走各平台原生黑体，零网络加载） */
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", "PingFang SC", "Microsoft YaHei", "Noto Sans CJK SC",
+    "Source Han Sans SC", "Hiragino Sans GB", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+
+  /* 中性面（微暖中性灰） */
+  --bg-canvas: #faf9f7;
+  --bg-surface: #ffffff;
+  --bg-subtle: #f3f2ef;
+  --bg-muted: #ecebe5;
+
+  --text-primary: #1a1a18;
+  --text-secondary: #6c6b66;
+  --text-tertiary: #9b9a93;
+  --text-inverse: #ffffff;
+
+  --border-subtle: rgba(0, 0, 0, 0.11);
+  --border-strong: rgba(0, 0, 0, 0.22);
+
+  /* 主操作（亮=黑底白字；暗色反相见下） */
+  --primary-bg: #1a1a18;
+  --primary-bg-hover: #000000;
+  --primary-fg: #ffffff;
+
+  /* 暖色点缀（唯一强调色·陶土；仅徽章/选中/链接 hover/推荐描边） */
+  --accent: #c26a3d;
+  --accent-hover: #a8542c;
+  --accent-surface: #f7ede5;
+  --accent-on-surface: #8c4a24;
+
+  /* 语义色 */
+  --success-text: #0f6e56; --success-surface: #e6f4ef; --success-border: #4faf93;
+  --danger-text: #a32d2d;  --danger-surface: #fceaea;  --danger-border: #e24b4a;
+  --info-text: #185fa5;    --info-surface: #e7f0fb;    --info-border: #378add;
+  --warning-text: #8a5a06; --warning-surface: #fbf2dd; --warning-border: #d8a93a;
+
+  /* 圆角（柔和现代：偏大） */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 999px;
+
+  /* 间距（4px 基准；7/9/11 刻意缺省） */
+  --space-1: 4px;  --space-2: 8px;   --space-3: 12px; --space-4: 16px;
+  --space-5: 20px; --space-6: 24px;  --space-8: 32px; --space-10: 40px; --space-12: 48px;
+
+  /* 阴影（柔和克制） */
+  --shadow-xs: 0 1px 2px rgba(15, 17, 21, 0.05);
+  --shadow-sm: 0 1px 3px rgba(15, 17, 21, 0.07), 0 1px 2px rgba(15, 17, 21, 0.04);
+  --shadow-md: 0 6px 20px rgba(15, 17, 21, 0.1);
+  --shadow-lg: 0 16px 48px rgba(15, 17, 21, 0.16);
+
+  --scrim: rgba(0, 0, 0, 0.62);
+
+  /* 宇宙星空「生成中」占位专属（不随明暗反相——深空恒深） */
+  --cosmic-top: #1b2740;
+  --cosmic-mid: #131a2e;
+  --cosmic-bot: #0a0d18;
+  --cosmic-edge: rgba(120, 150, 210, 0.16);
+}
+
+[data-theme="dark"] {
+  --bg-canvas: #141310;
+  --bg-surface: #1e1d1a;
+  --bg-subtle: #28261f;
+  --bg-muted: #34322a;
+
+  --text-primary: #f5f3ee;
+  --text-secondary: #b4b0a6;
+  --text-tertiary: #7f7c73;
+  --text-inverse: #1a1a18;
+
+  --border-subtle: rgba(255, 255, 255, 0.11);
+  --border-strong: rgba(255, 255, 255, 0.22);
+
+  /* 主操作反相：浅底深字，保持最高对比 */
+  --primary-bg: #f5f3ee;
+  --primary-bg-hover: #ffffff;
+  --primary-fg: #1a1a18;
+
+  /* 陶土在暗底提亮一档；浅底改用低透明度陶土 */
+  --accent: #e0935e;
+  --accent-hover: #eaa873;
+  --accent-surface: rgba(224, 147, 94, 0.14);
+  --accent-on-surface: #e8a876;
+
+  --success-text: #7fd0b6; --success-surface: rgba(79, 175, 147, 0.15);  --success-border: #3d7e6c;
+  --danger-text: #f0908f;  --danger-surface: rgba(226, 75, 74, 0.15);    --danger-border: #9a4140;
+  --info-text: #8cc0f5;    --info-surface: rgba(55, 138, 221, 0.16);     --info-border: #3a6da0;
+  --warning-text: #e6c069; --warning-surface: rgba(216, 169, 58, 0.16);  --warning-border: #9a7d34;
+
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 6px 20px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.6);
+  --scrim: rgba(0, 0, 0, 0.72);
+  /* 注意：dark 不覆盖 --font-* / --radius-* / --space-* / --cosmic-*（继承 :root） */
+}
+
+/* —— base reset —— */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button {
+  font-family: inherit;
+}
+
+a {
+  color: inherit;
+}
