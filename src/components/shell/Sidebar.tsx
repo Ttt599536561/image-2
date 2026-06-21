@@ -1,12 +1,13 @@
 import { Image as ImageIcon, Lightbulb, Plus, Search, Sparkles, User } from "lucide-react";
 import { useEffect } from "react";
 import { NavLink, useNavigate } from "react-router";
+import { useConversations, useMe } from "../../hooks/queries";
 import { useLockBodyScroll } from "../../lib/useLockBodyScroll";
-import { useMock } from "../../mocks/store";
 import styles from "./Sidebar.module.css";
 
 export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: () => void }) {
-  const mock = useMock();
+  const me = useMe();
+  const conversations = useConversations().data?.items ?? [];
   const navigate = useNavigate();
 
   // 移动端抽屉：锁背景滚动 + ESC 关闭
@@ -21,7 +22,7 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
   }, [open, onClose]);
 
   const startNew = () => {
-    mock.startNewConversation();
+    // 新建生成 = 路由到 "/" 并清空 Composer；首次提交成功后服务端建会话（08 §9.2）。
     navigate("/");
     onClose?.();
   };
@@ -50,10 +51,10 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
         </span>
 
         <div className={styles.recentLabel}>最近</div>
-        {mock.conversations.length === 0 ? (
+        {conversations.length === 0 ? (
           <div className={styles.recentEmpty}>还没有对话，点「新建生成」开始吧</div>
         ) : (
-          mock.conversations.map((c) => (
+          conversations.map((c) => (
             <NavLink
               key={c.id}
               to={`/c/${c.id}`}
@@ -89,7 +90,7 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
 
         <NavLink to="/account" onClick={onClose} className={styles.account}>
           <User size={18} />
-          <span className={styles.accountEmail}>{mock.user.email}</span>
+          <span className={styles.accountEmail}>{me.data?.user.email ?? ""}</span>
         </NavLink>
       </aside>
     </>

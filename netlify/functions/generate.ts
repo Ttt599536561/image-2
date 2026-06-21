@@ -17,12 +17,13 @@ export default async function handler(req: Request): Promise<Response> {
       return httpError(400, "INVALID_PARAM", "参数无效");
     }
     // 三闸 + 建会话 + INSERT generations(queued)（同一 FOR UPDATE 事务）；抛 Response 402/409/429/404。
-    const { generationId } = await enqueueGeneration({
+    const { generationId, conversationId } = await enqueueGeneration({
       user: { id: ctx.userId, maxConcurrency: ctx.maxConcurrency },
       input,
     });
     await triggerBackground(generationId); // fire-and-forget（不抛、不阻塞）
-    return Response.json({ generationId, status: "queued" }, { status: 202 });
+    // conversationId 回前端：首次提交在 "/" 入队后据此 navigate(/c/:id)（08 §9.2）。
+    return Response.json({ generationId, conversationId, status: "queued" }, { status: 202 });
   } catch (e) {
     if (e instanceof Response) return e; // guard / enqueue 抛出的统一错误信封
     console.error("[generate] error", e);

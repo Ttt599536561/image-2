@@ -1,0 +1,80 @@
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--scrim);
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+  z-index: var(--z-modal, 80);
+}
+
+.card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--bg-surface);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-6);
+}
+
+.title {
+  margin: 0 0 var(--space-2);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.message {
+  margin: 0 0 var(--space-5);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
+.cancel,
+.confirm,
+.confirmDanger {
+  height: 38px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-full);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 0.5px solid var(--border-strong);
+}
+
+.cancel {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+}
+
+.cancel:hover {
+  background: var(--bg-subtle);
+}
+
+.confirm {
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+  border-color: transparent;
+}
+
+.confirm:hover {
+  background: var(--primary-bg-hover);
+}
+
+.confirmDanger {
+  background: var(--danger-border, #d4493a);
+  color: #fff;
+  border-color: transparent;
+}
+
+.confirmDanger:hover {
+  filter: brightness(0.94);
+}

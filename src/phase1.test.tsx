@@ -1,22 +1,17 @@
-import { act, render, renderHook, screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import { Composer } from "./components/composer/Composer";
-import {
-  aspectRatioFor,
-  dimensionsFor,
-  SIZE_OPTIONS,
-} from "./components/composer/sizeOptions";
+import { aspectRatioFor, dimensionsFor, SIZE_OPTIONS } from "./components/composer/sizeOptions";
 import type { GenerateRequest } from "./contracts/generate";
 import { imageExt, imageFilename } from "./lib/download";
 import { formatCredits, formatTimer } from "./lib/format";
-import { mockGenerate } from "./mocks/api";
-import { makePlaceholderImage } from "./mocks/images";
-import { MockProvider, useMock } from "./mocks/store";
+import { makePlaceholderImage } from "./lib/placeholder";
+import { buildZip, exportZipName } from "./lib/zip";
 
-// 阶段一前端形态冒烟测试（替代 v1 App.test.tsx，对齐新 Composer UI）。
+// 前端形态冒烟测试（Composer UI + 展示/格式工具 + zip）。账号/会话/生成数据已接真（loader/REST），
+// 单测只覆盖纯函数与 props 驱动组件（真库交互在 tests/money + 冒烟脚本）。
 const baseReq: GenerateRequest = {
   prompt: "一只猫",
   size: "auto",
@@ -49,17 +44,11 @@ describe("sizeOptions（复用 v1 SIZE_OPTIONS 6 档）", () => {
   });
 });
 
-describe("mock 生成（镜像真契约）", () => {
-  it("占位成品图为按比例的 SVG data URL", () => {
+describe("占位封面（灵感库种子）", () => {
+  it("按比例的 SVG data URL", () => {
     const img = makePlaceholderImage("猫", "1536x1024");
     expect(img.publicUrl.startsWith("data:image/svg+xml")).toBe(true);
     expect(img).toMatchObject({ width: 1536, height: 1024 });
-  });
-  it("提交返回 202 queued + generationId", async () => {
-    const r = await mockGenerate(baseReq);
-    expect(r.status).toBe("queued");
-    expect(typeof r.generationId).toBe("string");
-    expect(r.generationId.length).toBeGreaterThan(0);
   });
 });
 
@@ -106,39 +95,20 @@ describe("下载命名（按 URL 推断扩展名）", () => {
   });
 });
 
-describe("mock 兑换（store）", () => {
-  const wrapper = ({ children }: { children: ReactNode }) => <MockProvider>{children}</MockProvider>;
-
-  it("有效码到账：物化余额 +10 积分", () => {
-    const { result } = renderHook(() => useMock(), { wrapper });
-    const before = result.current.balanceMp;
-    let res: ReturnType<typeof result.current.redeem> | undefined;
-    act(() => {
-      res = result.current.redeem("AAAAAAAAAAAAAAAAAA");
-    });
-    expect(res).toEqual({ ok: true, creditsMp: 10000 });
-    expect(result.current.balanceMp).toBe(before + 10000);
+describe("zip 打包（store-mode）", () => {
+  it("打出带 PK 魔数的 zip Blob，含全部条目", () => {
+    const a = new Uint8Array([1, 2, 3, 4, 5]);
+    const b = new Uint8Array([9, 8, 7]);
+    const blob = buildZip([
+      { name: "a.png", data: a },
+      { name: "b.png", data: b },
+    ]);
+    expect(blob.type).toBe("application/zip");
+    // 本地头 + 数据 + 2 条中央目录 + EOCD，长度必大于两段原始数据之和。
+    expect(blob.size).toBeGreaterThan(a.length + b.length);
   });
-
-  it("已用 / 已失效 / 不存在码各自报错且余额不变", () => {
-    const { result } = renderHook(() => useMock(), { wrapper });
-    const before = result.current.balanceMp;
-    let used: RedeemRet;
-    let disabled: RedeemRet;
-    let missing: RedeemRet;
-    type RedeemRet = ReturnType<typeof result.current.redeem>;
-    act(() => {
-      used = result.current.redeem("BBBBBBBBBBBBBBBBBB");
-    });
-    act(() => {
-      disabled = result.current.redeem("CCCCCCCCCCCCCCCCCC");
-    });
-    act(() => {
-      missing = result.current.redeem("ZZZZZZZZZZZZZZZZZZ");
-    });
-    expect(used!).toEqual({ ok: false, code: "CODE_USED" });
-    expect(disabled!).toEqual({ ok: false, code: "CODE_DISABLED" });
-    expect(missing!).toEqual({ ok: false, code: "CODE_NOT_FOUND" });
-    expect(result.current.balanceMp).toBe(before);
+  it("导出文件名形如 图像工坊_导出_YYYYMMDD_HHmmss.zip", () => {
+    const name = exportZipName(new Date(2026, 5, 22, 9, 8, 7));
+    expect(name).toBe("图像工坊_导出_20260622_090807.zip");
   });
 });

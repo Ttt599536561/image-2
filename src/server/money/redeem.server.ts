@@ -14,7 +14,7 @@
 // 🔴 红线：兑换 `UPDATE…WHERE status='active' RETURNING`，affected=1 才入账；ledger ref_id=code_id（text）与
 //   user_id（uuid）分参；金额整数 mp；valid_days 用 `$n::int * interval '1 day'` 避免「|| ' days'」参数类型歧义。
 import type { RedeemErrorCode, RedeemResponse } from "../../contracts/redeem";
-import { getSql } from "../../db/db.server";
+import { isRateLimited, recordRateFailure } from "../rateLimit";
 import { type TxClient, tx } from "../tx.server";
 
 /** 兑换业务错误（携带 HTTP 码与稳定 error.code，07 §8.4）。 */
@@ -98,23 +98,16 @@ export async function redeemCode(args: { userId: string; code: string }): Promis
 }
 
 // —— 失败限流（5 次/10 分钟，按账号 + IP，仅计失败；07 §8.6）——
-// 阶段二用 events 计数窗口（轻量、无需 Redis）；§4 rateLimit.ts 将统一收口。失败事件 type='redeem_failed' 不入看板聚合。
-const REDEEM_FAIL_LIMIT = 5;
+// 统一收口于 src/server/rateLimit.ts（events 计数窗口，type='rate_fail' kind='redeem'，不入看板聚合）。
 
 /** 提交前检查限流：账号或 IP 任一维度近 10 分钟失败数 ≥ 5 → 抛 RATE_LIMITED(429)。 */
 export async function checkRedeemRateLimit(args: { userId: string; ip: string | null }): Promise<void> {
-  const sql = getSql();
-  const rows = await sql`
-    SELECT COUNT(*)::int AS n FROM events
-    WHERE type='redeem_failed' AND created_at > now() - interval '10 minutes'
-      AND (user_id = ${args.userId} OR (${args.ip}::text IS NOT NULL AND payload->>'ip' = ${args.ip}))`;
-  if (Number(rows[0].n) >= REDEEM_FAIL_LIMIT) {
+  if (await isRateLimited("redeem", { ip: args.ip, subject: args.userId })) {
     throw new RedeemError("RATE_LIMITED", 429, "尝试过多，请稍后再试");
   }
 }
 
 /** 记一次失败尝试（核销抛 404/410 后调用，喂限流窗口）。 */
 export async function recordRedeemFailure(args: { userId: string; ip: string | null; code: RedeemErrorCode }): Promise<void> {
-  const sql = getSql();
-  await sql`INSERT INTO events(type,user_id,payload) VALUES('redeem_failed', ${args.userId}, ${JSON.stringify({ ip: args.ip, reason: args.code })}::jsonb)`;
+  await recordRateFailure("redeem", { ip: args.ip, subject: args.userId });
 }

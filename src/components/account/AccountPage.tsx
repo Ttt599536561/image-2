@@ -1,28 +1,48 @@
 import { Lock } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router";
+import { useMe } from "../../hooks/queries";
+import { authClient } from "../../lib/auth-client";
 import { formatCredits } from "../../lib/format";
-import { useMock } from "../../mocks/store";
 import { useShell } from "../shell/ShellContext";
 import { TopBar } from "../shell/TopBar";
 import styles from "./Account.module.css";
 
 export function AccountPage() {
-  const mock = useMock();
+  const me = useMe();
   const shell = useShell();
   const navigate = useNavigate();
   const [pw, setPw] = useState({ current: "", next: "", confirm: "" });
+  const [pending, setPending] = useState(false);
   // 表单反馈就近内联（不丢到右上角 toast）
   const [pwMsg, setPwMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  const savePw = (e: React.FormEvent) => {
+  const user = me.data?.user;
+
+  const savePw = async (e: React.FormEvent) => {
     e.preventDefault();
     setPwMsg(null);
     if (!pw.current) return setPwMsg({ ok: false, text: "请输入当前密码" });
     if (pw.next.length < 6) return setPwMsg({ ok: false, text: "密码至少 6 位" });
+    if (new TextEncoder().encode(pw.next).length > 72)
+      return setPwMsg({ ok: false, text: "密码过长（最多 72 字节）" });
     if (pw.next !== pw.confirm) return setPwMsg({ ok: false, text: "两次输入的新密码不一致" });
+    setPending(true);
+    // 改密走 Better Auth（密码 ≥6、字节限长在 password.hash 内强制断言）；改密后吊销其它会话（05 §6.5）。
+    const { error } = await authClient.changePassword({
+      currentPassword: pw.current,
+      newPassword: pw.next,
+      revokeOtherSessions: true,
+    });
+    setPending(false);
+    if (error) return setPwMsg({ ok: false, text: error.message ?? "修改失败，请检查当前密码" });
     setPw({ current: "", next: "", confirm: "" });
-    setPwMsg({ ok: true, text: "密码已更新（mock）" });
+    setPwMsg({ ok: true, text: "密码已更新" });
+  };
+
+  const logout = async () => {
+    await authClient.signOut();
+    navigate("/login");
   };
 
   return (
@@ -41,20 +61,20 @@ export function AccountPage() {
             <dl className={styles.infoGrid}>
               <div className={styles.infoItem}>
                 <dt className={styles.infoLabel}>邮箱</dt>
-                <dd className={styles.infoValue}>{mock.user.email}</dd>
+                <dd className={styles.infoValue}>{user?.email ?? ""}</dd>
               </div>
               <div className={styles.infoItem}>
                 <dt className={styles.infoLabel}>注册时间</dt>
-                <dd className={styles.infoValue}>{mock.user.createdAt.slice(0, 10)}</dd>
+                <dd className={styles.infoValue}>{user?.createdAt?.slice(0, 10) ?? ""}</dd>
               </div>
               <div className={styles.infoItem}>
                 <dt className={styles.infoLabel}>并发上限</dt>
-                <dd className={styles.infoValue}>{mock.maxConcurrency}</dd>
+                <dd className={styles.infoValue}>{me.data?.maxConcurrency ?? ""}</dd>
               </div>
               <div className={styles.infoItem}>
                 <dt className={styles.infoLabel}>当前积分</dt>
                 <dd className={styles.infoValue}>
-                  {formatCredits(mock.balanceMp)}
+                  {formatCredits(me.data?.balanceMp ?? 0)}
                   <Link to="/billing" className={styles.inlineLink}>
                     去充值
                   </Link>
@@ -111,7 +131,7 @@ export function AccountPage() {
             {pwMsg ? (
               <p className={pwMsg.ok ? styles.formOk : styles.formError}>{pwMsg.text}</p>
             ) : null}
-            <button type="submit" className={styles.save}>
+            <button type="submit" className={styles.save} disabled={pending}>
               保存新密码
             </button>
           </form>
@@ -119,7 +139,7 @@ export function AccountPage() {
           {/* 账号操作 */}
           <div className={styles.section}>
             <h2 className={styles.h}>账号操作</h2>
-            <button type="button" className={styles.danger} onClick={() => navigate("/login")}>
+            <button type="button" className={styles.danger} onClick={logout}>
               退出登录
             </button>
           </div>

@@ -1,7 +1,8 @@
 import { dimensionsFor } from "../components/composer/sizeOptions";
 import type { Size } from "../contracts/generate";
 
-// 阶段一无真出图：用按比例的渐变 SVG 占位图（data URL），不同提示词给不同色相，体验更真。
+// 占位封面图（data URL 渐变 SVG）。阶段二仅用于「灵感库」种子封面（inspirations 表归 §6 后台；
+// 在那之前 /api/inspirations 返回服务端种子，封面用此占位）。真出图一律走 Supabase public_url。
 
 function hashHue(s: string): number {
   let h = 0;
@@ -17,8 +18,7 @@ function escapeXml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-/** 生成按所选比例的占位成品图（渐变 + 提示词截断 + 比例标签）。占位图维度恒非空，
- *  返回非空 dims 类型（可赋给可空的 GeneratedImage / succeeded 契约，亦满足非空的 InspirationItem）。 */
+/** 生成按所选比例的占位封面（渐变 + 标题截断 + 比例标签）。维度恒非空。 */
 export function makePlaceholderImage(
   prompt: string,
   size: Size,

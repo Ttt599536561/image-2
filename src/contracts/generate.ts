@@ -73,12 +73,15 @@ export const GenerateStatusResponse = z.discriminatedUnion("status", [
 ]);
 export type GenerateStatusResponse = z.infer<typeof GenerateStatusResponse>;
 
-// POST /api/generate 入队成功（202）。
+// POST /api/generate 入队成功（202）。conversationId：首次提交在 "/" 入队后服务端建会话，
+// 前端据此 navigate(/c/:id)（08 §9.2「首次提交成功后服务端建 conversation 并 navigate」）。
 export const GenerateAcceptedResponse = z.object({
   generationId: z.uuid(),
+  conversationId: z.uuid(),
   status: z.literal("queued"),
 });
 export interface GenerateAccepted {
   generationId: string;
+  conversationId: string;
   status: "queued";
 }

@@ -33,9 +33,11 @@ export const ConversationGeneration = z.object({
   createdAt: z.string(),
   image: z
     .object({
+      id: z.uuid(),
       publicUrl: z.url(),
       width: z.number().int().nullable(),
       height: z.number().int().nullable(),
+      savedToLibrary: z.boolean(), // 「存入资产库」按钮置灰依据（08 §9.4）
     })
     .nullable(),
 });

@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { useRef } from "react";
-import type { GenerateStatusResponse } from "../contracts/generate";
-import { mockGetStatus } from "../mocks/api";
+import { GenerateStatusResponse } from "../contracts/generate";
+import { apiGet } from "../lib/api-client";
 
 // job 态短轮询（docs/dev 08 §9.3）：每 2s 轮询，终态停、满 5min 兜底停。
-// 阶段二把 queryFn 换成真 fetch(/api/generate-status?id=)，hook 不变。
+// ⑤ 接真：queryFn → GET /api/generate-status?id=（owner-scoped 判别联合三态，hook 不变）。
 export function useGenerationStatus(generationId: string | null) {
   // 每个 generationId 独立计 5min 兜底起点（id 变即重置）。
   const clock = useRef<{ id: string | null; t: number }>({ id: generationId, t: Date.now() });
@@ -13,7 +13,7 @@ export function useGenerationStatus(generationId: string | null) {
   return useQuery<GenerateStatusResponse>({
     queryKey: ["generation", generationId],
     enabled: !!generationId,
-    queryFn: () => mockGetStatus(generationId as string),
+    queryFn: () => apiGet(`/api/generate-status?id=${generationId}`, GenerateStatusResponse),
     refetchInterval: (q) => {
       const s = q.state.data?.status;
       if (s === "succeeded" || s === "failed") return false; // 终态停轮询

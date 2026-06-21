@@ -1,8 +1,8 @@
 import { Download, X } from "lucide-react";
 import { useEffect } from "react";
+import type { ConversationGeneration } from "../../contracts/conversation";
 import { downloadImage, imageFilename } from "../../lib/download";
 import { useLockBodyScroll } from "../../lib/useLockBodyScroll";
-import type { Turn } from "../../mocks/types";
 import { useLightbox } from "../Lightbox/LightboxProvider";
 import styles from "./ThisConversationPanel.module.css";
 
@@ -11,7 +11,7 @@ export function ThisConversationPanel({
   mode,
   onClose,
 }: {
-  turns: Turn[];
+  turns: ConversationGeneration[];
   mode: "column" | "drawer";
   onClose?: () => void;
 }) {

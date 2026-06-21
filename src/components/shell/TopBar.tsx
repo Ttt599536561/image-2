@@ -1,8 +1,9 @@
-import { Bell, Coins, LayoutGrid, Menu, Moon, Sun } from "lucide-react";
+import { Coins, LayoutGrid, Menu, Moon, Sun } from "lucide-react";
 import { Link } from "react-router";
+import { useMe } from "../../hooks/queries";
 import { formatCredits, formatMonthDay } from "../../lib/format";
 import { useThemeMode } from "../../lib/theme";
-import { useMock } from "../../mocks/store";
+import { NotificationBell } from "./NotificationBell";
 import styles from "./TopBar.module.css";
 
 export interface TopBarProps {
@@ -22,13 +23,15 @@ export function TopBar({
   onTogglePanel,
   onOpenMenu,
 }: TopBarProps) {
-  const mock = useMock();
+  const me = useMe();
   const { theme, toggle } = useThemeMode();
 
-  const expMp = Number(mock.expiringSoon.mp || "0");
+  const balanceMp = me.data?.balanceMp ?? 0;
+  const expiringSoon = me.data?.expiringSoon;
+  const expMp = Number(expiringSoon?.mp || "0");
   const expTip =
-    expMp > 0 && mock.expiringSoon.nearestExpiresAt
-      ? `${formatCredits(expMp)} 积分将于 ${formatMonthDay(mock.expiringSoon.nearestExpiresAt)} 过期`
+    expMp > 0 && expiringSoon?.nearestExpiresAt
+      ? `${formatCredits(expMp)} 积分将于 ${formatMonthDay(expiringSoon.nearestExpiresAt)} 过期`
       : undefined;
 
   return (
@@ -66,19 +69,11 @@ export function TopBar({
 
         <Link to="/billing" className={styles.pill} title={expTip}>
           <Coins size={15} className={styles.coin} />
-          {formatCredits(mock.balanceMp)} 积分
+          {formatCredits(balanceMp)} 积分
           {expMp > 0 ? <span className={styles.warnDot} aria-hidden="true" /> : null}
         </Link>
 
-        <button
-          type="button"
-          className={styles.iconBtn}
-          aria-label="通知（敬请期待）"
-          title="通知（敬请期待）"
-          disabled
-        >
-          <Bell size={17} />
-        </button>
+        <NotificationBell buttonClassName={styles.iconBtn} />
 
         <button
           type="button"

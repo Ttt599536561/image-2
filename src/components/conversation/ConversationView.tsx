@@ -1,19 +1,23 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Bookmark, Check, Copy, Download, FileText, RefreshCw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
-import type { GenerateRequest } from "../../contracts/generate";
+import type { ConversationDetail, ConversationGeneration } from "../../contracts/conversation";
+import type { Background, GenerateRequest, Quality, Size } from "../../contracts/generate";
+import { SaveResponse } from "../../contracts/image";
+import type { InspirationItem } from "../../contracts/inspiration";
+import { useGeneration } from "../../hooks/useGeneration";
+import { useGenerationStatus } from "../../hooks/useGenerationStatus";
+import { useConversationDetail, useMe } from "../../hooks/queries";
+import { apiPost } from "../../lib/api-client";
+import { PRICE_PER_IMAGE_MP } from "../../lib/credits";
 import { downloadImage, imageFilename } from "../../lib/download";
 import { redactText } from "../../lib/redaction";
 import { useLockBodyScroll } from "../../lib/useLockBodyScroll";
 import { useMediaQuery } from "../../lib/useMediaQuery";
-import { PRICE_PER_IMAGE_MP } from "../../mocks/api";
-import { MOCK_INSPIRATIONS } from "../../mocks/data";
-import { useMock } from "../../mocks/store";
-import type { Turn } from "../../mocks/types";
-import { useGeneration } from "../../hooks/useGeneration";
 import { Composer } from "../composer/Composer";
-import { sizeLabel } from "../composer/sizeOptions";
 import { CosmicSkeleton } from "../composer/CosmicSkeleton";
+import { sizeLabel } from "../composer/sizeOptions";
 import { InspirationGallery } from "../InspirationGallery/InspirationGallery";
 import { useLightbox } from "../Lightbox/LightboxProvider";
 import { useShell } from "../shell/ShellContext";
@@ -21,6 +25,9 @@ import { ThisConversationPanel } from "../shell/ThisConversationPanel";
 import { TopBar } from "../shell/TopBar";
 import { useToast } from "../Toast/ToastProvider";
 import styles from "./ConversationView.module.css";
+
+// 一轮生成（generations 行 + 可选 images 行），渲染单元（08 §9.4）。
+type Turn = ConversationGeneration;
 
 const EMPTY_REQUEST: GenerateRequest = {
   prompt: "",
@@ -47,8 +54,18 @@ function rawResponseOf(turn: Turn): string {
   return redactText(JSON.stringify(obj, null, 2));
 }
 
-export function ConversationView({ conversationId }: { conversationId: string | null }) {
-  const mock = useMock();
+export function ConversationView({
+  conversationId,
+  initialDetail,
+  initialInspirations,
+}: {
+  conversationId: string | null;
+  initialDetail?: ConversationDetail;
+  initialInspirations?: InspirationItem[];
+}) {
+  const me = useMe();
+  const detail = useConversationDetail(conversationId, initialDetail);
+  const qc = useQueryClient();
   const toast = useToast();
   const lightbox = useLightbox();
   const shell = useShell();
@@ -64,15 +81,66 @@ export function ConversationView({ conversationId }: { conversationId: string | 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const flowRef = useRef<HTMLDivElement>(null);
 
-  const { submit, isGenerating } = useGeneration(conversationId);
+  const { submit, isSubmitting } = useGeneration(conversationId, {
+    onError: (e) => toast.error(e.message),
+  });
 
-  const currentId = conversationId ?? mock.activeId;
-  const conv = mock.getConversation(currentId);
-  const turns = conv?.turns ?? [];
+  const conv = detail.data;
+  const turns = conv?.generations ?? [];
   const succeededCount = turns.filter((t) => t.status === "succeeded").length;
-  const canAfford = mock.balanceMp >= PRICE_PER_IMAGE_MP;
+  const balanceMp = me.data?.balanceMp ?? 0;
+  const canAfford = balanceMp >= PRICE_PER_IMAGE_MP;
 
   const lastTurn = turns[turns.length - 1];
+
+  // 轮询由「会话详情里的进行中轮」驱动（跨 "/"→"/c/:id" 路由切换不丢；DB 为真相源）。
+  const TIMEOUT_MS = 5 * 60_000 + 10_000;
+  const pendingTurn = turns.find(
+    (t) => t.status === "queued" || t.status === "claimed" || t.status === "running",
+  );
+  const pendingId = pendingTurn?.id ?? null;
+  const [, forceTick] = useState(0);
+  const genStatus = useGenerationStatus(pendingId);
+  const statusVal = genStatus.data?.status;
+  const isTerminal = statusVal === "succeeded" || statusVal === "failed";
+  const timedOut = pendingTurn ? Date.now() - Date.parse(pendingTurn.createdAt) > TIMEOUT_MS : false;
+  const isGenerating = isSubmitting || (pendingId !== null && !isTerminal && !timedOut);
+
+  // 终态：刷新会话详情(DB 已落 succeeded/failed) + 余额/资产(成功才扣)。
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (statusVal !== "succeeded" && statusVal !== "failed") return;
+    if (conv) qc.invalidateQueries({ queryKey: ["conversation", conv.id] });
+    if (statusVal === "succeeded") {
+      qc.invalidateQueries({ queryKey: ["me", "balance"] });
+      qc.invalidateQueries({ queryKey: ["assets"] });
+    }
+  }, [statusVal]);
+
+  // 前端 5min 兜底：满则强制重渲染释放 UI + 拉一次最新（权威终态在服务端 cron，§5.5）。
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!pendingId || !pendingTurn) return;
+    const remaining = TIMEOUT_MS - (Date.now() - Date.parse(pendingTurn.createdAt));
+    const t = setTimeout(
+      () => {
+        forceTick((n) => n + 1);
+        if (conv) qc.invalidateQueries({ queryKey: ["conversation", conv.id] });
+      },
+      Math.max(0, remaining),
+    );
+    return () => clearTimeout(t);
+  }, [pendingId]);
+
+  const saveMutation = useMutation({
+    mutationFn: (generationId: string) => apiPost("/api/images/save", { generationId }, SaveResponse),
+    onSuccess: () => {
+      if (conv) qc.invalidateQueries({ queryKey: ["conversation", conv.id] });
+      qc.invalidateQueries({ queryKey: ["assets"] });
+      toast.success("已存入资产库");
+    },
+    onError: () => toast.error("存入失败，请重试"),
+  });
 
   // 新轮加入 OR 末轮态变化（骨架→成品/失败，结果通常更高）后滚到底
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -108,11 +176,11 @@ export function ConversationView({ conversationId }: { conversationId: string | 
 
   const runGeneration = (req: GenerateRequest) => {
     if (!req.prompt.trim()) return;
-    if (mock.balanceMp < PRICE_PER_IMAGE_MP) {
+    if (balanceMp < PRICE_PER_IMAGE_MP) {
       toast.error("积分不足，去充值");
       return;
     }
-    void submit(req);
+    submit(req);
   };
 
   const onSubmit = () => {
@@ -137,9 +205,9 @@ export function ConversationView({ conversationId }: { conversationId: string | 
     }
     setRequest({
       prompt: turn.prompt,
-      size: turn.size,
-      quality: turn.quality ?? "auto",
-      background: turn.background ?? "auto",
+      size: turn.size as Size,
+      quality: (turn.quality as Quality | null) ?? "auto",
+      background: (turn.background as Background | null) ?? "auto",
     });
     focusComposer();
   };
@@ -152,9 +220,8 @@ export function ConversationView({ conversationId }: { conversationId: string | 
   };
 
   const saveToLibrary = (turn: Turn) => {
-    if (!conv || turn.savedToLibrary) return;
-    mock.saveToLibrary(conv.id, turn.id);
-    toast.success("已存入资产库");
+    if (!turn.image || turn.image.savedToLibrary) return;
+    saveMutation.mutate(turn.id);
   };
 
   const composer = (
@@ -164,7 +231,7 @@ export function ConversationView({ conversationId }: { conversationId: string | 
       onSubmit={onSubmit}
       disabled={isGenerating}
       canAfford={canAfford}
-      balanceMp={mock.balanceMp}
+      balanceMp={balanceMp}
       variant={turns.length === 0 ? "full" : "compact"}
       textareaRef={textareaRef}
     />
@@ -184,7 +251,7 @@ export function ConversationView({ conversationId }: { conversationId: string | 
             {composer}
             <div className={styles.gallerySection}>
               <p className={styles.galleryLabel}>浏览灵感（站长维护，点卡片一键带回提示词）</p>
-              <InspirationGallery items={MOCK_INSPIRATIONS} compact onUsePrompt={bringBackPrompt} />
+              <InspirationGallery items={initialInspirations ?? []} compact onUsePrompt={bringBackPrompt} />
             </div>
           </div>
         </div>
@@ -213,7 +280,7 @@ export function ConversationView({ conversationId }: { conversationId: string | 
                   <div className={styles.userBubble}>
                     {turn.prompt}
                     {turn.size !== "auto" ? (
-                      <span className={styles.bubbleSize}> · {sizeLabel(turn.size)}</span>
+                      <span className={styles.bubbleSize}> · {sizeLabel(turn.size as Size)}</span>
                     ) : null}
                   </div>
                   {renderResult(turn)}
@@ -236,10 +303,10 @@ export function ConversationView({ conversationId }: { conversationId: string | 
   );
 
   function renderResult(turn: Turn) {
-    if (turn.status === "running") {
+    if (turn.status === "running" || turn.status === "queued" || turn.status === "claimed") {
       return (
         <div className={styles.resultMedia}>
-          <CosmicSkeleton size={turn.size} startedAt={Date.parse(turn.createdAt)} />
+          <CosmicSkeleton size={turn.size as Size} startedAt={Date.parse(turn.createdAt)} />
         </div>
       );
     }
@@ -259,6 +326,7 @@ export function ConversationView({ conversationId }: { conversationId: string | 
       );
     }
     // succeeded
+    const saved = turn.image?.savedToLibrary === true;
     return (
       <div>
         <span className={styles.doneTag}>
@@ -303,12 +371,12 @@ export function ConversationView({ conversationId }: { conversationId: string | 
           </button>
           <button
             type="button"
-            className={`${styles.chip} ${turn.savedToLibrary ? styles.chipDone : ""}`}
+            className={`${styles.chip} ${saved ? styles.chipDone : ""}`}
             onClick={() => saveToLibrary(turn)}
-            disabled={turn.savedToLibrary}
+            disabled={saved}
           >
             <Bookmark size={13} />
-            {turn.savedToLibrary ? "已存入" : "存入资产库"}
+            {saved ? "已存入" : "存入资产库"}
           </button>
         </div>
       </div>

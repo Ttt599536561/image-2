@@ -88,3 +88,104 @@
   color: var(--text-tertiary);
   font-size: 14px;
 }
+
+/* —— 批量管理（§24.9）—— */
+.headRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.manageBtn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 32px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-full);
+  border: 0.5px solid var(--border-strong);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+}
+.manageBtnActive {
+  background: var(--text-primary);
+  color: var(--text-inverse);
+  border-color: transparent;
+}
+
+.thumbSelectable {
+  cursor: pointer;
+  position: relative;
+}
+.thumbSelected {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.check {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-full);
+  display: grid;
+  place-items: center;
+  background: var(--bg-surface);
+  border: 1.5px solid var(--border-strong);
+  color: transparent;
+  z-index: 2;
+}
+.checkOn {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.actionBar {
+  position: sticky;
+  bottom: var(--space-4);
+  margin-top: var(--space-6);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--bg-surface);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  box-shadow: var(--shadow-lg);
+  z-index: 3;
+}
+.actionCount {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-right: auto;
+}
+.actionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 34px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-full);
+  border: 0.5px solid var(--border-strong);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.actionBtn:hover {
+  background: var(--bg-subtle);
+}
+.actionBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.actionDanger {
+  color: var(--danger-text, #d4493a);
+  border-color: var(--danger-border, #d4493a);
+}

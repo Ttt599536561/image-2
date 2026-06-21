@@ -1,6 +1,6 @@
 import type { CSSProperties, JSX } from "react";
 import { Wand2 } from "lucide-react";
-import type { InspirationItem } from "../../mocks/types";
+import type { InspirationItem } from "../../contracts/inspiration";
 import styles from "./InspirationGallery.module.css";
 
 export interface InspirationGalleryProps {
@@ -47,7 +47,7 @@ export function InspirationGallery({
           <div
             className={styles.cover}
             style={
-              compact
+              compact || item.width == null || item.height == null
                 ? undefined
                 : ({
                     aspectRatio: `${item.width} / ${item.height}`,
@@ -58,15 +58,15 @@ export function InspirationGallery({
               className={styles.coverImg}
               src={item.cover}
               alt={item.title}
-              width={item.width}
-              height={item.height}
+              width={item.width ?? undefined}
+              height={item.height ?? undefined}
               loading="lazy"
               decoding="async"
               draggable={false}
             />
           </div>
 
-          <span className={styles.chip}>{item.category}</span>
+          {item.category ? <span className={styles.chip}>{item.category}</span> : null}
 
           <div className={styles.scrim}>
             <p className={styles.title}>{item.title}</p>

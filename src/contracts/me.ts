@@ -2,7 +2,7 @@
 import { z } from "zod";
 
 export const MeResponse = z.object({
-  user: z.object({ id: z.uuid(), email: z.string(), role: z.string() }),
+  user: z.object({ id: z.uuid(), email: z.string(), role: z.string(), createdAt: z.string() }),
   balanceMp: z.number().int(), // 单笔/余额安全用 number（§8.5 codec 表）
   maxConcurrency: z.number().int(),
   hasPaid: z.boolean(),

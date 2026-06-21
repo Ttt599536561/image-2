@@ -1,34 +1,59 @@
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Clock, Coins, ExternalLink, Ticket } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { RedeemResponse, REDEEM_CODE_RE } from "../../contracts/redeem";
+import type { PackageItem, PackagesResponse } from "../../contracts/package";
+import { useMe, usePackages } from "../../hooks/queries";
+import { ApiError, apiPost } from "../../lib/api-client";
 import { formatCash, formatCredits, formatMonthDay, formatValidDays } from "../../lib/format";
-import { MOCK_PACKAGES } from "../../mocks/data";
-import { useMock } from "../../mocks/store";
 import { useShell } from "../shell/ShellContext";
 import { TopBar } from "../shell/TopBar";
 import { useToast } from "../Toast/ToastProvider";
 import styles from "./Billing.module.css";
 
-const REDEEM_RE = /^[A-HJKMNP-Z2-9]{18}$/;
-const REDEEM_ERRORS: Record<string, string> = {
-  CODE_NOT_FOUND: "兑换码无效",
-  CODE_USED: "该兑换码已被使用",
-  CODE_DISABLED: "兑换码已失效",
-};
+// 推荐档 = 性价比最高（creditsMp/priceCash 比值最大）；DB packages 无 recommended 列，按值派生（确定性）。
+function bestValueId(items: PackageItem[]): string | null {
+  let best: PackageItem | null = null;
+  let bestRatio = -1;
+  for (const p of items) {
+    const ratio = p.priceCash > 0 ? p.creditsMp / p.priceCash : 0;
+    if (ratio > bestRatio) {
+      bestRatio = ratio;
+      best = p;
+    }
+  }
+  return best?.id ?? null;
+}
 
-export function BillingPage() {
-  const mock = useMock();
+export function BillingPage({ initialPackages }: { initialPackages?: PackagesResponse }) {
+  const me = useMe();
   const toast = useToast();
   const shell = useShell();
+  const qc = useQueryClient();
+  const packages = usePackages(initialPackages).data?.items ?? [];
+  const recommendedId = useMemo(() => bestValueId(packages), [packages]);
+
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [redeemOk, setRedeemOk] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string>(
-    MOCK_PACKAGES.find((p) => p.recommended)?.id ?? MOCK_PACKAGES[0].id,
-  );
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const selected = selectedId ?? recommendedId ?? packages[0]?.id ?? null;
 
-  const expMp = Number(mock.expiringSoon.mp || "0");
+  const balanceMp = me.data?.balanceMp ?? 0;
+  const expiringSoon = me.data?.expiringSoon;
+  const expMp = Number(expiringSoon?.mp || "0");
 
-  const buy = (pkg: (typeof MOCK_PACKAGES)[number]) => {
+  const redeemMutation = useMutation({
+    mutationFn: (value: string) => apiPost("/api/redeem", { code: value }, RedeemResponse),
+    onSuccess: (res) => {
+      setRedeemOk(`兑换成功，到账 ${formatCredits(res.creditsValueMp)} 积分`);
+      setCode("");
+      qc.invalidateQueries({ queryKey: ["me", "balance"] });
+    },
+    onError: (e) => setError(e instanceof ApiError ? e.message : "兑换失败，请重试"),
+  });
+
+  const buy = (pkg: PackageItem) => {
     setSelectedId(pkg.id);
     if (pkg.redirectUrl && pkg.redirectUrl !== "#") {
       window.open(pkg.redirectUrl, "_blank", "noopener");
@@ -41,17 +66,11 @@ export function BillingPage() {
     setError(null);
     setRedeemOk(null);
     const value = code.trim().toUpperCase();
-    if (!REDEEM_RE.test(value)) {
+    if (!REDEEM_CODE_RE.test(value)) {
       setError("兑换码无效");
       return;
     }
-    const result = mock.redeem(value);
-    if (result.ok) {
-      setRedeemOk(`兑换成功，到账 ${formatCredits(result.creditsMp)} 积分`);
-      setCode("");
-    } else {
-      setError(REDEEM_ERRORS[result.code] ?? "兑换码无效");
-    }
+    if (!redeemMutation.isPending) redeemMutation.mutate(value);
   };
 
   return (
@@ -61,13 +80,13 @@ export function BillingPage() {
         <div className={styles.inner}>
           <div className={styles.balanceCard}>
             <div>
-              <div className={styles.balanceNum}>{formatCredits(mock.balanceMp)}</div>
+              <div className={styles.balanceNum}>{formatCredits(balanceMp)}</div>
               <div className={styles.balanceLabel}>当前积分余额 · 1 积分 = ¥1 · 0.07 积分/张</div>
             </div>
-            {expMp > 0 && mock.expiringSoon.nearestExpiresAt ? (
+            {expMp > 0 && expiringSoon?.nearestExpiresAt ? (
               <span className={styles.expiring}>
                 <Clock size={13} />
-                {formatCredits(expMp)} 积分将于 {formatMonthDay(mock.expiringSoon.nearestExpiresAt)} 过期
+                {formatCredits(expMp)} 积分将于 {formatMonthDay(expiringSoon.nearestExpiresAt)} 过期
               </span>
             ) : null}
           </div>
@@ -75,13 +94,13 @@ export function BillingPage() {
           <div>
             <h2 className={styles.sectionTitle}>选择套餐</h2>
             <div className={styles.grid} style={{ marginTop: "var(--space-4)" }}>
-              {MOCK_PACKAGES.map((p) => (
+              {packages.map((p) => (
                 <div
                   key={p.id}
                   role="button"
                   tabIndex={0}
-                  aria-pressed={selectedId === p.id}
-                  className={`${styles.pkg} ${selectedId === p.id ? styles.pkgSelected : ""}`}
+                  aria-pressed={selected === p.id}
+                  className={`${styles.pkg} ${selected === p.id ? styles.pkgSelected : ""}`}
                   onClick={() => setSelectedId(p.id)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
@@ -90,13 +109,13 @@ export function BillingPage() {
                     }
                   }}
                 >
-                  {p.recommended ? <span className={styles.badge}>更划算</span> : null}
+                  {p.id === recommendedId ? <span className={styles.badge}>更划算</span> : null}
                   <span className={styles.pkgTitle}>{p.title}</span>
                   <span className={styles.pkgPrice}>¥{formatCash(p.priceCash)}</span>
                   <span className={styles.pkgCredits}>
                     <Coins size={12} /> {formatCredits(p.creditsMp)} 积分
                   </span>
-                  <p className={styles.pkgDesc}>{p.description}</p>
+                  <p className={styles.pkgDesc}>{p.description ?? ""}</p>
                   <span className={styles.pkgValid}>{formatValidDays(p.validDays)}</span>
                   <button
                     type="button"
@@ -130,13 +149,18 @@ export function BillingPage() {
                 }}
                 onBlur={() => {
                   const v = code.trim().toUpperCase();
-                  if (v && !REDEEM_RE.test(v)) setError("兑换码无效");
+                  if (v && !REDEEM_CODE_RE.test(v)) setError("兑换码无效");
                 }}
                 placeholder="输入 18 位兑换码"
                 maxLength={18}
                 onKeyDown={(e) => e.key === "Enter" && onRedeem()}
               />
-              <button type="button" className={styles.redeemBtn} onClick={onRedeem}>
+              <button
+                type="button"
+                className={styles.redeemBtn}
+                onClick={onRedeem}
+                disabled={redeemMutation.isPending}
+              >
                 兑换
               </button>
             </div>

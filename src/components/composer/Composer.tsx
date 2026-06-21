@@ -11,9 +11,9 @@ import {
 import { type Ref, useCallback, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router";
 import type { Background, GenerateRequest, Quality } from "../../contracts/generate";
+import { PRICE_PER_IMAGE_MP } from "../../lib/credits";
 import { formatCredits } from "../../lib/format";
 import { usePopover } from "../../lib/usePopover";
-import { PRICE_PER_IMAGE_MP } from "../../mocks/api";
 import {
   BACKGROUND_OPTIONS,
   QUALITY_OPTIONS,

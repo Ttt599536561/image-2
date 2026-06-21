@@ -78,16 +78,17 @@
 - [x] 后台(15min) `netlify/functions/generate-background.ts`：`-background` 后缀；body 仅 `{generationId}`→`runGenerationJob`（`src/server/generation/process.ts`：claim→running→预算硬闸(incCallIfUnderCap)→callRelay→putToR2(事务外)→chargeOnSuccess；catch→归一 failed；finally→incMs；callRelay/putToR2 可注入测试桩）
 - [x] 状态 `netlify/functions/generate-status.ts`（v2）：requireUser owner-scoped(`WHERE id AND user_id` 否则 404)→判别联合三态；失败也 200；只回 R2 public_url + 触发 `src/server/generation/trigger.ts`
 - [x] 清死代码：删 `src/server/{jobStore,asyncImageJob,imageProxy}.ts` + 两测试（v1 Blobs DB-as-queue 前身）；生成链路无 apiKey（`proxyGeneration` 留前端接真时清/复用）；`netlify.toml` 补 `/api/generate-status` 重写
-- [ ] 限流 `src/server/rateLimit.ts`：DB 计数窗口(redeem 5/10min、sign-in 10/10min、sign-up 5/hr，只计失败)——**并入 ⑤**（redeem 现有 inline 限流，sign-in/up 需 auth 端点接真时挂）
-- [ ] 前端接真：`src/mocks/api.ts`→真 fetch；`src/hooks/useGeneration*.ts` TanStack Query 2s 轮询、终态停、5min 前端软超时(仅释放 UI)——**并入 ⑤**（需登录态，与 auth 页接真同步）
+- [x] 限流 `src/server/rateLimit.ts`：DB 计数窗口(redeem 5/10min、sign-in 10/10min、sign-up 5/hr，只计失败)。events `type='rate_fail'`+kind 维度(IP/subject)；redeem.server 限流收口于此（保留 checkRedeemRateLimit/recordRedeemFailure 签名）；sign-in/up 在 `api.auth.$.ts` action 内包裹（clone 读邮箱、>=400 才记失败）。**reads-smoke 验：5 次失败→命中**
+- [x] 前端接真：`src/hooks/useGenerationStatus.ts` queryFn→`GET /api/generate-status`(2s 轮询/终态停/5min 兜底)；`useGeneration` submit→`POST /api/generate`(202 含 conversationId)→invalidate 详情/侧栏+首次"/"提交 navigate(/c/:id)；**轮询由「会话详情里的进行中轮」驱动**（修：跨 "/"→"/c/:id" unmount 不丢轮询）+终态 invalidate 余额/面板/资产+5min 强制释放 UI
 
 🔴 **红线**：同步函数不 await relay；`-background` 后缀=真后台；claim 铁律③；预算硬闸在 relay 前；putToR2 在扣费事务外；失败不进扣费事务；回前端脱敏、只给 R2 public_url；生成不可取消。
 
 ## §5 前端业务页接真（换 mock 不改结构）
-- [ ] 充值/资产库/本次面板/历史会话 → loader(SSR) + REST(写) 接真；删 `src/mocks/*`，MockProvider 改真数据源
-- [ ] 余额(`["me","balance"]`)/job/列表统一 TanStack Query(loader 作 initialData)；成功后 invalidate 余额/面板/资产
-- [ ] 并发提示(409) · 积分过期黄点(`/api/me` expiringSoon) · 通知铃铛(`/api/notifications`) 接真
-- [ ] 资产库**批量管理**(框选 + 吸底操作条 + zip + 删除带确认，§24.9)——阶段一是占位，此阶段做实
+> **状态（2026-06-22）：完成并对真 Neon 端到端验。** A) 读端点全建为 RR 资源路由(`app/routes/api.*.ts` 11 个，server-only 同 `api.auth.$`，调 `src/server/reads.server.ts`)；写走 action(redeem 调既有 `redeemCode`+限流、images save/delete owner-scoped)。B) auth 页接真(Better Auth client `src/lib/auth-client.ts`，login/register/改密/登出+`?next=`回跳+错误映射)。C) 生成接真(`mocks/api`→真 fetch，轮询由会话详情进行中轮驱动)。D) 全页 loader 换 mock(SSR initialData→TanStack Query 同 key)；**删 `src/mocks/*` + `proxyGeneration.*`**，`_app` 父 loader 守卫(redirect)。E) 资产库批量管理做实。F) `rateLimit.ts`(并入 §4)。**验证**：tsc 0·test:run 30(删 mock 测试 -7)·test:money 33·build 0·客户端 0 密钥泄露·`scripts/reads-smoke.ts` 25 检查全绿(注册→送 140→兑换→生成→详情/资产回流→存入→删除→限流，对真 Neon)·多代理对抗审查。**契约小增**：`GenerateAccepted+conversationId`、`ConversationGeneration.image+{id,savedToLibrary}`、`MeResponse.user+createdAt`、`InspirationItem cover→string+width/height`(均向后兼容)。
+- [x] 充值/资产库/本次面板/历史会话 → loader(SSR) + REST(写) 接真；删 `src/mocks/*`，MockProvider 改真数据源（`_app` 父 loader = requireUserPage + loadMe + loadConversations）
+- [x] 余额(`["me","balance"]`)/job/列表统一 TanStack Query(loader 作 initialData，`src/hooks/queries.ts`)；成功后 invalidate 余额/面板/资产
+- [x] 并发提示(409) · 积分过期黄点(`/api/me` expiringSoon string codec) · 通知铃铛(`/api/notifications`+`/read`，`NotificationBell`) 接真
+- [x] 资产库**批量管理**(批量管理切换 + 单击/Shift 连选 + 吸底操作条 + store-mode zip(`src/lib/zip.ts`，失败退化逐张) + 删除带 `ConfirmDialog` 确认，§24.9)——做实（真·drag 框选矩形留待增强）
 
 ## §6 后台管理（`/admin/*` — 阶段一完全没建）
 - [ ] 守卫 + 公共件：`src/server/requireAdmin.ts` · `src/contracts/admin.ts`(含 `REDEEM_ALPHABET`) · `src/server/{audit,alert}.ts`(writeAudit 同事务)
