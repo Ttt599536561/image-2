@@ -6,7 +6,7 @@
 一个**对话式（ChatGPT 风格）AI 生图网站**的重构项目：用户注册登录后，在 Composer 输入提示词生图，按**积分**计费，靠**兑换码**充值。v1 是已上线的双栏工具版，正重构为 v2。
 
 ## 当前阶段
-**需求 + 低保真原型 + UI 视觉风格 + 技术选型 + 开发文档（技术设计文档）均已成稿**（多代理审查已做、5 条工程硬伤已修、13 条交互默认值已补，规格 §24）。UI 风格落 `docs/prototypes/design-system.html`（已同步进 §17）。**技术选型已锁定**（栈见下方「技术栈」节，§15 架构已同步、§14/§19 已据此修订预算熔断）。**开发文档已定稿** → `docs/dev/`（README 索引 + `00`–`11` 共 12 章），经三轮多代理审查收敛、**钱链路已签字**。**阶段一已全部完成**：slice 1（铁律④·修 v1 真后台 + 代理读 env key + 全链路删 apiKey）+ **前端形态主体**均已落地验证（vitest 42/42、typegen/tsc 0、build 通过、preview 逐态实测）。前端把 v1 双栏 SPA 重构为 **React Router 8 framework 模式（SSR）** 三栏壳：tokens 落 design-system + Composer 五态（宇宙星空动效）+ 6 档尺寸/高级药丸 + 灵感画廊一键带回 + cookie 明暗主题 + 全局 lightbox/toast；账号/积分全 mock，未接 Neon/Better Auth/R2。**注意栈用 RR8 不是 RR7**（RR7 仅支持 vite≤7，本仓 vite=8；RR8 framework 模式同构、原生支持 vite8；docs/dev 文中「RR7」即 framework 模式）。代码在 `phase1-frontend` 分支（仓库 `git init` 后，v1 基线在 `main`；worktree 工具因初始非 git 不可用）。**已经一轮多代理 QA 体检（39 项）+ 两轮站长走查反馈打磨并验收**（含 Apple HIG「在操作处反馈」：表单校验改内联、瞬时 toast 移顶部居中；vitest 45/45、tsc 0、build 通过）。**下一步：阶段二**（账号+积分+存储：地基→鉴权→钱链路→管线→页面→后台→cron/测试）。落地细节见 [docs/PROGRESS.md](docs/PROGRESS.md)「阶段一前端落地要点」。
+**需求 + 低保真原型 + UI 视觉风格 + 技术选型 + 开发文档（技术设计文档）均已成稿**（多代理审查已做、5 条工程硬伤已修、13 条交互默认值已补，规格 §24）。UI 风格落 `docs/prototypes/design-system.html`（已同步进 §17）。**技术选型已锁定**（栈见下方「技术栈」节，§15 架构已同步、§14/§19 已据此修订预算熔断）。**开发文档已定稿** → `docs/dev/`（README 索引 + `00`–`11` 共 12 章），经三轮多代理审查收敛、**钱链路已签字**。**阶段一已全部完成**：slice 1（铁律④·修 v1 真后台 + 代理读 env key + 全链路删 apiKey）+ **前端形态主体**均已落地验证（vitest 42/42、typegen/tsc 0、build 通过、preview 逐态实测）。前端把 v1 双栏 SPA 重构为 **React Router 8 framework 模式（SSR）** 三栏壳：tokens 落 design-system + Composer 五态（宇宙星空动效）+ 6 档尺寸/高级药丸 + 灵感画廊一键带回 + cookie 明暗主题 + 全局 lightbox/toast；账号/积分全 mock，未接 Neon/Better Auth/R2。**注意栈用 RR8 不是 RR7**（RR7 仅支持 vite≤7，本仓 vite=8；RR8 framework 模式同构、原生支持 vite8；docs/dev 文中「RR7」即 framework 模式）。代码在 `phase1-frontend` 分支（仓库 `git init` 后，v1 基线在 `main`；worktree 工具因初始非 git 不可用）。**已经一轮多代理 QA 体检（39 项）+ 两轮站长走查反馈打磨并验收**（含 Apple HIG「在操作处反馈」：表单校验改内联、瞬时 toast 移顶部居中；vitest 45/45、tsc 0、build 通过）。**阶段一已快进合并进 `main`（`4f81022`）；阶段二施工计划已批准并落库** → [docs/dev/PHASE2-PLAN.md](docs/dev/PHASE2-PLAN.md)（7 阶段可勾选 + 钱链路红线 + 外部密钥 §0，基于 5 路多代理精读 02–11 综合）。**下一步：阶段二 ① 地基**（Neon 双连接 + Drizzle schema/迁移/seed + R2；schema/契约可离线先行、接真待站长开通 Neon+R2+密钥）；在 `main` 上开 `phase2` 分支推进。落地细节见 [docs/PROGRESS.md](docs/PROGRESS.md)「阶段一前端落地要点」。
 - 进度 / 中断恢复看 → [docs/PROGRESS.md](docs/PROGRESS.md)
 - **完整需求规格（唯一真相源）** → [docs/redesign-requirements.md](docs/redesign-requirements.md)
 
@@ -15,7 +15,7 @@
 - `docs/PROGRESS.md` — 现在做到哪、下一步、未决项、上次若中断从哪接。
 - `docs/prototypes/wireframes.html` — **全部页面/状态的低保真原型**（浏览器打开即看；研发照此开发**结构**）。`docs/prototypes/README.md` 是索引。
 - `docs/prototypes/design-system.html` — **UI 视觉风格 / 设计令牌真相源**（明暗两套 + 全部 token + 组件样例；研发取色/间距/圆角一律引其 CSS 变量。结构看 wireframes、风格看这里、行为看规格）。
-- `docs/dev/` — **v2 技术开发文档（研发照着写代码的蓝图）**：`README.md` 是索引 + 全局约定 + 4 铁律；`00`–`11` 共 12 章（栈/env·密钥、架构、DB DDL、钱链路、生图管线、鉴权、存储、API、前端、后台、cron·测试、目录·分期）。**怎么写代码看这里；要做什么看规格、长什么样看原型**。
+- `docs/dev/` — **v2 技术开发文档（研发照着写代码的蓝图）**：`README.md` 是索引 + 全局约定 + 4 铁律；`00`–`11` 共 12 章 + **`PHASE2-PLAN.md`（阶段二已批准的可执行施工清单：7 阶段可勾选 + 外部密钥 §0）**（栈/env·密钥、架构、DB DDL、钱链路、生图管线、鉴权、存储、API、前端、后台、cron·测试、目录·分期）。**怎么写代码看这里；要做什么看规格、长什么样看原型**。
 - `docs/requirements.md`、`docs/development.md`、`docs/test-cases.md` — **v1 现状**（顶部都有 banner 指向 v2）。
 - `docs/superpowers/` — 最早的 v1 计划/设计，历史存档，别改。
 
