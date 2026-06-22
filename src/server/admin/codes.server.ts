@@ -15,13 +15,14 @@ function genCode(): string {
   return s;
 }
 
-/** 批量生成（套餐快照 + 一批一个 batch_id；撞 code UNIQUE 则补生成缺口直至齐）+ 同事务审计。 */
+/** 批量生成（套餐快照 + 一批一个 batch_id；撞 code UNIQUE 则补生成缺口直至齐）+ 同事务审计。
+ *  返回生成的码明文（供后台直接复制；站长诉求：不必下 CSV、可一键复制）。 */
 export async function generateCodes(args: {
   adminId: string;
   packageId: string;
   count: number;
   ip?: string | null;
-}): Promise<{ batchId: string; count: number }> {
+}): Promise<{ batchId: string; count: number; codes: string[] }> {
   return tx(async (c: TxClient) => {
     const pkg = (
       await c.query("SELECT title, price_cash, credits_mp, valid_days FROM packages WHERE id=$1", [args.packageId])
@@ -30,11 +31,11 @@ export async function generateCodes(args: {
 
     const batchId = randomUUID();
     const COLS = 7;
-    let made = 0;
+    const minted: string[] = [];
     let guard = 0;
-    while (made < args.count && guard < 50) {
+    while (minted.length < args.count && guard < 50) {
       guard++;
-      const need = args.count - made;
+      const need = args.count - minted.length;
       const codes = Array.from({ length: need }, genCode);
       const valuesSql = codes
         .map((_, i) => `($${i * COLS + 1},$${i * COLS + 2},$${i * COLS + 3},$${i * COLS + 4},$${i * COLS + 5},$${i * COLS + 6},$${i * COLS + 7})`)
@@ -53,9 +54,9 @@ export async function generateCodes(args: {
          VALUES ${valuesSql} ON CONFLICT (code) DO NOTHING RETURNING code`,
         params,
       );
-      made += r.rowCount ?? 0;
+      for (const row of r.rows) minted.push(row.code as string);
     }
-    if (made < args.count) throw new Error("生成兑换码反复撞重，请重试");
+    if (minted.length < args.count) throw new Error("生成兑换码反复撞重，请重试");
 
     await writeAudit(c, {
       adminId: args.adminId,
@@ -65,7 +66,7 @@ export async function generateCodes(args: {
       after: { batchId, count: args.count },
       ip: args.ip ?? null,
     });
-    return { batchId, count: args.count };
+    return { batchId, count: args.count, codes: minted };
   });
 }
 

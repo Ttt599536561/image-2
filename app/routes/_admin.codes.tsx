@@ -1,4 +1,4 @@
-import { Download, RefreshCw, Search, Ticket } from "lucide-react";
+import { ClipboardCopy, Download, RefreshCw, Search, Ticket } from "lucide-react";
 import { useState } from "react";
 import { useRevalidator } from "react-router";
 import styles from "../../src/components/admin/Admin.module.css";
@@ -66,7 +66,11 @@ export default function Page({ loaderData }: Route.ComponentProps) {
   const [genCount, setGenCount] = useState<number>(100);
   const [genBusy, setGenBusy] = useState(false);
   const [genErr, setGenErr] = useState<string | null>(null);
-  const [genResult, setGenResult] = useState<{ batchId: string; count: number } | null>(null);
+  const [genResult, setGenResult] = useState<{ batchId: string; count: number; codes: string[] } | null>(
+    null,
+  );
+  const [copiedAll, setCopiedAll] = useState(false);
+  const [copiedBatchId, setCopiedBatchId] = useState<string | null>(null);
 
   async function onGenerate() {
     if (!genPkgId) {
@@ -76,18 +80,60 @@ export default function Page({ loaderData }: Route.ComponentProps) {
     setGenBusy(true);
     setGenErr(null);
     setGenResult(null);
+    setCopiedAll(false);
     try {
-      const res = await apiPost<{ batchId: string; count: number }>("/api/admin/codes", {
-        op: "generate",
-        packageId: genPkgId,
-        count: genCount,
-      });
+      const res = await apiPost<{ batchId: string; count: number; codes: string[] }>(
+        "/api/admin/codes",
+        { op: "generate", packageId: genPkgId, count: genCount },
+      );
       setGenResult(res);
       revalidator.revalidate();
     } catch (e) {
       setGenErr(e instanceof ApiError ? e.message : "生成失败，请重试");
     } finally {
       setGenBusy(false);
+    }
+  }
+
+  // 复制到剪贴板（后台无 toast，用按钮态短反馈）。返回是否成功。
+  async function copyText(text: string): Promise<boolean> {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  async function copyAllGenerated() {
+    if (!genResult) return;
+    if (await copyText(genResult.codes.join("\n"))) {
+      setCopiedAll(true);
+      setTimeout(() => setCopiedAll(false), 1500);
+    }
+  }
+
+  // 批次列表「复制码」：拉该批 CSV → 取首列 code → 复制（复用既有 export 端点，避免新增端点）。
+  async function copyBatchCodes(batchId: string) {
+    try {
+      const res = await fetch(`/api/admin/codes/export?batchId=${batchId}`, {
+        credentials: "same-origin",
+      });
+      if (!res.ok) return;
+      const csv = await res.text();
+      const codes = csv
+        .replace(/^﻿/, "")
+        .split(/\r?\n/)
+        .slice(1) // 跳表头
+        .map((line) => line.split(",")[0]?.trim())
+        .filter((c): c is string => !!c);
+      if (codes.length === 0) return;
+      if (await copyText(codes.join("\n"))) {
+        setCopiedBatchId(batchId);
+        setTimeout(() => setCopiedBatchId(null), 1500);
+      }
+    } catch {
+      /* 静默：复制失败用户可改用导出 CSV */
     }
   }
 
@@ -221,12 +267,31 @@ export default function Page({ loaderData }: Route.ComponentProps) {
         </div>
         {genErr ? <div className={`${styles.formMsg} ${styles.formErr}`}>{genErr}</div> : null}
         {genResult ? (
-          <div className={`${styles.formMsg} ${styles.formOk}`}>
-            已生成 {genResult.count} 个 · 批次 <span className={styles.mono}>{genResult.batchId.slice(0, 8)}</span>{" "}
-            <a className={`${styles.btn} ${styles.btnSm} ${styles.btnGhost}`} href={`/api/admin/codes/export?batchId=${genResult.batchId}`}>
-              <Download size={14} />
-              下载 CSV
-            </a>
+          <div style={{ marginTop: "var(--space-3)" }}>
+            <div className={`${styles.formMsg} ${styles.formOk}`}>
+              已生成 {genResult.count} 个 · 批次{" "}
+              <span className={styles.mono}>{genResult.batchId.slice(0, 8)}</span>
+            </div>
+            <div className={styles.toolbar} style={{ marginTop: "var(--space-2)" }}>
+              <button
+                type="button"
+                className={`${styles.btn} ${styles.btnSm} ${styles.btnPrimary}`}
+                onClick={copyAllGenerated}
+              >
+                <ClipboardCopy size={14} />
+                {copiedAll ? "已复制 ✓" : `复制全部（${genResult.count} 个）`}
+              </button>
+            </div>
+            <textarea
+              readOnly
+              className={styles.textarea}
+              style={{ marginTop: "var(--space-2)", width: "100%", minHeight: 120, fontFamily: "var(--font-mono)", fontSize: 13 }}
+              value={genResult.codes.join("\n")}
+              onFocus={(e) => e.currentTarget.select()}
+            />
+            <p className={styles.muted} style={{ fontSize: 12, marginTop: 4 }}>
+              点「复制全部」一键复制，或在框内点一下全选再复制。刷新后可到下方「批次列表」用「复制码」再取。
+            </p>
           </div>
         ) : null}
       </div>
@@ -366,6 +431,14 @@ export default function Page({ loaderData }: Route.ComponentProps) {
                     <td className={styles.td}>{new Date(b.createdAt).toLocaleString("zh-CN")}</td>
                     <td className={styles.td}>
                       <div className={styles.rowActions}>
+                        <button
+                          type="button"
+                          className={`${styles.btn} ${styles.btnSm}`}
+                          onClick={() => copyBatchCodes(b.batchId)}
+                        >
+                          <ClipboardCopy size={14} />
+                          {copiedBatchId === b.batchId ? "已复制 ✓" : "复制码"}
+                        </button>
                         <a
                           className={`${styles.btn} ${styles.btnSm} ${styles.btnGhost}`}
                           href={`/api/admin/codes/export?batchId=${b.batchId}`}
