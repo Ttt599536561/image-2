@@ -9,6 +9,7 @@ coverage/
 !.env.example
 *.log
 *.tsbuildinfo
+deno.lock
 vite.config.js
 vite.config.d.ts
 vitest.config.js
