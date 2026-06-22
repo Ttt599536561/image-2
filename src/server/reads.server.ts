@@ -153,6 +153,25 @@ export async function deleteConversations(userId: string, ids: string[]): Promis
   return { deleted: rows.length };
 }
 
+/**
+ * §10 重命名会话（owner-scoped）。UPDATE ... WHERE id AND user_id RETURNING，0 行→404（非本人/不存在）。
+ * 只改 title、不动 updated_at——改名不应把会话顶到「最近」列表最前（列表按 updated_at DESC 排）。
+ * 「改名不被覆盖」无忧：enqueue 仅在创建会话时 set title，后续生成只 UPDATE updated_at、从不重写 title。
+ */
+export async function renameConversation(
+  userId: string,
+  id: string,
+  title: string,
+): Promise<{ id: string; title: string }> {
+  const sql = getSql();
+  const rows = (await sql`
+    UPDATE conversations SET title = ${title}
+    WHERE id = ${id} AND user_id = ${userId}
+    RETURNING id, title`) as Row[];
+  if (rows.length === 0) throw new Response("会话不存在", { status: 404 });
+  return { id: rows[0].id as string, title: rows[0].title as string };
+}
+
 // ===================== /api/images（资产库，日期筛选 + 分页） =====================
 function rangeLowerBound(range: ImageRange | undefined, from: string | undefined): string | null {
   switch (range) {

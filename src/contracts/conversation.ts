@@ -52,8 +52,12 @@ export const ConversationDetail = z.object({
 });
 export type ConversationDetail = z.infer<typeof ConversationDetail>;
 
+// §10 重命名会话（owner-scoped，即时持久化）。前端空标题拦截 + 后端 trim 兜底。
 export const RenameRequest = z.object({ title: z.string().min(1).max(200) });
 export type RenameRequest = z.infer<typeof RenameRequest>;
+
+export const ConversationRenameResponse = z.object({ id: z.uuid(), title: z.string() });
+export type ConversationRenameResponse = z.infer<typeof ConversationRenameResponse>;
 
 // #3 删除会话（owner-scoped，不可恢复；级联 generations→images + 尽力删 R2）。
 export const ConversationDeleteResponse = z.object({ deleted: z.number().int() });

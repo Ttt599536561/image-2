@@ -36,17 +36,18 @@
   - **现有脚手架**：`notifications` 表 + `/api/notifications`(列) + `/api/notifications/read` + `NotificationBell.tsx`（铃铛）+ 契约 `NotificationItem`(type 枚举当前仅 `image_expiring`) + cron 预扫产出（`maintenance.server` prescan）均已就绪；缺**后台撰写/下发入口 + 新通知类型**。
   - **范围待确认**（动手前问站长）：① 广播公告（新 type `announcement`，全体/按条件下发）为主诉求；② 可选通知开关/参数（到期提醒提前天数等，落 `app_config`）。
   - **实现范围（待做，按①）**：契约扩 `NotificationItem.type` + 新建 `AnnouncementAction`；后台新页（撰写+目标选择，复用 ConfirmDialog 二次确认）+ `app/routes/api.admin.notifications.ts`(`requireAdmin`) + `src/server/admin/notifications.server.ts`（广播=批量插 `notifications` 或全局通知+已读，二选一定）+ 写审计；前台 `NotificationBell` 渲染新 type（带 link 跳转）。红线：owner-scoped 读、admin 写、审计留痕。
-- ⬜ **重命名会话**（站长 2026-06-22 提，规格见 [redesign-requirements.md §10](redesign-requirements.md)）：左栏「最近」里用户可给会话改名。
-  - **现有脚手架**：契约 `RenameRequest`（`src/contracts/conversation.ts`，`title 1..200`）已存在，缺端点 + server fn + UI。
-  - **实现范围（待做）**：① 后端 `PATCH /api/conversations/:id`（扩 `app/routes/api.conversations.$id.ts` 现有 action，与 DELETE 并列；`requireUserStrict` owner-scoped）+ `renameConversation(userId,id,title)`（`UPDATE conversations SET title WHERE id AND user_id RETURNING`，0 行→404）；② 前端 `Sidebar.tsx` 加重命名入口（行内编辑或「⋯」菜单，与 #3 删除键并列）+ `apiPost/Patch` + invalidate `["conversations"]`/`["conversation",id]`；③ 红线：owner-scoped、空标题前端拦截。
-  - ✅ **已核实「改名不被覆盖」无忧**：`enqueue.ts` 只在**创建会话**时 `INSERT ... title=prompt.slice(0,20)`，后续生成仅 `UPDATE ... updated_at`、**从不重写 title**——故用户改名后不会被新生成覆盖，无需额外加锁标记。
+- ✅ **重命名会话**（站长 2026-06-22 提，规格见 [redesign-requirements.md §10](redesign-requirements.md)）：左栏「最近」里用户可给会话改名 —— **已完成**。
+  - **已落地**：① 后端 `PATCH /api/conversations/:id`（与 DELETE 并列；`requireUserStrict` owner-scoped + 后端 trim 兜底空标题→400）+ `renameConversation(userId,id,title)`（`UPDATE conversations SET title WHERE id AND user_id RETURNING`，0 行→404，只改 title 不动 updated_at）+ 契约 `ConversationRenameResponse`；② `api-client.ts` 加 `apiPatch`（镜像 apiDelete）；③ 前端 `Sidebar.tsx` 每条会话加铅笔「重命名」入口 + 行内编辑（Enter 提交 / Esc·失焦取消 + isPending 守卫防连击重发/失败留存可重试）+ invalidate `["conversations"]`/`["conversation",id]`（TopBar 标题取自详情、同步刷新）。
+  - **红线满足**：owner-scoped（B 改不动 A）、空标题前后端双拦、客户端 0 schema（只引 `src/contracts/*`）、敏感写 requireUserStrict。
+  - ✅ **已核实「改名不被覆盖」无忧**：`enqueue.ts` 只在**创建会话**时 `INSERT ... title=prompt.slice(0,20)`（[enqueue.ts:74](../src/server/generation/enqueue.ts)），后续生成仅 `UPDATE ... updated_at`（[enqueue.ts:68](../src/server/generation/enqueue.ts)）、**从不重写 title**。
+  - **验证**：tsc 0 · test:run 67 · build 0 · assert-no-secrets PASS · `scripts/rename-smoke.ts` **7/7**（对真 Neon：改名生效 + owner-scope 404 + 不存在 404 + 不动 updated_at）+ 多代理对抗审查（13 findings→3 confirmed minor/major 已修：isPending 守卫 + 保存中不被 blur 取消）。
 
 **本地怎么跑**（见 [local-acceptance.md](dev/local-acceptance.md)）：
 - **`netlify dev`（8888）**，**不是** `npm run dev`。起前先 **`rm -rf build .netlify`**、`[dev]` 不设 framework（否则无样式）。
 - 管理员 **`599536561@qq.com` / `fefc8389`**（凭据在 `.env`，`scripts/seed-admin.ts`）。
 - ⚠️ **本机 Bash coreutils 偶发缺失（sleep/seq/tail）→ 跑 npm/长命令用 PowerShell**。会话 cookie 可经 `auth.api.signInEmail({asResponse:true})` 服务端铸造做 HTTP QA（绕路由层限流）。
 
-**测试基线**：tsc 0·test:run 53·test:money 33·build 0·assert-no-secrets PASS·cron/reads/admin/search/inspirations smoke 全绿（对真 Neon）。
+**测试基线**：tsc 0·test:run 67·test:money 33·build 0·assert-no-secrets PASS·cron/reads/admin/search/inspirations/deletes/account-reads/**rename** smoke 全绿（对真 Neon）。
 
 **待上线（非编码）**：成本对账真·毛利数（站长已确认 OK）、可选配 `SENTRY_DSN`/`ADMIN_ALERT_WEBHOOK`（缺则 no-op）；P3-S6 待中转开 chat 渠道（复跑 `scripts/relay-chat-probe.ts`）。本地仓无 remote、未 push。
 

@@ -59,5 +59,7 @@ async function apiSend<T>(url: string, method: string, body?: unknown, schema?: 
 
 export const apiPost = <T>(url: string, body?: unknown, schema?: z.ZodType<T>) =>
   apiSend<T>(url, "POST", body, schema);
+export const apiPatch = <T>(url: string, body?: unknown, schema?: z.ZodType<T>) =>
+  apiSend<T>(url, "PATCH", body, schema);
 export const apiDelete = <T>(url: string, body?: unknown, schema?: z.ZodType<T>) =>
   apiSend<T>(url, "DELETE", body, schema);
