@@ -65,3 +65,162 @@ export async function broadcastAnnouncement(
     return { inserted, announcementId: aid };
   });
 }
+
+// ===================== ①增强：已发公告列表 + 编辑 / 删除（2026-06-22）=====================
+// 广播为 per-user 散插、无聚合实体：公告 id(aid) 藏在 dedupe_key='announcement:<aid>:<uid>' 第 2 段。
+// 列表按 aid 聚合（接收数 / 已读数 / 时间 + 代表 payload）；目标(all/paid) 不落 notifications 行，
+// 从 broadcast_notification 审计的 after.target 回捞（历史无审计则 null）。免迁移（aid 从 dedupe_key 拆）。
+
+export interface AnnouncementSummary {
+  aid: string;
+  title: string;
+  body: string;
+  link: string | null;
+  target: BroadcastTarget | null; // 从审计回捞；缺则 null
+  recipients: number; // 接收用户数
+  readCount: number; // 已读数（read_at 非空）
+  createdAt: string; // 首次下发时间
+}
+
+/** jsonb 列在 neon 驱动多半已解析为对象；防御兼容字符串。 */
+function asPayload(v: unknown): Record<string, unknown> {
+  if (v && typeof v === "object") return v as Record<string, unknown>;
+  if (typeof v === "string") {
+    try {
+      const p = JSON.parse(v);
+      return p && typeof p === "object" ? (p as Record<string, unknown>) : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+const asStr = (v: unknown): string => (typeof v === "string" ? v : "");
+
+/** 已发公告聚合列表（最多 limit 条，按首次下发时间倒序）。 */
+export async function listAnnouncements(limit = 200): Promise<{ items: AnnouncementSummary[] }> {
+  const sql = getSql();
+  const rows = (await sql`
+    SELECT n.aid, n.payload, n.recipients, n.read_count, n.created_at, a.target
+    FROM (
+      SELECT split_part(dedupe_key, ':', 2) AS aid,
+             (array_agg(payload ORDER BY created_at ASC))[1] AS payload,
+             COUNT(*)::int AS recipients,
+             COUNT(read_at)::int AS read_count,
+             MIN(created_at) AS created_at
+      FROM notifications
+      WHERE type = 'announcement'
+      GROUP BY split_part(dedupe_key, ':', 2)
+    ) n
+    LEFT JOIN LATERAL (
+      SELECT after->>'target' AS target
+      FROM audit_log
+      WHERE action = 'broadcast_notification' AND target_id = n.aid
+      ORDER BY created_at ASC
+      LIMIT 1
+    ) a ON true
+    ORDER BY n.created_at DESC
+    LIMIT ${limit}`) as Row[];
+  return {
+    items: rows.map((r) => {
+      const p = asPayload(r.payload);
+      const t = r.target as string | null;
+      return {
+        aid: r.aid as string,
+        title: asStr(p.title),
+        body: asStr(p.body),
+        link: asStr(p.link) || null,
+        target: t === "all" || t === "paid" ? t : null,
+        recipients: Number(r.recipients ?? 0),
+        readCount: Number(r.read_count ?? 0),
+        createdAt: new Date(r.created_at as string).toISOString(),
+      };
+    }),
+  };
+}
+
+/**
+ * 编辑已发公告：把这波 'announcement:<aid>:%' 行的 payload 全量替换（同步用户端）。
+ * renotify=true → 同事务把 read_at 置 NULL「重新提醒」（前台红点重弹）；默认静默改内容。
+ * 0 行命中 → 404（公告不存在）。aid 已由契约 z.uuid 校验，LIKE 模式无通配注入。
+ */
+export async function editAnnouncement(args: {
+  adminId: string;
+  aid: string;
+  title: string;
+  body: string;
+  link?: string | null;
+  renotify: boolean;
+  ip?: string | null;
+}): Promise<{ affected: number }> {
+  const payload = JSON.stringify({ title: args.title, body: args.body, link: args.link ?? null });
+  return tx(async (c: TxClient) => {
+    const before = (
+      await c.query(
+        `SELECT payload FROM notifications
+         WHERE type='announcement' AND dedupe_key LIKE 'announcement:' || $1 || ':%'
+         LIMIT 1`,
+        [args.aid],
+      )
+    ).rows[0];
+    if (!before) throw new Response("公告不存在", { status: 404 });
+    const r = await c.query(
+      `UPDATE notifications
+       SET payload = $2::jsonb,
+           read_at = CASE WHEN $3::boolean THEN NULL ELSE read_at END
+       WHERE type='announcement' AND dedupe_key LIKE 'announcement:' || $1 || ':%'`,
+      [args.aid, payload, args.renotify],
+    );
+    const affected = r.rowCount ?? 0;
+    await writeAudit(c, {
+      adminId: args.adminId,
+      action: "edit_announcement",
+      targetType: "notification",
+      targetId: args.aid,
+      before: before.payload ?? null,
+      after: {
+        title: args.title,
+        hasLink: !!args.link,
+        renotify: args.renotify,
+        affected,
+      },
+      ip: args.ip ?? null,
+    });
+    return { affected };
+  });
+}
+
+/** 删除已发公告：批量删该波行（用户端立即消失）+ 审计。0 行命中 → 404。 */
+export async function deleteAnnouncement(args: {
+  adminId: string;
+  aid: string;
+  ip?: string | null;
+}): Promise<{ affected: number }> {
+  return tx(async (c: TxClient) => {
+    const info = (
+      await c.query(
+        `SELECT (array_agg(payload))[1] AS payload, COUNT(*)::int AS recipients
+         FROM notifications
+         WHERE type='announcement' AND dedupe_key LIKE 'announcement:' || $1 || ':%'`,
+        [args.aid],
+      )
+    ).rows[0];
+    const recipients = Number(info?.recipients ?? 0);
+    if (recipients === 0) throw new Response("公告不存在", { status: 404 });
+    const r = await c.query(
+      `DELETE FROM notifications
+       WHERE type='announcement' AND dedupe_key LIKE 'announcement:' || $1 || ':%'`,
+      [args.aid],
+    );
+    const affected = r.rowCount ?? 0;
+    await writeAudit(c, {
+      adminId: args.adminId,
+      action: "delete_announcement",
+      targetType: "notification",
+      targetId: args.aid,
+      before: { payload: info?.payload ?? null, recipients },
+      ip: args.ip ?? null,
+    });
+    return { affected };
+  });
+}

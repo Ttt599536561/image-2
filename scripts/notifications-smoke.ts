@@ -6,9 +6,12 @@ import { getSql } from "../src/db/db.server";
 import { auth } from "../src/lib/auth";
 import {
   broadcastAnnouncement,
+  deleteAnnouncement,
+  editAnnouncement,
+  listAnnouncements,
   notificationTargetCounts,
 } from "../src/server/admin/notifications.server";
-import { loadNotifications } from "../src/server/reads.server";
+import { loadNotifications, markNotificationsRead } from "../src/server/reads.server";
 
 async function newUser(tag: string): Promise<string> {
   const email = `notif-${tag}+${Date.now()}@example.com`;
@@ -65,6 +68,94 @@ async function main() {
     "owner-scoped：free 只见全员公告、不见付费公告",
     freeTitles.length === 1 && freeTitles[0] === "全员公告",
   ]);
+
+  // ===== ① 已发公告列表（按 aid 聚合：接收数 / 已读数 / 目标〔审计回捞〕/ payload）=====
+  const list1 = (await listAnnouncements()).items;
+  const bpSum = list1.find((a) => a.aid === bp.announcementId);
+  const baSum = list1.find((a) => a.aid === ba.announcementId);
+  checks.push(["列表含 paid 公告", !!bpSum]);
+  checks.push(["列表含 all 公告", !!baSum]);
+  checks.push(["paid 公告 recipients = inserted", bpSum?.recipients === bp.inserted]);
+  checks.push(["paid 公告 target=paid（审计回捞）", bpSum?.target === "paid"]);
+  checks.push(["paid 公告 title/link 正确", bpSum?.title === "付费公告" && bpSum?.link === "/billing"]);
+  checks.push(["all 公告 target=all", baSum?.target === "all"]);
+  checks.push([
+    "新公告 readCount=0",
+    (bpSum?.readCount ?? -1) === 0 && (baSum?.readCount ?? -1) === 0,
+  ]);
+
+  // ===== ② 看完仍保留：标记已读后 loadNotifications(all) 仍返回、readAt 非空（红点改由前端计未读）=====
+  await markNotificationsRead(userPaid);
+  const paidAnns1 = (await loadNotifications(userPaid, false)).items.filter(
+    (i) => i.type === "announcement",
+  );
+  checks.push(["已读后公告仍保留（2 条）", paidAnns1.length === 2]);
+  checks.push(["已读后 readAt 非空（看完不消失）", paidAnns1.every((i) => i.readAt !== null)]);
+  const baSum2 = (await listAnnouncements()).items.find((a) => a.aid === ba.announcementId);
+  checks.push(["列表 all 公告 readCount ≥ 1（userPaid 已读）", (baSum2?.readCount ?? 0) >= 1]);
+
+  // ===== ① 编辑：静默改内容（renotify=false）同步用户端、不重置已读 =====
+  await editAnnouncement({
+    adminId,
+    aid: ba.announcementId,
+    title: "全员公告改",
+    body: "已编辑",
+    link: null,
+    renotify: false,
+  });
+  const paidAnns2 = (await loadNotifications(userPaid, false)).items.filter(
+    (i) => i.type === "announcement",
+  );
+  const baEdited = paidAnns2.find((i) => i.payload?.title === "全员公告改");
+  checks.push(["编辑后 title 同步到用户端", !!baEdited]);
+  checks.push(["静默编辑(renotify=false) 不重置已读", baEdited?.readAt !== null]);
+
+  // ===== ① 编辑：重新提醒（renotify=true）重置已读、重弹红点 =====
+  await editAnnouncement({
+    adminId,
+    aid: ba.announcementId,
+    title: "全员公告改2",
+    body: "再编辑",
+    link: null,
+    renotify: true,
+  });
+  const paidAnns3 = (await loadNotifications(userPaid, false)).items.filter(
+    (i) => i.type === "announcement",
+  );
+  const baRenotified = paidAnns3.find((i) => i.payload?.title === "全员公告改2");
+  checks.push(["重新提醒后 title 同步", !!baRenotified]);
+  checks.push(["重新提醒(renotify=true) 重置已读（readAt=null）", baRenotified?.readAt === null]);
+
+  // ===== ① 编辑不存在的公告 → 404 =====
+  let edit404 = false;
+  try {
+    await editAnnouncement({ adminId, aid: randomUUID(), title: "x", body: "y", renotify: false });
+  } catch (e) {
+    edit404 = e instanceof Response && e.status === 404;
+  }
+  checks.push(["编辑不存在公告 → 404", edit404]);
+
+  // ===== ① 删除：批量删该波、用户端立即消失、列表移除 =====
+  const del = await deleteAnnouncement({ adminId, aid: bp.announcementId });
+  checks.push(["删除 affected ≥ 1", del.affected >= 1]);
+  const paidAfterDel = (await loadNotifications(userPaid, false)).items.filter(
+    (i) => i.type === "announcement",
+  );
+  checks.push([
+    "删除后用户端不再有该公告",
+    paidAfterDel.every((i) => i.payload?.title !== "付费公告"),
+  ]);
+  const list3 = (await listAnnouncements()).items;
+  checks.push(["删除后列表不含该 aid", !list3.some((a) => a.aid === bp.announcementId)]);
+
+  // ===== ① 删除不存在 → 404 =====
+  let del404 = false;
+  try {
+    await deleteAnnouncement({ adminId, aid: randomUUID() });
+  } catch (e) {
+    del404 = e instanceof Response && e.status === 404;
+  }
+  checks.push(["删除不存在公告 → 404", del404]);
 
   // ===== 幂等：同一公告(同 aid)复发不重复插（dedupe_key 唯一 + ON CONFLICT DO NOTHING）=====
   const aid = randomUUID();

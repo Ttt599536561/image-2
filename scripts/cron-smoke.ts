@@ -146,6 +146,10 @@ async function main(): Promise<void> {
     const uid = await mkUser();
     const a = await mkImage(uid, -2); // 已过期
     const b = await mkImage(uid, -2);
+    // 模拟此前已为 a、b 写过 image_expiring 到期提醒（prescan 只对未过期图写，这里直插模拟历史提醒）。
+    await sql`INSERT INTO notifications(user_id, type, payload, dedupe_key) VALUES
+      (${uid}, 'image_expiring', '{}'::jsonb, ${`image_expiring:${a.imageId}`}),
+      (${uid}, 'image_expiring', '{}'::jsonb, ${`image_expiring:${b.imageId}`})`;
     const calledKeys: string[] = [];
     // 桩：a 成功、b 失败（返回未删成功的 key = b）。
     const stub = async (keys: string[]): Promise<string[]> => {
@@ -156,10 +160,15 @@ async function main(): Promise<void> {
     const aRow = await sql`SELECT 1 FROM images WHERE id=${a.imageId}`;
     const bRow = await sql`SELECT 1 FROM images WHERE id=${b.imageId}`;
     const cleaned = await sql`SELECT 1 FROM events WHERE user_id=${uid} AND type='image_cleaned'`;
+    // ②（2026-06-22）：删图连带删该图 image_expiring 提醒（a 删成功→提醒消；b 删 R2 失败→行与提醒都保留）。
+    const naRow = await sql`SELECT 1 FROM notifications WHERE dedupe_key=${`image_expiring:${a.imageId}`}`;
+    const nbRow = await sql`SELECT 1 FROM notifications WHERE dedupe_key=${`image_expiring:${b.imageId}`}`;
     checks.push(["清图②删过期: R2 收到两 key", calledKeys.includes(a.storageKey) && calledKeys.includes(b.storageKey)]);
     checks.push(["清图②删过期: 成功的 a 行删除", aRow.length === 0]);
     checks.push(["清图②删过期: 失败的 b 行保留(下轮重扫)", bRow.length === 1]);
     checks.push(["清图②删过期: a 写 image_cleaned 事件 + failedKeys=1", cleaned.length === 1 && res.failedKeys === 1 && res.deleted === 1]);
+    checks.push(["清图②删过期: a 的到期提醒连带删除", naRow.length === 0]);
+    checks.push(["清图②删过期: b(删R2失败)的到期提醒保留", nbRow.length === 1]);
   }
 
   // ===== 7) 图片清理：孤儿扫除（注入 listObjects + deleteMany 桩）=====

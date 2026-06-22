@@ -129,7 +129,8 @@ export function useRedemptions() {
 export function useNotifications() {
   return useQuery({
     queryKey: ["notifications"],
-    queryFn: () => apiGet("/api/notifications?unread=1", NotificationListResponse),
+    // ②（2026-06-22）：拉近 50 条「全部」（含已读）——看完仍保留、可反复点开；红点改由前端按 read_at 计未读。
+    queryFn: () => apiGet("/api/notifications", NotificationListResponse),
     // 顶栏铃铛不入 SSR loader（08 §9.2）；进入即拉一次。
     staleTime: 30_000,
   });

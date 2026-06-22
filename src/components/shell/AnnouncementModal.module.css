@@ -1,0 +1,109 @@
+/* ② 用户端公告详情弹窗（贴 design-system 令牌；遮罩居中，同 ConfirmDialog 范式）。 */
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: var(--scrim);
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+  z-index: var(--z-modal, 80);
+}
+
+.card {
+  width: 100%;
+  max-width: 360px;
+  background: var(--bg-surface);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-5);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.iconWrap {
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-full);
+  background: var(--accent-surface, var(--bg-subtle));
+  color: var(--accent, var(--primary-bg));
+  display: grid;
+  place-items: center;
+  flex: none;
+}
+
+.title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.body {
+  margin: 0 0 var(--space-2);
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.time {
+  margin: 0 0 var(--space-5);
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.linkBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: 38px;
+  padding: 0 var(--space-4);
+  border-radius: var(--radius-full);
+  border: 0.5px solid var(--border-strong);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.linkBtn:hover {
+  background: var(--bg-subtle);
+}
+
+.confirm {
+  height: 38px;
+  padding: 0 var(--space-5);
+  border-radius: var(--radius-full);
+  border: 0.5px solid transparent;
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.confirm:hover {
+  background: var(--primary-bg-hover);
+}
+
+.foot {
+  margin: var(--space-4) 0 0;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}

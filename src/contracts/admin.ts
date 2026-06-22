@@ -117,13 +117,35 @@ export const announcementLink = z
   .string()
   .max(1000)
   .refine((s) => classifyAnnouncementLink(s) !== null, "链接须为站内路径(/…)或 http(s) 外链");
-export const AnnouncementAction = z.object({
-  op: z.literal("broadcast"),
+// 公告正文三件套（broadcast 下发 + edit 改写共用）。
+const announcementContent = {
   title: z.string().min(1, "标题必填").max(120),
   body: z.string().min(1, "内容必填").max(2000),
   link: announcementLink.nullable().optional(),
+};
+export const BroadcastAnnouncementAction = z.object({
+  op: z.literal("broadcast"),
+  ...announcementContent,
   target: z.enum(["all", "paid"]), // 全体 / 仅付费用户(has_paid=true)
 });
+// ①增强（2026-06-22）：编辑已发公告——按 aid 批量改 'announcement:<aid>:%' 行的 payload（同步用户端）。
+// renotify=true → 同时把这波行 read_at 置 NULL「重新提醒」（重弹红点）；默认 false=静默改内容。
+export const EditAnnouncementAction = z.object({
+  op: z.literal("edit"),
+  aid: z.uuid(), // 公告 id（dedupe_key 第 2 段拆出，uuid → LIKE 模式无通配注入）
+  ...announcementContent,
+  renotify: z.boolean().optional().default(false),
+});
+// ①增强：删除已发公告——批量删该波行（用户端立即消失）。
+export const DeleteAnnouncementAction = z.object({
+  op: z.literal("delete"),
+  aid: z.uuid(),
+});
+export const AnnouncementAction = z.discriminatedUnion("op", [
+  BroadcastAnnouncementAction,
+  EditAnnouncementAction,
+  DeleteAnnouncementAction,
+]);
 export type AnnouncementAction = z.infer<typeof AnnouncementAction>;
 
 // ===================== 生成记录删除（#12 硬删 + 清 R2，单删/批删）=====================

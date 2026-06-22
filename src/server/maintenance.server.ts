@@ -102,6 +102,13 @@ export async function deleteExpiredImages(deps: CleanupDeps = {}): Promise<{ del
       FROM unnest(${okRows.map((r) => r.user_id)}::uuid[], ${okRows.map((r) => r.generation_id)}::uuid[], ${okRows.map((r) => r.storage_key)}::text[])
            AS t(user_id, generation_id, storage_key)`;
 
+    // 4) 连带删该图的 image_expiring 到期提醒（dedupe_key='image_expiring:'||id）。图已不存在，提醒不应滞留——
+    //    ② 铃铛改「看完仍保留全部 50 条」后，残留的到期提醒会永久灰显、点击跳向已删图、并挤占公告名额。
+    await sql`
+      DELETE FROM notifications
+      WHERE type = 'image_expiring'
+        AND dedupe_key = ANY(${okRows.map((r) => `image_expiring:${r.id}`)}::text[])`;
+
     deleted += okRows.length;
     if (rows.length < DELETE_BATCH) break; // 末批，清空了
   }

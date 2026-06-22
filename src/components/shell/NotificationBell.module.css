@@ -69,6 +69,17 @@
   background: var(--bg-subtle);
 }
 
+/* ② 未读高亮（淡陶土底）/ 已读灰显——条目看完仍保留，按 read_at 区分。 */
+.itemUnread {
+  background: var(--accent-surface);
+}
+.itemRead {
+  opacity: 0.6;
+}
+.itemRead:hover {
+  opacity: 1;
+}
+
 .itemIcon {
   flex: none;
   margin-top: 1px;

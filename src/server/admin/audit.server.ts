@@ -6,7 +6,7 @@ import type { TxClient } from "../tx.server";
 
 export interface AuditEntry {
   adminId: string;
-  action: string; // adjust_credit|reset_pw|ban|unban|set_concurrency|gen_codes|disable_batch|edit_config|create_package|edit_package|delete_package|create_inspiration|edit_inspiration|delete_inspiration|reorder_inspiration|delete_generation|delete_generations_batch|broadcast_notification
+  action: string; // adjust_credit|reset_pw|ban|unban|set_concurrency|gen_codes|disable_batch|edit_config|create_package|edit_package|delete_package|create_inspiration|edit_inspiration|delete_inspiration|reorder_inspiration|delete_generation|delete_generations_batch|broadcast_notification|edit_announcement|delete_announcement
   targetType?: string | null; // user|code|package|inspiration|config|generation|notification
   targetId?: string | null;
   before?: unknown;

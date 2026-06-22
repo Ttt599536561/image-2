@@ -361,3 +361,59 @@
   gap: var(--space-2);
   flex-wrap: wrap;
 }
+
+/* ①增强（2026-06-22）：已发公告列表（撰写区下方，编辑/删除入口）。 */
+.annList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.annRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+.annRowEditing {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.annInfo {
+  flex: 1;
+  min-width: 0;
+}
+.annTitle {
+  font-size: 13px;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.annMeta {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+.annIconBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-md);
+  border: 0.5px solid var(--border-strong);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  flex: none;
+}
+.annIconBtn:hover {
+  background: var(--bg-subtle);
+}
+.annIconBtnDanger {
+  color: var(--danger-text, #d4493a);
+  border-color: var(--danger-border, #d4493a);
+}

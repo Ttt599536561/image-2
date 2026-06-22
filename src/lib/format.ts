@@ -62,3 +62,10 @@ export function formatMonthDay(iso: string): string {
   const d = new Date(iso);
   return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+
+/** "MM-DD HH:MM"（后台已发公告列表 / 用户端公告详情时间）。 */
+export function formatMonthDayTime(iso: string): string {
+  const d = new Date(iso);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
