@@ -42,15 +42,16 @@
 🔴 **红线**：纯前端读路径、不碰钱/扣费；删除仍走既有 owner-scoped `deleteImages`（DB 权威 + R2 尽力删）+ 二次确认范式不可绕过。
 **影响**：`src/components/assets/AssetsPage.tsx`/`Assets.module.css`、`src/hooks/queries.ts`(确认透传 from/to)、新增 `src/components/ui/DateRangePicker.*`。**spec**：§12/§24-8/§24-9/§24-5、wireframes §9。
 
-## §2 搜索（会话标题 + 资产提示词）（P1 · M）
+## §2 搜索（会话标题 + 资产提示词）（P1 · M）✅ 已实现
 > 新增会话历史搜索（按标题 ILIKE，左栏「搜索」入口）+ 资产库按提示词搜索。对话式范式下结果须能快速跳转会话/资产，不开独立详情页。
-- [ ] `reads.server.ts loadConversations` 增可选 `q`：`WHERE user_id AND title ILIKE %q%`（复用 `ix_conv_user_upd`，暂不上 pg_trgm）
-- [ ] `reads.server.ts loadImages` 增可选 `q`：`AND g.prompt ILIKE %q%`（与 range/from/to 叠加）
-- [ ] contracts：`ConversationListQuery`/`ImageQuery` 增 `q:string.optional()`（向后兼容）
-- [ ] `api.conversations.ts`/`api.images.ts` 透传 q；`useConversations`/`useAssets` 把 q 纳入 queryKey
-- [ ] 前端：侧栏「搜索」入口 → 搜索框 + 结果列表（点击跳 `/c/:id`）；资产库筛选条加搜索框；输入 250ms 防抖 + 空态
+> **状态**：实现并 tsc 0 · test:run 44 · build 0 · `scripts/search-smoke.ts` **13 检查全绿**(对真 Neon：命中/未命中/无 q 全列/owner-scoped 不串/`%` 转义不匹配全部/ILIKE 大小写不敏感) · assert-no-secrets PASS。暂用 ILIKE 顺序扫（量大才上 pg_trgm，§0 Q6）。
+- [x] `reads.server.ts loadConversations(q?)`：`WHERE user_id AND (like IS NULL OR title ILIKE like)`（复用 `ix_conv_user_upd`）；`loadImages(q?)`：`AND g.prompt ILIKE like`（与 range/from/to 叠加，count 同 join generations）
+- [x] `likePattern()` 转义 LIKE 元字符 `\%_`（防用户输入当通配；ILIKE 默认转义符 `\`），参数化绑定防注入
+- [x] contracts：`ImagesQuery` 增 `q:string.max(200).optional()`（向后兼容）；会话搜索走路由 q 参（无契约破坏）
+- [x] `api.conversations.ts`/`api.images.ts` 透传 q（≤200 截断）；`useConversations(q?)`/`useAssets` 把 q 纳入 queryKey、搜索时不用 loader initialData
+- [x] 前端：侧栏「搜索」入口（替换原「敬请期待」占位）→ 搜索框 + 结果列表（点击跳 `/c/:id`，「搜索结果」/「未找到」态）；资产库筛选条加搜索框；`useDebouncedValue` 250ms 防抖 + 空态
 
-🔴 **红线**：一律 owner-scoped（`WHERE user_id=$me`）、ILIKE 走参数化绑定防注入；搜索只读、不触发任何写/扣费。
+🔴 **红线**：一律 owner-scoped（`WHERE user_id=$me`）、ILIKE 走参数化绑定防注入；搜索只读、不触发任何写/扣费。**已验**：owner-scoped + `%` 转义 smoke 全过。
 **影响**：`src/server/reads.server.ts`、`src/contracts/{conversation,image}.ts`、`app/routes/api.{conversations,images}.ts`、`src/hooks/queries.ts`、`src/components/shell/Sidebar.tsx`、`AssetsPage.tsx`、新增搜索面板。**spec**：§10/§13/§24-2、§12.3。
 
 ## §3 RBAC 角色分级（超管/审核员/客服）+ 守卫扩展（P1 · M）

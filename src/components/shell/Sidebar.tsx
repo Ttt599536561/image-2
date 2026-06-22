@@ -1,13 +1,17 @@
 import { Image as ImageIcon, Lightbulb, Plus, Search, Sparkles, User } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { NavLink, useNavigate } from "react-router";
 import { useConversations, useMe } from "../../hooks/queries";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { useLockBodyScroll } from "../../lib/useLockBodyScroll";
 import styles from "./Sidebar.module.css";
 
 export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: () => void }) {
   const me = useMe();
-  const conversations = useConversations().data?.items ?? [];
+  const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query.trim(), 250); // P3-S2 标题搜索防抖
+  const searching = debouncedQuery.length > 0;
+  const conversations = useConversations(debouncedQuery).data?.items ?? [];
   const navigate = useNavigate();
 
   // 移动端抽屉：锁背景滚动 + ESC 关闭
@@ -45,14 +49,23 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
           新建生成
         </button>
 
-        <span className={`${styles.nav} ${styles.navDisabled}`} title="搜索（敬请期待）">
+        <div className={styles.search}>
           <Search size={16} />
-          搜索
-        </span>
+          <input
+            type="search"
+            className={styles.searchInput}
+            placeholder="搜索对话"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            aria-label="搜索对话"
+          />
+        </div>
 
-        <div className={styles.recentLabel}>最近</div>
+        <div className={styles.recentLabel}>{searching ? "搜索结果" : "最近"}</div>
         {conversations.length === 0 ? (
-          <div className={styles.recentEmpty}>还没有对话，点「新建生成」开始吧</div>
+          <div className={styles.recentEmpty}>
+            {searching ? "未找到匹配的对话" : "还没有对话，点「新建生成」开始吧"}
+          </div>
         ) : (
           conversations.map((c) => (
             <NavLink

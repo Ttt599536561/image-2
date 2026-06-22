@@ -84,6 +84,34 @@
   color: var(--text-secondary);
 }
 
+/* —— 搜索对话（P3-S2）—— */
+.search {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-md);
+  color: var(--text-tertiary);
+}
+.search:focus-within {
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+}
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+}
+.searchInput::placeholder {
+  color: var(--text-tertiary);
+}
+
 .recentLabel {
   padding: var(--space-4) var(--space-3) var(--space-1);
   font-size: 11px;

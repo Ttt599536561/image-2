@@ -57,15 +57,20 @@ export async function loadConversations(
   userId: string,
   page = 1,
   pageSize = 20,
+  q?: string,
 ): Promise<ConversationListResponse> {
   const sql = getSql();
   const offset = (page - 1) * pageSize;
+  const like = likePattern(q); // P3-S2 标题搜索，null=不过滤
   const items = (await sql`
     SELECT id, title, updated_at FROM conversations
     WHERE user_id = ${userId}
+      AND (${like}::text IS NULL OR title ILIKE ${like})
     ORDER BY updated_at DESC
     LIMIT ${pageSize} OFFSET ${offset}`) as Row[];
-  const [c] = (await sql`SELECT COUNT(*)::int AS n FROM conversations WHERE user_id = ${userId}`) as Row[];
+  const [c] = (await sql`
+    SELECT COUNT(*)::int AS n FROM conversations
+    WHERE user_id = ${userId} AND (${like}::text IS NULL OR title ILIKE ${like})`) as Row[];
   return {
     items: items.map((r) => ({ id: r.id as string, title: r.title as string, updatedAt: iso(r.updated_at) })),
     page,
@@ -135,9 +140,16 @@ function rangeLowerBound(range: ImageRange | undefined, from: string | undefined
   }
 }
 
+/** 搜索词 → ILIKE 模式（P3-S2）。转义 LIKE 元字符 \%_ 防用户输入当通配；null=不过滤。ILIKE 默认转义符 `\`。 */
+function likePattern(q: string | undefined): string | null {
+  const s = q?.trim();
+  if (!s) return null;
+  return `%${s.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
+}
+
 export async function loadImages(
   userId: string,
-  query: { range?: ImageRange; from?: string; to?: string; page?: number; pageSize?: number },
+  query: { range?: ImageRange; from?: string; to?: string; q?: string; page?: number; pageSize?: number },
 ): Promise<ImagesResponse> {
   const sql = getSql();
   const page = query.page ?? 1;
@@ -145,7 +157,8 @@ export async function loadImages(
   const offset = (page - 1) * pageSize;
   const lower = rangeLowerBound(query.range, query.from);
   const upper = query.range === "custom" && query.to ? new Date(query.to).toISOString() : null;
-  // prompt 在 generations 表（images 无此列）→ join 取回。
+  const like = likePattern(query.q); // P3-S2 按提示词搜索，null=不过滤
+  // prompt 在 generations 表（images 无此列）→ join 取回（count 同 join 以支持 prompt 过滤）。
   const items = (await sql`
     SELECT i.id, i.generation_id, g.prompt, i.public_url, i.width, i.height,
            i.created_at, i.expires_at, i.saved_to_library
@@ -153,13 +166,15 @@ export async function loadImages(
     WHERE i.user_id = ${userId}
       AND (${lower}::timestamptz IS NULL OR i.created_at >= ${lower}::timestamptz)
       AND (${upper}::timestamptz IS NULL OR i.created_at <= ${upper}::timestamptz)
+      AND (${like}::text IS NULL OR g.prompt ILIKE ${like})
     ORDER BY i.created_at DESC
     LIMIT ${pageSize} OFFSET ${offset}`) as Row[];
   const [c] = (await sql`
-    SELECT COUNT(*)::int AS n FROM images
-    WHERE user_id = ${userId}
-      AND (${lower}::timestamptz IS NULL OR created_at >= ${lower}::timestamptz)
-      AND (${upper}::timestamptz IS NULL OR created_at <= ${upper}::timestamptz)`) as Row[];
+    SELECT COUNT(*)::int AS n FROM images i JOIN generations g ON g.id = i.generation_id
+    WHERE i.user_id = ${userId}
+      AND (${lower}::timestamptz IS NULL OR i.created_at >= ${lower}::timestamptz)
+      AND (${upper}::timestamptz IS NULL OR i.created_at <= ${upper}::timestamptz)
+      AND (${like}::text IS NULL OR g.prompt ILIKE ${like})`) as Row[];
   return {
     items: items.map((r) => ({
       id: r.id as string,

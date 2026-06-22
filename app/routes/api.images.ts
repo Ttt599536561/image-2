@@ -14,6 +14,7 @@ export async function loader({ request }: Route.LoaderArgs) {
         range: (p.get("range") as ImageRange | null) ?? undefined,
         from: p.get("from") ?? undefined,
         to: p.get("to") ?? undefined,
+        q: p.get("q")?.slice(0, 200) || undefined, // P3-S2 按提示词搜索
         page: p.get("page") ? Number(p.get("page")) : undefined,
         pageSize: p.get("pageSize") ? Number(p.get("pageSize")) : undefined,
       }),

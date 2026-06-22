@@ -1,9 +1,10 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Check, CheckSquare, Download, Trash2 } from "lucide-react";
+import { Check, CheckSquare, Download, Search, Trash2 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { DeleteResponse, type ImageItem, type ImageRange, type ImagesResponse } from "../../contracts/image";
 import { dayStr, expiringInDays, rectsIntersect } from "../../lib/assetsSelection";
 import { useAssets, useMe } from "../../hooks/queries";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { apiDelete } from "../../lib/api-client";
 import { downloadImage, imageFilename } from "../../lib/download";
 import { dateGroupLabel } from "../../lib/format";
@@ -35,6 +36,8 @@ export function AssetsPage({ initialImages }: { initialImages?: ImagesResponse }
   const [range, setRange] = useState<ImageRange>("all");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const search = useDebouncedValue(searchInput.trim(), 250); // P3-S2 按提示词搜索防抖
   const [bulk, setBulk] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -52,9 +55,10 @@ export function AssetsPage({ initialImages }: { initialImages?: ImagesResponse }
   const fromISO = customFrom ? new Date(`${customFrom}T00:00:00`).toISOString() : undefined;
   const toISO = customTo ? new Date(`${customTo}T23:59:59.999`).toISOString() : undefined;
 
-  const query = isCustom ? { range: "custom" as const, from: fromISO, to: toISO } : { range };
-  // range="all" 用 loader initialData；自定义未选起始日则不发请求（enabled=false）。
-  const assets = useAssets(query, range === "all" ? initialImages : undefined, !isCustom || customReady);
+  const baseQuery = isCustom ? { range: "custom" as const, from: fromISO, to: toISO } : { range };
+  const query = search ? { ...baseQuery, q: search } : baseQuery;
+  // range="all" 且无搜索词 → 用 loader initialData；自定义未选起始日则不发请求（enabled=false）。
+  const assets = useAssets(query, range === "all" && !search ? initialImages : undefined, !isCustom || customReady);
   const items = useMemo(() => assets.data?.items ?? [], [assets.data]);
   const orderedIds = useMemo(() => items.map((i) => i.id), [items]);
 
@@ -251,6 +255,17 @@ export function AssetsPage({ initialImages }: { initialImages?: ImagesResponse }
                 {r.label}
               </button>
             ))}
+            <div className={styles.searchWrap}>
+              <Search size={14} />
+              <input
+                type="search"
+                className={styles.searchInput}
+                placeholder="搜索提示词"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                aria-label="按提示词搜索图片"
+              />
+            </div>
           </div>
 
           {isCustom ? (
@@ -289,7 +304,7 @@ export function AssetsPage({ initialImages }: { initialImages?: ImagesResponse }
           {isCustom && !customReady ? (
             <div className={styles.empty}>选择起始日期以筛选</div>
           ) : groups.length === 0 ? (
-            <div className={styles.empty}>该时间段内还没有图片</div>
+            <div className={styles.empty}>{search ? "未找到匹配的图片" : "该时间段内还没有图片"}</div>
           ) : (
             // biome-ignore lint/a11y/noStaticElementInteractions: 框选交互仅鼠标增强，不替代键盘可达的逐张选择
             <div ref={gridAreaRef} className={styles.gridArea} onPointerDown={onAreaPointerDown}>

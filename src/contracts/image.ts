@@ -9,6 +9,7 @@ export const ImagesQuery = z.object({
   range: z.enum(IMAGE_RANGES).optional(),
   from: z.string().optional(),
   to: z.string().optional(),
+  q: z.string().max(200).optional(), // P3-S2 按提示词搜索
   page: z.coerce.number().int().positive().optional(),
   pageSize: z.coerce.number().int().positive().max(200).optional(),
 });

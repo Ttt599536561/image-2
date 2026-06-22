@@ -10,7 +10,8 @@ export async function loader({ request }: Route.LoaderArgs) {
     const url = new URL(request.url);
     const page = Math.max(1, Number(url.searchParams.get("page") ?? 1) || 1);
     const pageSize = Math.min(100, Math.max(1, Number(url.searchParams.get("pageSize") ?? 20) || 20));
-    return Response.json(await loadConversations(ctx.userId, page, pageSize));
+    const q = url.searchParams.get("q")?.slice(0, 200) || undefined; // P3-S2 标题搜索
+    return Response.json(await loadConversations(ctx.userId, page, pageSize, q));
   } catch (e) {
     if (e instanceof Response) return e;
     console.error("[api.conversations] error", e);

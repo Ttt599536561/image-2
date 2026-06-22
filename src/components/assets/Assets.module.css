@@ -46,6 +46,33 @@
   box-shadow: var(--shadow-xs);
   font-weight: 500;
 }
+.searchWrap {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  color: var(--text-tertiary);
+}
+.searchWrap:focus-within {
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-xs);
+  color: var(--text-secondary);
+}
+.searchInput {
+  width: 130px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+}
+.searchInput::placeholder {
+  color: var(--text-tertiary);
+}
 
 /* —— 自定义日期区间（§24-8）—— */
 .customRow {

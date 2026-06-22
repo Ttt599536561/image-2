@@ -25,12 +25,14 @@ export function useMe() {
   });
 }
 
-export function useConversations() {
+export function useConversations(q?: string) {
   const app = useAppLoaderData();
+  const search = q?.trim() || undefined; // P3-S2 标题搜索（空=完整列表，用 loader initialData）
   return useQuery({
-    queryKey: ["conversations"],
-    queryFn: () => apiGet("/api/conversations", ConversationListResponse),
-    initialData: app?.conversations,
+    queryKey: ["conversations", search ?? null],
+    queryFn: () =>
+      apiGet(search ? `/api/conversations?q=${encodeURIComponent(search)}` : "/api/conversations", ConversationListResponse),
+    initialData: search ? undefined : app?.conversations,
   });
 }
 
@@ -47,17 +49,19 @@ export interface AssetsQuery {
   range?: ImageRange;
   from?: string;
   to?: string;
+  q?: string;
   page?: number;
   pageSize?: number;
 }
 
-function assetsUrl(q: AssetsQuery): string {
+function assetsUrl(query: AssetsQuery): string {
   const p = new URLSearchParams();
-  if (q.range) p.set("range", q.range);
-  if (q.from) p.set("from", q.from);
-  if (q.to) p.set("to", q.to);
-  if (q.page) p.set("page", String(q.page));
-  if (q.pageSize) p.set("pageSize", String(q.pageSize));
+  if (query.range) p.set("range", query.range);
+  if (query.from) p.set("from", query.from);
+  if (query.to) p.set("to", query.to);
+  if (query.q) p.set("q", query.q);
+  if (query.page) p.set("page", String(query.page));
+  if (query.pageSize) p.set("pageSize", String(query.pageSize));
   const s = p.toString();
   return s ? `/api/images?${s}` : "/api/images";
 }
