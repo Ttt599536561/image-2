@@ -1,6 +1,6 @@
 // 客户端读 hooks（08 §9.3）。loader 取首屏 → 同 query key 作 initialData（无 SSR/CSR 抖动）；
 // 兑换/生成/删除成功后 invalidate 对应 key 自动刷新。所有 queryFn 走同源 cookie + Zod 解析（api-client）。
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useRouteLoaderData } from "react-router";
 import type { loader as appLoader } from "../../app/routes/_app";
 import { ConversationDetail, ConversationListResponse } from "../contracts/conversation";
@@ -83,15 +83,21 @@ export function usePackages(initialData?: PackagesResponse) {
   });
 }
 
+// P3-S4：category/q 服务端过滤（与 S2 同范式，debounce 在调用方）。queryKey 含 category+q；
+// 默认视图（全部 + 无搜索）用 loader initialData 免抖；筛选时走网络但 keepPreviousData 避免空屏闪。
 export function useInspirations(category: string, q: string, initialData?: InspirationsResponse) {
+  const cat = category && category !== "全部" ? category : "";
+  const needle = q.trim();
   const p = new URLSearchParams();
-  if (category && category !== "全部") p.set("category", category);
-  if (q.trim()) p.set("q", q.trim());
+  if (cat) p.set("category", cat);
+  if (needle) p.set("q", needle);
   const s = p.toString();
+  const isDefault = !cat && !needle;
   return useQuery({
-    queryKey: ["inspiration", { category, q }],
+    queryKey: ["inspiration", { category: cat || "全部", q: needle }],
     queryFn: () => apiGet(s ? `/api/inspirations?${s}` : "/api/inspirations", InspirationsResponse),
-    initialData,
+    initialData: isDefault ? initialData : undefined,
+    placeholderData: keepPreviousData,
   });
 }
 

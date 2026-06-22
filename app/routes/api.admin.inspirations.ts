@@ -6,6 +6,7 @@ import {
   createInspiration,
   deleteInspiration,
   listAllInspirations,
+  reorderInspiration,
   updateInspiration,
 } from "../../src/server/admin/inspirations.server";
 import { clientIp } from "../../src/server/rateLimit";
@@ -39,6 +40,10 @@ export async function action({ request }: Route.ActionArgs) {
     }
     if (act.op === "update") {
       await updateInspiration({ adminId: admin.userId, id: act.id, fields: act, ip });
+      return Response.json({ ok: true });
+    }
+    if (act.op === "reorder") {
+      await reorderInspiration({ adminId: admin.userId, id: act.id, direction: act.direction, ip });
       return Response.json({ ok: true });
     }
     await deleteInspiration({ adminId: admin.userId, id: act.id, ip });

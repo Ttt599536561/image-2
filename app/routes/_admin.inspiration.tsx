@@ -1,4 +1,4 @@
-import { Lightbulb, Pencil, Plus, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Eye, EyeOff, Lightbulb, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import { useRevalidator } from "react-router";
 import styles from "../../src/components/admin/Admin.module.css";
@@ -25,12 +25,14 @@ interface FormState {
   category: string;
   prompt: string;
   summary: string;
+  width: string; // 封面宽高（可空，可「从封面探测」自动回填；P3-S4）
+  height: string;
   sort: string;
   active: boolean;
 }
 
 function emptyForm(): FormState {
-  return { id: null, title: "", cover: "", category: "", prompt: "", summary: "", sort: "0", active: true };
+  return { id: null, title: "", cover: "", category: "", prompt: "", summary: "", width: "", height: "", sort: "0", active: true };
 }
 
 function toForm(it: AdminInspiration): FormState {
@@ -41,9 +43,17 @@ function toForm(it: AdminInspiration): FormState {
     category: it.category ?? "",
     prompt: it.prompt,
     summary: it.summary ?? "",
+    width: it.width != null ? String(it.width) : "",
+    height: it.height != null ? String(it.height) : "",
     sort: String(it.sort),
     active: it.active,
   };
+}
+
+/** 表单整数字段 → number | null（空/非法 → null）。 */
+function posIntOrNull(s: string): number | null {
+  const n = Math.trunc(Number(s));
+  return Number.isFinite(n) && n > 0 ? n : null;
 }
 
 export default function Page({ loaderData }: Route.ComponentProps) {
@@ -56,6 +66,7 @@ export default function Page({ loaderData }: Route.ComponentProps) {
 
   const [pendingDelete, setPendingDelete] = useState<AdminInspiration | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [rowBusy, setRowBusy] = useState<string | null>(null); // 行内操作（上下移/上下架）进行中的卡 id
 
   function openCreate() {
     setFormErr(null);
@@ -80,6 +91,8 @@ export default function Page({ loaderData }: Route.ComponentProps) {
       category: form.category.trim() ? form.category.trim() : null,
       prompt: form.prompt.trim(),
       summary: form.summary.trim() ? form.summary.trim() : null,
+      width: posIntOrNull(form.width),
+      height: posIntOrNull(form.height),
       sort: Number.isFinite(Number(form.sort)) ? Math.trunc(Number(form.sort)) : 0,
       active: form.active,
     };
@@ -114,6 +127,62 @@ export default function Page({ loaderData }: Route.ComponentProps) {
     }
   }
 
+  // 从封面 URL 探测原始宽高（P3-S4，纯客户端 Image；仅在两者为空时回填，不覆盖手填值）。
+  function detectDims() {
+    if (!form) return;
+    const url = form.cover.trim();
+    if (!url) {
+      setFormErr("请先填写封面 URL");
+      return;
+    }
+    setFormErr(null);
+    const img = new Image();
+    img.onload = () =>
+      setForm((f) =>
+        f ? { ...f, width: String(img.naturalWidth), height: String(img.naturalHeight) } : f,
+      );
+    img.onerror = () => setFormErr("无法加载封面图，无法探测尺寸");
+    img.src = url;
+  }
+
+  // 快捷上/下架（不开整表单）：复用 update op 翻转 active，回填该卡全字段（P3-S4「排序编辑体验」）。
+  async function toggleActive(it: AdminInspiration) {
+    setRowBusy(it.id);
+    try {
+      await apiPost("/api/admin/inspirations", {
+        op: "update",
+        id: it.id,
+        title: it.title,
+        cover: it.cover,
+        category: it.category,
+        prompt: it.prompt,
+        summary: it.summary,
+        width: it.width,
+        height: it.height,
+        sort: it.sort,
+        active: !it.active,
+      });
+      revalidator.revalidate();
+    } catch (e) {
+      window.alert(e instanceof ApiError ? e.message : "操作失败，请重试");
+    } finally {
+      setRowBusy(null);
+    }
+  }
+
+  // 上/下移一位（互换相邻并规整 sort；P3-S4）。
+  async function move(it: AdminInspiration, direction: "up" | "down") {
+    setRowBusy(it.id);
+    try {
+      await apiPost("/api/admin/inspirations", { op: "reorder", id: it.id, direction });
+      revalidator.revalidate();
+    } catch (e) {
+      window.alert(e instanceof ApiError ? e.message : "排序失败，请重试");
+    } finally {
+      setRowBusy(null);
+    }
+  }
+
   return (
     <div>
       <div className={styles.pageHead}>
@@ -145,7 +214,7 @@ export default function Page({ loaderData }: Route.ComponentProps) {
               </tr>
             </thead>
             <tbody>
-              {items.map((it) => (
+              {items.map((it, i) => (
                 <tr key={it.id} className={styles.tr}>
                   <td className={styles.td}>
                     {it.cover ? (
@@ -165,9 +234,42 @@ export default function Page({ loaderData }: Route.ComponentProps) {
                       <span className={`${styles.badge} ${styles.badgeMuted}`}>下架</span>
                     )}
                   </td>
-                  <td className={`${styles.td} ${styles.mono}`}>{it.sort}</td>
+                  <td className={`${styles.td} ${styles.mono}`}>
+                    <div className={styles.rowActions}>
+                      <button
+                        type="button"
+                        className={`${styles.btn} ${styles.btnSm} ${styles.btnGhost}`}
+                        onClick={() => move(it, "up")}
+                        disabled={i === 0 || rowBusy !== null}
+                        title="上移"
+                        aria-label="上移"
+                      >
+                        <ArrowUp size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        className={`${styles.btn} ${styles.btnSm} ${styles.btnGhost}`}
+                        onClick={() => move(it, "down")}
+                        disabled={i === items.length - 1 || rowBusy !== null}
+                        title="下移"
+                        aria-label="下移"
+                      >
+                        <ArrowDown size={14} />
+                      </button>
+                      <span className={`${styles.muted} ${styles.mono}`}>{it.sort}</span>
+                    </div>
+                  </td>
                   <td className={styles.td}>
                     <div className={styles.rowActions}>
+                      <button
+                        type="button"
+                        className={`${styles.btn} ${styles.btnSm} ${styles.btnGhost}`}
+                        onClick={() => toggleActive(it)}
+                        disabled={rowBusy !== null}
+                      >
+                        {it.active ? <EyeOff size={14} /> : <Eye size={14} />}
+                        {it.active ? "下架" : "上架"}
+                      </button>
                       <button
                         type="button"
                         className={`${styles.btn} ${styles.btnSm} ${styles.btnGhost}`}
@@ -248,6 +350,39 @@ export default function Page({ loaderData }: Route.ComponentProps) {
               />
               <span className={styles.muted} style={{ fontSize: 12 }}>
                 公有图片 URL
+              </span>
+            </div>
+
+            <div className={styles.field}>
+              <label className={styles.label}>封面尺寸（瀑布流原比例，可空）</label>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input
+                  type="number"
+                  min={1}
+                  className={styles.input}
+                  style={{ width: 96 }}
+                  value={form.width}
+                  onChange={(e) => setForm({ ...form, width: e.target.value })}
+                  placeholder="宽"
+                  aria-label="封面宽"
+                />
+                <span className={styles.muted}>×</span>
+                <input
+                  type="number"
+                  min={1}
+                  className={styles.input}
+                  style={{ width: 96 }}
+                  value={form.height}
+                  onChange={(e) => setForm({ ...form, height: e.target.value })}
+                  placeholder="高"
+                  aria-label="封面高"
+                />
+                <button type="button" className={`${styles.btn} ${styles.btnSm} ${styles.btnGhost}`} onClick={detectDims}>
+                  从封面探测
+                </button>
+              </div>
+              <span className={styles.muted} style={{ fontSize: 12 }}>
+                留空则画廊按图片自然尺寸加载（可能有轻微抖动）
               </span>
             </div>
 

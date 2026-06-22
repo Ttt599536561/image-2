@@ -86,11 +86,24 @@ const inspFields = {
   category: z.string().max(50).nullable().optional(),
   prompt: z.string().min(1, "提示词必填").max(4000),
   summary: z.string().max(500).nullable().optional(),
+  width: z.number().int().positive().max(100000).nullable().optional(), // 封面原始宽高（瀑布流原比例，P3-S4，可空）
+  height: z.number().int().positive().max(100000).nullable().optional(),
   sort: z.number().int().optional(),
   active: z.boolean().optional(),
 };
 export const CreateInspAction = z.object({ op: z.literal("create"), ...inspFields });
 export const UpdateInspAction = z.object({ op: z.literal("update"), id: z.uuid(), ...inspFields });
 export const DeleteInspAction = z.object({ op: z.literal("delete"), id: z.uuid() });
-export const InspirationAction = z.discriminatedUnion("op", [CreateInspAction, UpdateInspAction, DeleteInspAction]);
+// 排序：与相邻卡互换并规整 sort（P3-S4「排序编辑体验」），避免手填 sort 数字。
+export const ReorderInspAction = z.object({
+  op: z.literal("reorder"),
+  id: z.uuid(),
+  direction: z.enum(["up", "down"]),
+});
+export const InspirationAction = z.discriminatedUnion("op", [
+  CreateInspAction,
+  UpdateInspAction,
+  DeleteInspAction,
+  ReorderInspAction,
+]);
 export type InspirationAction = z.infer<typeof InspirationAction>;

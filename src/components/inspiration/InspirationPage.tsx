@@ -1,34 +1,31 @@
 import { Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
-import { INSPIRATION_CATEGORIES, type InspirationsResponse } from "../../contracts/inspiration";
+import type { InspirationsResponse } from "../../contracts/inspiration";
 import { useInspirations } from "../../hooks/queries";
+import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { InspirationGallery } from "../InspirationGallery/InspirationGallery";
 import { useShell } from "../shell/ShellContext";
 import { TopBar } from "../shell/TopBar";
 import styles from "./Inspiration.module.css";
 
-// ⑤ 接真：灵感卡走 /api/inspirations（§6 建表前为服务端种子）。品类/搜索本地即时过滤（数据集小、体验更顺）。
+// P3-S4：品类/搜索下沉为 SQL（useInspirations 服务端过滤 + 250ms debounce，与 S2 同范式）。
+// 品类 Tab 从 DISTINCT category 动态出（来源稳定 SSR 首屏 categories，切 Tab/搜索不抖）。
 export function InspirationPage({ initialInspirations }: { initialInspirations?: InspirationsResponse }) {
   const navigate = useNavigate();
   const shell = useShell();
   const [category, setCategory] = useState<string>("全部");
   const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query, 250);
 
-  const all = useInspirations("全部", "", initialInspirations).data?.items ?? [];
+  const insp = useInspirations(category, debouncedQuery, initialInspirations);
+  const items = insp.data?.items ?? [];
 
-  const items = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return all
-      .filter((i) => category === "全部" || i.category === category)
-      .filter(
-        (i) =>
-          !q ||
-          i.title.toLowerCase().includes(q) ||
-          (i.summary ?? "").toLowerCase().includes(q) ||
-          i.prompt.toLowerCase().includes(q),
-      );
-  }, [all, category, query]);
+  // Tab = "全部" + 动态品类。用 SSR 首屏 categories 作稳定来源（筛选返回的 categories 同样不随筛选变，二者择一回退）。
+  const tabs = useMemo(
+    () => ["全部", ...(initialInspirations?.categories ?? insp.data?.categories ?? [])],
+    [initialInspirations, insp.data?.categories],
+  );
 
   // 跨路由一键带回：跳主页并把提示词放进 location.state，ConversationView 读取后注入 Composer。
   const usePrompt = (prompt: string) => navigate("/", { state: { bringPrompt: prompt } });
@@ -52,7 +49,7 @@ export function InspirationPage({ initialInspirations }: { initialInspirations?:
           </div>
 
           <div className={styles.tabs}>
-            {INSPIRATION_CATEGORIES.map((cat) => (
+            {tabs.map((cat) => (
               <button
                 key={cat}
                 type="button"

@@ -19,5 +19,10 @@ export const InspirationItem = z.object({
 });
 export type InspirationItem = z.infer<typeof InspirationItem>;
 
-export const InspirationsResponse = z.object({ items: z.array(InspirationItem) });
+export const InspirationsResponse = z.object({
+  items: z.array(InspirationItem),
+  // 动态品类（DISTINCT category，不含 "全部"；P3-S4 品类 Tab 数据源）。"全部" 由前端补在首位。
+  // 始终回填（即便表空走种子也给种子品类），故为必填数组（空数组合法）。
+  categories: z.array(z.string()),
+});
 export type InspirationsResponse = z.infer<typeof InspirationsResponse>;

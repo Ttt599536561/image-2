@@ -1,7 +1,7 @@
 # 阶段三施工计划（草拟 · 待站长批准）· 增强（上线后迭代）
 
 > **本文件 = 阶段三的可执行蓝图 + 可勾选清单**（草拟，**待站长批准**后开工；批准后把本行改「已批准」）。
-> **进度（2026-06-22）**：P3-S1 ✅ / P3-S2 ✅ 已做。**站长已全部拍板 §0（见下）：维持单管理员 → S3 RBAC + S5 客服 360 本期不做；剩余可做 = S4 灵感运营化 + S6 优化提示词。** 中转并发闸不做（站长：中转并发足够）。成本对账已对账 OK（站长确认）。`phase2`/`phase3` 合并 `main` 放下一步。
+> **进度（2026-06-22）**：P3-S1 ✅ / P3-S2 ✅ / **P3-S4 ✅**（灵感运营化）已做。**P3-S6（优化提示词）本会话跳过**——中转 `api.tangguo.xin` 只配 `gpt-image-2`、无任何 chat/文本模型（探测见 §6），站长拍板本期跳过、药丸保持占位。**站长已全部拍板 §0：维持单管理员 → S3 RBAC + S5 客服 360 本期不做。** 中转并发闸不做（站长：中转并发足够）。成本对账已对账 OK（站长确认）。**剩余主线已清空（S4 done、S6 阻塞跳过）→ 下一步 = `phase2`/`phase3` 合并 `main`（待站长发话）。**
 > **怎么写代码看 [docs/dev/00–11](README.md)**；**做什么/顺序/红线看这里**；**进度勾选在本文件 + [PROGRESS.md](../PROGRESS.md) 联动**。
 > 基于 4 路多代理精读（spec §20/§21/§23/§24 + wireframes + **代码现状审计**）综合。**已剔除阶段二已做的部分**（资产批量选择/zip/删除已在 ⑤、灵感后台 CRUD 已在 ⑥），本计划只覆盖「增量」。
 
@@ -10,7 +10,7 @@
 **阶段三 = 增强迭代，非公开上线必需**——除「成本对账真·毛利数」是上线前置硬闸（铁律②，需灰度跑量，非编码）外，其余都是体验/运营提升，可按价值增量上。
 栈不变：Netlify + Neon(Drizzle) + RR8 framework(SSR) + Better Auth(admin 插件) + Supabase Storage(S3) + TanStack Query + Zod。
 
-**推荐顺序（站长定调后）**：P3-S1 ✅ → P3-S2 ✅ → **P3-S4（灵感运营化）→ P3-S6（优化提示词）**。**P3-S3（RBAC）+ P3-S5（客服 360）本期不做**（站长：维持单管理员）。P3-S7 本就不做（清单完整性）。
+**推荐顺序（站长定调后）**：P3-S1 ✅ → P3-S2 ✅ → **P3-S4 ✅（灵感运营化）** → ~~P3-S6（优化提示词）~~ 🚫 本期跳过（中转无 chat 模型）。**P3-S3（RBAC）+ P3-S5（客服 360）本期不做**（站长：维持单管理员）。P3-S7 本就不做（清单完整性）。
 **各分片相对独立、可调序或并行。**
 
 ---
@@ -69,16 +69,17 @@
 🔴 **红线**：CHECK 只扩不删（向前兼容）；**客服严禁动余额/配置/发码**——redeem/adjust/codes/packages/config 路由仍 `requireAdmin`（非 `requireSupport`）；敏感路径仍 `requireUserStrict` 每请求查 DB、封禁双源 fail-closed 不变；角色变更双写 + 落审计、不可越权改自己角色。
 **影响**：`drizzle/0002_*.sql`、`src/db/schema.ts`、`src/lib/{guard,auth}.ts`、`src/server/page.server.ts`、`scripts/promote-admin.ts`、`audit.server.ts`。**spec**：§23、05 §6.7、09 §10.1。
 
-## §4 灵感库运营化（DB 级搜索 + 排序/品类完善）（P2 · M）
+## §4 灵感库运营化（DB 级搜索 + 排序/品类完善）（P2 · M）✅ 已实现
 > 当前 `loadInspirations` 先全量查表再内存过滤（数据少可接受），后台 CRUD 已在阶段二完成。本片把搜索下沉 SQL + 补品类规范化与前台瀑布流细节，防灵感卡增多后内存过滤退化。运营增强、非阻塞。
-- [ ] `reads.server.ts loadInspirations`：category/q 下沉为 SQL `WHERE active=true AND (category=$c) AND (title/summary/prompt ILIKE %q%)`，种子 fallback 仅表空时
-- [ ] 可选 ix：量大才上 `pg_trgm`，否则 ILIKE 顺序扫足够
-- [ ] 品类规范化：从 `inspirations DISTINCT category` 动态出品类 Tab，空品类归「全部」
-- [ ] 前台 `InspirationPage`：瀑布流保留原比例（回填 cover width/height）、品类 Tab + 实时搜索
-- [ ] 后台 `_admin.inspiration`：排序编辑体验完善（已有 CRUD，补排序拖拽/批量上下架可选）
+> **状态**：实现并 tsc 0 · test:run 53(含 `inspirations-reads.test.ts` 9 例种子回退/品类/搜索/转义/红线) · build 0 · assert-no-secrets PASS · `scripts/inspirations-smoke.ts` **20/20**（对真 Neon：SQL 过滤/动态品类 DISTINCT/宽高回流/LIKE 转义/reorder 互换规整还原/上下架/红线无 storage_key）· `netlify dev` 浏览器 live **15/15**（登录→种子回退渲染→admin 建卡→前台可见+品类进 Tab→筛选/搜索→下架隐藏→删除回种子）。`reads-smoke`/`search-smoke` 回归绿。
+- [x] `reads.server.ts loadInspirations`：category/q 下沉为 SQL `WHERE active=true AND (category=$c) AND (title/summary/prompt ILIKE %q%)`，种子 fallback 仅表空时（`EXISTS(active)` 判定，非「筛选后为空」误回种子）；同函数返回动态 `categories`
+- [x] ~~可选 ix pg_trgm~~ → **ILIKE 顺序扫足够**（§0 Q6 站长定，量大再上 trigram）
+- [x] 品类规范化：从 `inspirations DISTINCT category`（active、排除 NULL/''）动态出品类 Tab，前端补「全部」首位
+- [x] 前台 `InspirationPage`：瀑布流保留原比例（**新增 inspirations.width/height 列**，0002 迁移已应用 + admin 表单可填/「从封面探测」自动回填）、品类 Tab 动态 + 实时搜索（250ms debounce + keepPreviousData 防闪）
+- [x] 后台 `_admin.inspiration`：排序编辑体验完善——**上/下移一位**（reorder op：相邻互换 + sort 规整 0..N-1 去重去间隙）+ **一键上下架**（复用 update op 翻转 active）+ 封面宽高输入；拖拽/批量留后续
 
-🔴 **红线**：灵感库只读展示 + admin 写，无钱无越权；前台只展示 `active=true`；`cover_url` 为前端只读公有 URL（不暴露 storage_key）。
-**影响**：`reads.server.ts`、`inspirations.server.ts`、`contracts/inspiration.ts`、`api.inspirations.ts`、`InspirationPage.tsx`、`_admin.inspiration.tsx`。**spec**：§13、09 §10.4、wireframes §10/§14/§17。**依赖**：建议在 P3-S2 之后（搜索范式统一复用）。
+🔴 **红线**：灵感库只读展示 + admin 写，无钱无越权；前台只展示 `active=true`；`cover_url` 为前端只读公有 URL（不暴露 storage_key）。**已验**：loadInspirations 只选 cover_url（item 无 coverKey/storageKey）+ 前台读端点 requireUser（非 admin）/admin CRUD requireAdmin + ILIKE 参数化绑定 + likePattern 转义 `\%_`（smoke + 单测验）。
+**影响**：`reads.server.ts`、`admin/inspirations.server.ts`（+reorderInspiration）、`contracts/{inspiration,admin}.ts`、`api.admin.inspirations.ts`、`hooks/queries.ts`、`InspirationPage.tsx`、`_admin.inspiration.tsx`、`db/schema.ts`、`drizzle/0002_inspirations_dims.sql`。**spec**：§13、09 §10.4、wireframes §10/§14/§17。**依赖**：建议在 P3-S2 之后（搜索范式统一复用）。
 
 ## §5 客服 360 视图 + 客服干预操作（P2 · L）🚫 本期不做（站长 2026-06-22：维持单管理员；依赖 S3）
 > 输入邮箱一屏看用户全景（余额/分批次有效期/流水/兑换/生成历史含失败原因/并发/封禁）+「查与重发不改余额」客服操作。后端 `getUserDetail` 已聚合 ~90% 数据；本片补聚合 + 一个 support 可达的 360 页 + 客服干预。**补偿积分/解封是超管专权，客服只上报/查看。**
@@ -91,7 +92,11 @@
 🔴 **红线**：**客服严禁改余额/发码/改配置**——钱类操作必须 `requireAdmin` 拦截、不能只靠前端隐藏；重置密码不落明文 + 吊销全部会话；重发图只读 `public_url`、不重生成/不扣费/不绕保留期；360 跨用户读 = `requireSupport` + 落访问审计；补偿积分若日后开给客服必须走 ③ `adjustCredit` 同事务、不出负。
 **影响**：`admin/users.server.ts`、`api.admin.users.$id.ts`(或新 cs 路由)、新增 `_admin.cs.tsx`/`_ops.*`、`guard.ts`(requireSupport 来自 S3)、`audit.server.ts`。**spec**：§23、wireframes §16（用户详情可复用）、09 §10.3。**依赖**：**P3-S3 必须先做**。
 
-## §6 优化提示词按钮激活（P2 · M）
+## §6 优化提示词按钮激活（P2 · M）🚫 本会话跳过（站长 2026-06-22 拍板：中转无 chat 模型）
+> **阻塞结论（2026-06-22 探测）**：中转 `api.tangguo.xin` 的 `/models` **只列 `gpt-image-2`**；试打 `gpt-4o-mini/gpt-4o/gpt-4.1/gpt-3.5-turbo/deepseek-chat/claude-3-5-sonnet` 等候选全部 `503 "Service temporarily unavailable"`（= 无渠道），而 `gpt-image-2` 走 `/chat/completions` 返 `400 streaming Responses not supported`（证明代理识别它、503 是「模型未开渠道」非端点死）。**S6 规格要求「调中转的文本/chat 模型（非 gpt-image-2）」在当前中转无可用模型**。诊断脚本保留 → `scripts/relay-chat-probe.ts`（站长在中转后台开 chat 渠道后可复跑确认模型名）。
+> **站长裁决（AskUserQuestion）**：**S6 本期跳过**；Composer「优化提示词」药丸保持 `disabled` 占位不动。日后中转开通 chat 模型（或给独立 OpenAI 兼容 chat 端点）后再单独做——届时按下方原计划落地、Key 仍只 server 注入、复用 rateLimit、env 可配模型名。
+>
+> ——以下为原计划（待中转有 chat 模型后激活）——
 > 把 Composer 现为 disabled 占位的「优化提示词」药丸（`Composer.tsx` title=敬请期待）改为实功能：调中转/LLM 润色用户输入为更完整提示词，成功后回填 Composer 并滚到底（**不自动发送**）。参考图按钮仍保留占位。受铁律约束：中转同步阻塞、Key 只在 server 注入。
 - [ ] 新增 server 端点 `optimizePrompt`（netlify function 或 RR action）：`requireUserStrict` → 调中转文本优化（Key 从 env，复用 `relay.ts` 风格 server-only 注入 + 脱敏 + 失败归一化）
 - [ ] 限流：复用 `src/server/rateLimit.ts`（events 窗口，按用户限频，防刷 LLM 成本）

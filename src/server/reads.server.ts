@@ -6,7 +6,7 @@
 //    SUM 留 ::text；前端只读 images.public_url；删除同时尽力删 Supabase 对象（孤儿由清理 cron 兜底）。
 import type { ConversationDetail, ConversationListResponse } from "../contracts/conversation";
 import type { ImageRange, ImagesResponse, SaveResponse } from "../contracts/image";
-import type { InspirationItem, InspirationsResponse } from "../contracts/inspiration";
+import type { InspirationsResponse } from "../contracts/inspiration";
 import type { LedgerResponse } from "../contracts/account";
 import type { MeResponse } from "../contracts/me";
 import type { NotificationListResponse } from "../contracts/notification";
@@ -309,37 +309,68 @@ export async function markNotificationsRead(userId: string, ids?: string[]): Pro
 }
 
 // ===================== /api/inspirations（灵感库，只读） =====================
-// 优先查 inspirations 表（§6 admin 维护）；表未建/为空 → 回退服务端种子（保证欢迎画廊不空）。品类/搜索本地过滤。
+// P3-S4：category/q 下沉为 SQL（ILIKE 参数化绑定 + likePattern 转义防注入），表空时才回退服务端种子。
+// 品类 Tab 从 DISTINCT category 动态出（独立于当前筛选，便于切 Tab）；瀑布流原比例回填 width/height。
+// 🔴 红线：只读 + 仅展示 active=true；只返回 cover_url（前端只读公有 URL），绝不暴露 cover_key/storage_key。
 export async function loadInspirations(category?: string, q?: string): Promise<InspirationsResponse> {
-  let base: InspirationItem[] = SEED_INSPIRATIONS;
+  const cat = category && category !== "全部" ? category : null; // 归一："全部"/空 → 不按品类过滤
+  const like = likePattern(q); // null = 不过滤；转义 LIKE 元字符防注入
   try {
-    const rows = (await getSql()`
-      SELECT id, cover_url, title, summary, prompt, category FROM inspirations
-      WHERE active = true ORDER BY sort ASC, created_at DESC`) as Row[];
-    if (rows.length > 0) {
-      base = rows.map((r) => ({
-        id: r.id as string,
-        cover: r.cover_url as string,
-        title: r.title as string,
-        summary: (r.summary as string | null) ?? null,
-        prompt: r.prompt as string,
-        category: (r.category as string | null) ?? null,
-        width: null,
-        height: null,
-      }));
+    const sql = getSql();
+    // 表是否「有 active 卡」——决定走表还是种子（不能用「筛选后为空」判定，否则筛空品类会误回种子）。
+    const [ex] = (await sql`SELECT EXISTS(SELECT 1 FROM inspirations WHERE active = true) AS has`) as Row[];
+    if (ex?.has === true) {
+      const rows = (await sql`
+        SELECT id, cover_url, title, summary, prompt, category, width, height FROM inspirations
+        WHERE active = true
+          AND (${cat}::text IS NULL OR category = ${cat})
+          AND (${like}::text IS NULL OR title ILIKE ${like} OR summary ILIKE ${like} OR prompt ILIKE ${like})
+        ORDER BY sort ASC, created_at DESC`) as Row[];
+      // 全部品类（不随筛选变动），空品类（NULL/'') 归「全部」不单列 Tab。
+      const catRows = (await sql`
+        SELECT DISTINCT category FROM inspirations
+        WHERE active = true AND category IS NOT NULL AND category <> ''
+        ORDER BY category ASC`) as Row[];
+      return {
+        items: rows.map((r) => ({
+          id: r.id as string,
+          cover: r.cover_url as string,
+          title: r.title as string,
+          summary: (r.summary as string | null) ?? null,
+          prompt: r.prompt as string,
+          category: (r.category as string | null) ?? null,
+          width: numOrNull(r.width),
+          height: numOrNull(r.height),
+        })),
+        categories: catRows.map((r) => r.category as string),
+      };
     }
+    // 表空 → 落种子（下方）
   } catch {
-    // 表未建 → 回退种子
+    // 表未建 / DB 不可达 → 落种子（保证欢迎画廊不空）
   }
+  return seedInspirations(cat, q);
+}
+
+/** 种子回退（表空/DB 不可达）：与 SQL 路径同语义的内存过滤 + 动态品类（按种子）。 */
+function seedInspirations(category: string | null, q: string | undefined): InspirationsResponse {
   const needle = (q ?? "").trim().toLowerCase();
-  const items = base
-    .filter((i) => !category || category === "全部" || i.category === category)
-    .filter(
-      (i) =>
-        !needle ||
-        i.title.toLowerCase().includes(needle) ||
-        (i.summary ?? "").toLowerCase().includes(needle) ||
-        i.prompt.toLowerCase().includes(needle),
-    );
-  return { items };
+  const items = SEED_INSPIRATIONS.filter((i) => !category || i.category === category).filter(
+    (i) =>
+      !needle ||
+      i.title.toLowerCase().includes(needle) ||
+      (i.summary ?? "").toLowerCase().includes(needle) ||
+      i.prompt.toLowerCase().includes(needle),
+  );
+  // 品类首次出现序（稳定、不随筛选变）；过滤掉空品类。
+  const seen = new Set<string>();
+  const categories: string[] = [];
+  for (const i of SEED_INSPIRATIONS) {
+    const c = i.category;
+    if (c && !seen.has(c)) {
+      seen.add(c);
+      categories.push(c);
+    }
+  }
+  return { items, categories };
 }

@@ -332,6 +332,8 @@ export const inspirations = pgTable(
     category: text("category"), // 品类标签（单值，本期）
     prompt: text("prompt").notNull(), // 「用此提示词」一键带回（§24-10）
     summary: text("summary"), // 一行摘要
+    width: integer("width"), // 封面原始宽（瀑布流按原比例预留盒、避免抖动；P3-S4，可空）
+    height: integer("height"), // 封面原始高（同上，可空）
     sort: integer("sort").notNull().default(0),
     active: boolean("active").notNull().default(true), // 前台只展示 active
     createdAt: timestamp("created_at", tz).notNull().defaultNow(),

@@ -65,12 +65,13 @@ async function main() {
   checks.push(["loadConversations 空", conv.items.length === 0 && conv.total === 0]);
   checks.push(["loadImages 空", imgs.items.length === 0 && imgs.total === 0]);
 
-  // 4) 公共读：套餐 + 灵感种子。
+  // 4) 公共读：套餐 + 灵感（P3-S4：表有 active 卡走表、否则种子；动态品类）。
   const pkgs = await loadPackages();
-  const insp = loadInspirations();
-  console.log(`loadPackages: ${pkgs.items.length} 档；loadInspirations: ${insp.items.length} 卡`);
+  const insp = await loadInspirations();
+  console.log(`loadPackages: ${pkgs.items.length} 档；loadInspirations: ${insp.items.length} 卡 / ${insp.categories.length} 品类`);
   checks.push(["loadPackages ≥1", pkgs.items.length >= 1]);
-  checks.push(["loadInspirations =10 种子", insp.items.length === 10]);
+  checks.push(["loadInspirations ≥1 卡（表或种子）", insp.items.length >= 1]);
+  checks.push(["loadInspirations categories 为数组", Array.isArray(insp.categories)]);
 
   // 5) 兑换写路径：种一个 code → redeemCode → 余额上升 + has_paid。
   const code = genCode();
