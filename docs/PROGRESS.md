@@ -1,7 +1,7 @@
 # 进度与交接（PROGRESS.md）
 
 > 每次有实质进展就更新这里。新会话 / 中断恢复：先读 [CLAUDE.md](../CLAUDE.md) → 本文件 → [redesign-requirements.md](redesign-requirements.md)，再动手。
-> 最近更新：2026-06-22。
+> 最近更新：2026-06-23（生产运维 + 性能优化波；详见下方「🆕 生产优化波」）。
 
 ## 里程碑总览
 > 图例：✅ 完成 · 🚧 进行中 · ⬜ 未开始。**这是状态的一眼速查；每做完一项当场翻状态 + 同步下方「当前状态」段。**
@@ -19,6 +19,41 @@
 | 9 | 阶段三+ · 验收反馈打磨（站长 20 条） | ✅ **全部完成** → [PHASE3-FEEDBACK.md](dev/PHASE3-FEEDBACK.md)：A(8)`59a09c7` + B(5)`5c1e5b8` + C(4)`8aa24ec` + D(3)`af62860`（19 实做 + #9 探测否决跳过）|
 | 10 | 第二批需求（4 项）+ 验收反馈修复 | ✅ **全部完成**：③`c568008` + ①②`4cdf905` + ④a`a715b8f` + ④b`5f2bf6e`；兑换码复制`ac1c310` + 图生图提速 b64`0378d67` + 耗时日志`f6842c1` |
 | 11 | 🌐 生产上线（Netlify） | ✅ **已上线** → https://ai-image-workshop-612.netlify.app（runbook [dev/deploy.md](dev/deploy.md)）|
+| 12 | 生产优化波（2026-06-23） | ✅ **已上线 `5bd9ac8`**：单价用户端实时化 + 点击慢半拍提速 + 出图触发可靠性 + 后台换中转站 + 生成提交乐观立即跳转（详见下方「🆕 生产优化波」）|
+
+## 🆕 生产优化波（2026-06-23 · 已全部上线 `5bd9ac8`）
+> 上线后站长实测反馈驱动的一波"提速 + 运维能力"优化。每项均：实做 → tsc/test:run/build/assert-no-secrets(+ 涉钱跑 test:money / 对真 Neon smoke) 全绿 → 提交 → 生产部署 + 冒烟。
+
+1. **单价用户端实时化** `6d7b6fe`：后台改 `price_per_image_mp` 用户端不生效——真因=前端写死常量 `PRICE_PER_IMAGE_MP=70`。修：`/api/me` 经 `loadMe` 下发 `pricePerImageMp`（`getConfigInt` 实时值），Composer/欢迎页/充值页/`canAfford` 改用 `me.data.pricePerImageMp`（常量降级首帧兜底）。旁证：后台写配置链路本身健康；站长把单价设 **0.06（60mp）**。
+2. **「点击慢半拍」前端提速** `90875a3`：6 维度多代理审计 48 条发现（包体积/TTI 类经研判与"二次点击慢"无关已剔除）。落地：① `_app` 加 `shouldRevalidate`（GET 导航不重跑 `loadMe+loadConversations` 两条跨境查询，新鲜度交 TanStack Query）② 所有导航 `Link/NavLink` 加 `prefetch="intent"`（hover 预取）③ `_app` 加 `useNavigation` 顶部进度条 ④ 乐观更新：删/重命名会话·存资产库·标已读·兑换码到账 ⑤ 轮询后台暂停取舍 + `netlify.toml` `/assets/*` immutable 强缓存。
+3. **出图慢真因 = 触发不可靠 + 后台换中转站** `e41d4d5`：① 出图"显示 89s 实等 3-4min"——`triggerBackground` 原 `void fetch`(fire-and-forget) 在 serverless 返回后被冻结掐死 → 任务干等每分钟兜底 cron。修 `await fetch`（8s 超时兜底）让后台可靠拉起、立即开跑；兜底阈值 1min→45s + 并发。**与换库/换区域无关**。② **后台换中转站**：`relay.ts` 读 `relay_base_url`/`relay_api_key` 优先 `app_config`、回退 env（`getConfigString`）；后台「套餐/参数」页新增「中转站配置」区（base 预填可改 + key **写后即焚**·只显末 4 位·留空不改 + 二次确认）；`api.admin.relay`(requireAdmin) + `relay-config.server`（getRelayConfig 脱敏 / updateRelayConfig 审计不落 key 明文）+ `RelayConfigUpdateRequest`。**Key 绝不下发客户端**。③ **钱测试解耦单价/赠送额**：`tests/money/*` 原写死 70（与生产共库、价改即误红）→ `priceMp()`/`signupGrantMp()` 读实际值、断言按 `PRICE`/`140-PRICE`/`GRANT` 算。
+4. **生成提交「点击即跳」乐观立即跳转** `5bd9ac8`：原 `useGeneration` 等 POST 202 才 navigate、再跑路由 loader = 两次串行跨境往返才出页面（点生成键好几秒才跳）。改：点击瞬间客户端生成 `cid/gid`、写"排队中乐观 turn"进缓存、**立即 navigate(/c/cid)** 看生图骨架，POST 脱离组件生命周期异步跑（qc 单例缓存对账）；失败把该 turn 标 failed 可重试。服务端 `enqueue` owner-safe upsert 接受客户端 `conversationId`（既有复用/新建/他人占用→404）+ 客户端 `generationId`；`app/queryClient.ts` 浏览器单例 + `_app.c.$id` 加 `clientLoader`（命中缓存即时渲染）。**站长实测：秒跳、立刻看到生图中。**
+
+**配置现状（站长有意设定，非默认）**：`price_per_image_mp`=60（0.06/张）、`signup_grant_mp`=70（注册送 0.07=1 张）。规格文里的 0.07/0.14 是初始默认值。
+
+**测试基线（本波后）**：tsc 0 · test:run 78 · **test:money 39/39** · build 0 · assert-no-secrets PASS(108) · relay-config / enqueue 客户端 id 等 smoke 绿。
+
+### ⬜ 接下来未完成 / 可选任务（2026-06-23 视角）
+> 均为"可选/按需"——v2 主体 + 上线 + 本波优化都已完成，下面是锦上添花或运营动作，没有"必须马上做"的阻塞项。
+
+**A. 运营 / 上线（非编码）**
+- ⬜ **成本对账真·毛利数**：灰度 ≥200 张跑量后用真 GB-hour compute 对 0.06 定价（毛利>0 才放量）。站长已确认方法论 OK，待跑量。
+- ⬜ **可选告警 env**：`SENTRY_DSN` / `ADMIN_ALERT_WEBHOOK` 未配（缺则 no-op）；要监控就 `netlify env:set` + redeploy。
+- ⬜ **自定义域 / 注册门槛**：按需绑域（改 `BETTER_AUTH_URL` + redeploy）；注册即送真钱、任何人可注册，按需加门槛。
+- ⬜ **本地仓无 remote、未 push**：可配一个私有 remote 做备份（目前仅本地 `main`）。
+
+**B. 性能"深做"（可选，按需；本波已把交互延迟压到很低）**
+- ⬜ **亚太区域迁移 / Neon -pooler / 国内 CDN 前置**：整站跨境延迟的"物理地板"杠杆（中国→美西 RTT）。收益大、成本/运维也大（Neon 换区=迁数据；CDN 需备案），属站长战略决策，**非出图速度所需**。当前 `DATABASE_URL` 与 `_UNPOOLED` 同一直连串、未配 `-pooler`——高并发前补一条池化串。
+- ⬜ **账号页 SSR 预取**：`/account` 现进页才拉 lots/ledger/redemptions（有"加载中"闪）；可补 loader 预取（需配 shouldRevalidate 取舍）。
+- ⬜ **React 渲染 / CSS 微优化**：列表项 useCallback/memo、`backdrop-filter` 等（单项收益小、分散）。
+- ⬜ **导航进度条去留**：站长说"不要过渡动画"——目前顶部细进度条只在真需等服务端时闪；嫌多可一行去掉。
+
+**C. 功能 / 探测 待后续**
+- ⬜ **通知开关 / 参数②**（第一批遗留）：到期提醒提前天数等，落 `app_config`（当前广播公告已做，开关参数留后续）。
+- ⬜ **t2i 文生图强制 `b64_json`**：现仅图生图(edits)强制了 b64，文生图(generations)仍可能回 url 多一次下载（生产同区影响小）；要做需先付费探测中转 generations 是否接受 `response_format=b64_json`。
+- ⬜ **P3-S6 优化提示词**：待中转开 chat 渠道（复跑 `scripts/relay-chat-probe.ts`，现全 503，药丸保持 disabled 占位）。
+
+**不做（已决策，非未完成）**：S3 RBAC / S5 客服 360（单管理员）、合规内容审核（站长风险自担）。
 
 ## 🆕 新会话从这接手（2026-06-22）
 > 顺序：[CLAUDE.md](../CLAUDE.md) → 本段 → **当前主线 [docs/dev/PHASE3-FEEDBACK.md](dev/PHASE3-FEEDBACK.md)**。代码在 **`main`**（v2 主体全部已合并）。

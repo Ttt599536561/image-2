@@ -35,10 +35,12 @@ Remove-Item .env.production -Force
 ```
 **🔴 红线**：`BETTER_AUTH_URL` 必须是**生产域名**（不是 `localhost:8888`），否则登录/Cookie 全废。绑自定义域后要改这个 env 并重新部署。
 
+> **当前生产 = `5bd9ac8`（2026-06-23）**。本会话部署均用显式 `--site 8d1419c8-2ec3-49d9-936f-0f79df9643b5`（清过 `.netlify` 后不再有本地 link，靠它免交互选站）。
+
 ## 3. 部署 / 重新部署
 ```powershell
 $env:NETLIFY_AUTH_TOKEN = ((Select-String -Path .env -Pattern '^NETLIFY_AUTH_TOKEN=' | Select-Object -First 1).Line -replace '^NETLIFY_AUTH_TOKEN=','')
-npx netlify deploy --prod        # 跑 netlify build（=npm run build + 插件生成 SSR 函数 + 打包 netlify/functions）后发布
+npx netlify deploy --prod --site 8d1419c8-2ec3-49d9-936f-0f79df9643b5   # 跑 netlify build 后发布（--site 免交互）
 ```
 - `@netlify/vite-plugin-react-router` 在 Netlify build 阶段生成 SSR 函数 `react-router-server.mjs`；`netlify/functions/*`（生图 3 + cron 5）一并打包。
 - cron Scheduled Functions 部署后**自动按 `netlify.toml` 的 schedule 运行**（UTC）。
@@ -59,3 +61,5 @@ Invoke-WebRequest "$base/login" -UseBasicParsing                              # 
 - **自定义域**：Netlify → Domain management 绑定 → DNS 指向 → 改 `BETTER_AUTH_URL` env → redeploy。
 - **密钥轮换**：部署用的 token + DB/存储/中转密钥若曾在不安全渠道出现过，及时轮换（先撤旧 Netlify token）。
 - **图生图速度**：生产在美西机房、跨境下载快，i2i 比本地（国内跨境）明显快；管线已强制 `response_format=b64_json` 免二次下载（见 [04-generation-pipeline.md](04-generation-pipeline.md)），并有 `[gen-timing]` 日志（Netlify Function logs 可查）。
+- **🆕 换中转站不用改 env / 不用重部署**（2026-06-23）：后台「套餐 / 参数」页 → **「中转站配置」区**可改 `relay_base_url` + `relay_api_key`（存 `app_config`，`relay.ts` 读时**优先 app_config、回退 env**，即时生效）。Key **写后即焚**（GET 只回末 4 位 hint、绝不回明文）。env 的 `RELAY_*` 仍作回退兜底，可保留。
+- **🆕 出图触发已改 `await`**（2026-06-23 `e41d4d5`）：`triggerBackground` 由 fire-and-forget 改 await（serverless 返回后会冻结掐死未 await 的 fetch，导致任务干等兜底 cron）。若再遇"出图久等"先查 Netlify Function logs 的 `[triggerBackground]` / `[gen-timing]`；兜底 cron `dispatchStaleQueued` 阈值 45s。
