@@ -37,7 +37,7 @@
 - 深色模式 + 暖色点缀。
 
 ### 2.2 本期 Out of Scope / 后续
-- 图生图（参考图）：**新需求 2026-06-22，方案已过审、待开发**（Composer 已有「参考图」占位入口）。**前置**——先探测中转 `/images/edits` 端点是否支持 `gpt-image-2`（同 S6/#9 范式），通过才进入实现：上传单张参考图 → `/api/uploads` 存储 → `GenerateRequest.inputImageKey` → `generations.input_image_key` 列 → 管线 `callRelay` 有图走 edits multipart，计费同 0.07，上传图纳入保留期清理。详见 PROGRESS「第二批待开发队列」。
+- 图生图（参考图）：**新需求 2026-06-22，方案已过审、开发中**（Composer 已有「参考图」占位入口）。**前置探测 ✅ 已通过**——`scripts/relay-edits-probe.ts` 实测中转 `POST /v1/images/edits`（`gpt-image-2`，multipart）→ 200、返回编辑后图片（同 S6/#9 范式）。实现：上传**单张**参考图 → `/api/uploads` 存储 → `GenerateRequest.inputImageKey` → `generations.input_image_key` 列 → 管线 `callRelay` 有图走 edits multipart，**计费同 0.07、不限付费用户**，上传图纳入保留期清理。详见 PROGRESS「第二批待开发队列」。
 - 优化提示词：不实现，**按钮占位**。
 - 一次多图（`n`>1）：不做，每次一张。
 - 真实支付页 / 订阅：不做（走兑换码）。

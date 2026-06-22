@@ -59,15 +59,15 @@
   - **审查抓到并已修**（多代理对抗审查 17 agents / 12 findings → 2 confirmed）：**major** = ② 拉全部后，`image_expiring` 到期提醒在 cron 删图时**未连带删除** → 会永久灰显铃铛、点跳已删图、挤占公告 50 名额（旧 `?unread=1` 语义掩盖了此潜伏 bug）→ 修 `deleteExpiredImages` 同批 `DELETE FROM notifications WHERE type='image_expiring' AND dedupe_key=ANY('image_expiring:'||id)`；**nit** = `api.notifications` 顶部注释/08-frontend.md 仍写 `?unread=1` → 已更正。
   - **红线满足**：admin 写双守卫（`requireAdminPage` + `requireAdmin`）+ 二次确认 + 审计同事务；aid `z.uuid()` → LIKE 无通配注入；前台 owner-scoped 不变；客户端 0 schema（页面仅 type-import `AnnouncementSummary`、值导入仅用于 loader，assert-no-secrets PASS）。
   - **验证**：tsc 0 · test:run 72 · build 0 · assert-no-secrets PASS · `notifications-smoke` **32/32**（对真 Neon：列表聚合/target 回捞/看完保留·readAt 非空/静默编辑不重置·重新提醒重置/删除同步/编辑·删除 404）+ `cron-smoke` **29/29**（+2：删图连带删提醒、删 R2 失败则提醒保留）。
-- ⬜ **④ 图生图（最大、有前置）**：Composer 已有「参考图」disabled 占位（`Composer.tsx:99`）。中转现走文生图 `/images/generations`(JSON，`imageGeneration.ts:36`)。
-  - **④a 前置探测（先做）**：新增 `scripts/relay-edits-probe.ts` 实测中转 `gpt-image-2` 是否支持 `/images/edits`(multipart 图生图)，同 S6/#9 范式。**不通过 → 阻塞、保持占位**（等中转开通），不白做。
-  - **④b 实现（探测通过才做）**：前端激活「参考图」上传（单张 image/* + 校验大小/类型）→ 缩略图预览/移除 + 模式切换；`/api/uploads` 存 Supabase `uploads/` → `GenerateRequest.inputImageKey`；`generations` 加 `input_image_key` 列（免迁移）；`callRelay` 有图走 edits multipart（拉用户图→FormData）。计费同 0.07；上传图纳入保留期清理。
-  - 红线/风险：上传校验 + owner-scoped + 成功才扣不变；Background Function 内存/超时；内容审核站长自负；**中转能力是最大不确定项**。
+- 🚧 **④ 图生图（最大、有前置）**：Composer 已有「参考图」disabled 占位（`Composer.tsx:99`）。中转现走文生图 `/images/generations`(JSON，`imageGeneration.ts:36`)。
+  - ✅ **④a 前置探测 —— 已做且通过**：`scripts/relay-edits-probe.ts`（自带极简 PNG 编码器造 512×512 渐变测试图 + multipart `image` 字段 + `image[]` 兜底 + 3min 超时）实测 **`POST /v1/images/edits`（model=gpt-image-2）→ 200 in 79.5s，返回编辑后图片 URL = ✅ supported**（标准 `image` 字段一次通过，与文生图同量级耗时）。前置闸打开 → 进 ④b。
+  - ⬜ **④b 实现（探测已通过、开发中）**：前端激活「参考图」上传（单张 image/* + 校验大小/类型）→ 缩略图预览/移除 + 模式切换；`/api/uploads` 存 Supabase `uploads/` → `GenerateRequest.inputImageKey`；`generations` 加 `input_image_key` 列（免迁移）；`callRelay` 有图走 edits multipart（拉用户图→FormData）。**决策（站长）：计费同 0.07 / 单张参考图 / 不限付费用户。** 上传图纳入保留期清理。
+  - 红线/风险：上传校验 + owner-scoped + 成功才扣不变；Background Function 内存/超时；内容审核站长自负。**~~中转能力是最大不确定项~~ → ④a 已证实支持。**
 
-**待站长拍板决策点**（新会话开发前确认）：
-1. **①** 编辑公告后是否「重新通知」（重置 `read_at`、重弹红点）还是静默改内容？（建议：编辑时给「重新提醒」勾选）
-2. **②** 铃铛就用「保留近 50 条、已读灰显」还是另开「公告历史」页？（建议：铃铛保留近 50 条即可）
-3. **④** 图生图与文生图同价 0.07？先支持单张参考图？是否限付费用户？（建议：同价 / 单张 / 不限）——且先 ④a 探测通过再进 ④b。
+**待站长拍板决策点 —— ✅ 全部已答（2026-06-22）**：
+1. **①** 编辑公告 → **表单加「重新提醒」勾选**（勾上=重置 `read_at` 重弹红点、默认不勾=静默改内容）。✅ 已实现。
+2. **②** 铃铛 → **保留近 50 条、已读灰显、红点只计未读、点弹 Modal 不删**（不另开历史页）。✅ 已实现。
+3. **④** 图生图 → **同价 0.07 / 单张参考图 / 不限付费用户**；且先 ④a 探测通过再进 ④b。④a ✅ 通过、④b 开发中。
 
 **本地怎么跑**（见 [local-acceptance.md](dev/local-acceptance.md)）：
 - **`netlify dev`（8888）**，**不是** `npm run dev`。起前先 **`rm -rf build .netlify`**、`[dev]` 不设 framework（否则无样式）。
