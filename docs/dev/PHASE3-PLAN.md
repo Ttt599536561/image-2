@@ -1,7 +1,7 @@
 # 阶段三施工计划（草拟 · 待站长批准）· 增强（上线后迭代）
 
 > **本文件 = 阶段三的可执行蓝图 + 可勾选清单**（草拟，**待站长批准**后开工；批准后把本行改「已批准」）。
-> **进度（2026-06-22）**：P3-S1 ✅ / P3-S2 ✅ 已先行（站长「自动进行下一步」指示，只读安全分片）。**现暂停**：站长 review 本计划 + 答 §0 Q2–Q6（尤其 Q4 决定 S3/S5 是否上 RBAC）后再续 S3+。Q1 已定（保持「全部」）。
+> **进度（2026-06-22）**：P3-S1 ✅ / P3-S2 ✅ 已做。**站长已全部拍板 §0（见下）：维持单管理员 → S3 RBAC + S5 客服 360 本期不做；剩余可做 = S4 灵感运营化 + S6 优化提示词。** 中转并发闸不做（站长：中转并发足够）。成本对账已对账 OK（站长确认）。`phase2`/`phase3` 合并 `main` 放下一步。
 > **怎么写代码看 [docs/dev/00–11](README.md)**；**做什么/顺序/红线看这里**；**进度勾选在本文件 + [PROGRESS.md](../PROGRESS.md) 联动**。
 > 基于 4 路多代理精读（spec §20/§21/§23/§24 + wireframes + **代码现状审计**）综合。**已剔除阶段二已做的部分**（资产批量选择/zip/删除已在 ⑤、灵感后台 CRUD 已在 ⑥），本计划只覆盖「增量」。
 
@@ -10,25 +10,25 @@
 **阶段三 = 增强迭代，非公开上线必需**——除「成本对账真·毛利数」是上线前置硬闸（铁律②，需灰度跑量，非编码）外，其余都是体验/运营提升，可按价值增量上。
 栈不变：Netlify + Neon(Drizzle) + RR8 framework(SSR) + Better Auth(admin 插件) + Supabase Storage(S3) + TanStack Query + Zod。
 
-**推荐顺序**：P3-S1（资产高级筛选/框选，纯前端、即见效）→ P3-S2（搜索）→ P3-S3（RBAC 地基）→ P3-S4（灵感运营化）→ P3-S5（客服 360，依赖 S3）→ P3-S6（优化提示词）。P3-S7 本期不做（清单完整性）。
-**严格依赖**：P3-S5 必须在 P3-S3 之后（需 `requireSupport` 守卫）。其余分片相对独立、可调序或并行。
+**推荐顺序（站长定调后）**：P3-S1 ✅ → P3-S2 ✅ → **P3-S4（灵感运营化）→ P3-S6（优化提示词）**。**P3-S3（RBAC）+ P3-S5（客服 360）本期不做**（站长：维持单管理员）。P3-S7 本就不做（清单完整性）。
+**各分片相对独立、可调序或并行。**
 
 ---
 
-## §0 开放问题（开工前请站长拍板 — 答错会返工）
+## §0 开放问题（✅ 站长已全部拍板 2026-06-22）
 
-> **状态（2026-06-22）**：站长决定 **S1/S2 先行后暂停**，待 review 本计划 + 答下方 Q2–Q6 再继续 S3+。**Q1 已定**。
+> **状态**：S1/S2 已做。**站长定调：维持单管理员 → 不做 RBAC/客服（S3/S5 后置）；剩余可做 = S4 灵感运营化 + S6 优化提示词。** 全部 Q 已定如下。
 
-| # | 问题 | 影响分片 | 默认建议 |
+| # | 问题 | 影响分片 | **裁决** |
 |---|---|---|---|
-| ~~Q1~~ ✅ | ~~资产库首屏默认日期档~~ → **已定：保持「全部」**（站长 2026-06-22；与现状代码一致，不改。规格 §24-8 的「今天」默认不采纳——用户图少时「今天」常空） | P3-S1 | — |
-| Q2 | 优化提示词是否计积分？ | P3-S6 | 建议本期**免费但限频**（防 LLM 成本），不动钱链路 |
-| Q3 | 优化提示词回填策略：输入框已有文本时覆盖/追加/弹「替换当前输入?」确认？ | P3-S6 | 与灵感「一键带回」(§24-10) 范式对齐 |
-| Q4 | 客服是否要独立后台布局/入口，还是复用 `_admin` 按角色显隐？短期是否仍单管理员（§23「可降级为单账号+审计」）？ | P3-S3 / P3-S5 | 短期单管理员则 S3/S5 可降级/缓做；多人协作才上 RBAC |
-| Q5 | 客服「重发结果图」形态：仅展示/复制 `public_url`，还是发站内通知/邮件（无邮件基建）？ | P3-S5 | 倾向「复制下载链接 + 站内通知(notifications 表)」 |
-| Q6 | 搜索量级：单用户会话/资产规模多大？决定 ILIKE 顺序扫够用还是要建 `pg_trgm`/全文索引。 | P3-S2 / P3-S4 | 初期 ILIKE + 现有索引足够，量大再上 trigram |
+| ~~Q1~~ ✅ | 资产库首屏默认日期档 | P3-S1 | **保持「全部」**（与现状一致，不改） |
+| ~~Q2~~ ✅ | 优化提示词是否计积分 | P3-S6 | **免费但限频**（rateLimit 防 LLM 成本，不动钱链路） |
+| ~~Q3~~ ✅ | 优化提示词回填策略 | P3-S6 | **直接覆盖输入框、不弹确认**（本质是优化「当前输入」、天然替换；与灵感带回不弹确认一致） |
+| ~~Q4~~ ✅ | 是否上 RBAC/客服，还是单管理员 | P3-S3 / P3-S5 | **维持单管理员 → S3 RBAC + S5 客服 360 本期不做（后置）** |
+| ~~Q5~~ ✅ | 客服重发图形态 | P3-S5 | **moot**（不做客服） |
+| ~~Q6~~ ✅ | 搜索是否需 pg_trgm | P3-S2 / P3-S4 | **ILIKE 够用**，暂不上 trigram（量大再说） |
 
-> **外部依赖**：阶段三**无新增外部服务/密钥**（沿用阶段二的 Neon/Storage/中转/Better Auth）。`SENTRY_DSN`/`ADMIN_ALERT_WEBHOOK` 仍可后补（缺则 no-op）。优化提示词(P3-S6) 复用既有中转 `RELAY_*`。
+> **外部依赖**：阶段三**无新增外部服务/密钥**。优化提示词(P3-S6) 复用既有中转 `RELAY_*`。
 
 ---
 
@@ -57,7 +57,7 @@
 🔴 **红线**：一律 owner-scoped（`WHERE user_id=$me`）、ILIKE 走参数化绑定防注入；搜索只读、不触发任何写/扣费。**已验**：owner-scoped + `%` 转义 smoke 全过。
 **影响**：`src/server/reads.server.ts`、`src/contracts/{conversation,image}.ts`、`app/routes/api.{conversations,images}.ts`、`src/hooks/queries.ts`、`src/components/shell/Sidebar.tsx`、`AssetsPage.tsx`、新增搜索面板。**spec**：§10/§13/§24-2、§12.3。
 
-## §3 RBAC 角色分级（超管/审核员/客服）+ 守卫扩展（P1 · M）
+## §3 RBAC 角色分级（超管/审核员/客服）+ 守卫扩展（P1 · M）🚫 本期不做（站长 2026-06-22：维持单管理员）
 > 把 `users.role` 从 user/admin 扩到 user/admin/reviewer/support，新增分级守卫，作为客服 360（P3-S5）的权限地基。规格 §23 明确「角色字段尽早进模型」。
 - [ ] 迁移 `0002`：`ALTER users role CHECK` 扩为 `IN ('user','admin','reviewer','support')`（不删旧值、user 仍默认、无需 backfill）
 - [ ] `schema.ts users_role_chk` 同步扩；Better Auth admin 插件 role 配置同步（双写 role 沿用 `promote-admin.ts` 范式）
@@ -80,7 +80,7 @@
 🔴 **红线**：灵感库只读展示 + admin 写，无钱无越权；前台只展示 `active=true`；`cover_url` 为前端只读公有 URL（不暴露 storage_key）。
 **影响**：`reads.server.ts`、`inspirations.server.ts`、`contracts/inspiration.ts`、`api.inspirations.ts`、`InspirationPage.tsx`、`_admin.inspiration.tsx`。**spec**：§13、09 §10.4、wireframes §10/§14/§17。**依赖**：建议在 P3-S2 之后（搜索范式统一复用）。
 
-## §5 客服 360 视图 + 客服干预操作（P2 · L）
+## §5 客服 360 视图 + 客服干预操作（P2 · L）🚫 本期不做（站长 2026-06-22：维持单管理员；依赖 S3）
 > 输入邮箱一屏看用户全景（余额/分批次有效期/流水/兑换/生成历史含失败原因/并发/封禁）+「查与重发不改余额」客服操作。后端 `getUserDetail` 已聚合 ~90% 数据；本片补聚合 + 一个 support 可达的 360 页 + 客服干预。**补偿积分/解封是超管专权，客服只上报/查看。**
 - [ ] `admin/users.server.ts getUserDetail` 补：兑换记录(`redeem_codes WHERE redeemed_by`)、近期生成历史(`generations` status/error_code/error/duration 倒序 N 条)、即将过期积分汇总
 - [ ] 新增 `/ops/cs-360?email=` 或 `_admin.cs.tsx`（`requireSupportPage`，admin∪support）：渲染 360 模块 + 客服浮动操作栏
@@ -123,11 +123,11 @@
 | DB-as-queue → Redis/BullMQ/QStash | §20/01 §2.5 规模化后再做；`generations` 抢占式状态机不变 |
 | 退款/争议处理 | §23 later；撤销赠送走 `adjust`(已有)，退真金涉第三方对账，并入 CS 360 时仅「上报超管」 |
 
-## 上线前置（需在放量前处理）
-- [ ] **【P0·新发现 2026-06-22】全局中转并发闸**：本地验收实测发现中转 `api.tangguo.xin` 单 Key **并发多请求会挂起**（隔离单请求所有尺寸 90-120s 正常返回 200；并发则部分 hang 到软超时 4.5min → `provider_timeout`）。**生图代码/参数/尺寸全对**（诊断工具 `scripts/relay-debug.ts` 复刻请求+计时已证）。**方案**（择一/组合）：(a) **全局并发闸**——`process.ts` 调中转前查全站在跑生图数（`COUNT(status IN claimed,running)` HTTP 单语句）≤ 配置的中转可扛并发，超则**不调中转、保持 queued**，由 `dispatchStaleQueued` 派发 cron 稍后补发（需防饥饿/加 jitter）；阈值进 `app_config`(`relay_max_concurrency`)。(b) `default_max_concurrency`=1（后台参数即改）防单用户自挤。(c) 配 `RELAY_BASE_URL_BACKUP` 备用中转（`relay.ts` 已支持失败转移，但当前 AbortError 不转移——可扩超时也转 backup）。(d) 找中转商提高单 Key 并发。**站长上条会话末倾向先做 (a) 并发闸。**
-- [ ] **成本对账真·毛利数（铁律②·硬闸）**：上线灰度 ≥200 张取 p95 GB-hour、算单图成本对账 0.07，**毛利>0 才放量**。方法论 + 对账表占位见 [cost-reconciliation.md](cost-reconciliation.md)。**需上线跑量后填实测数**，本阶段无法编码完成。
+## 上线前置
+- [x] ~~全局中转并发闸~~ → **不做**（站长 2026-06-22：中转单 Key 并发足够；之前验收超时是同一会话内我并发跑诊断生图挤的，正常单人用不复现）。诊断工具 `scripts/relay-debug.ts` 保留（复刻请求+计时，排查中转用）。若日后多用户高并发再议（方案存档：`process.ts` 调中转前查 `COUNT(status IN claimed,running)` ≤ `app_config.relay_max_concurrency`、超则保持 queued 由派发 cron 补发）。
+- [x] ~~成本对账真·毛利数~~ → **站长已对账确认 OK**（2026-06-22）。方法论 + 模板存 [cost-reconciliation.md](cost-reconciliation.md) 备查。
 
-> ✅ **生图核心链路已 live 验证通过**（2026-06-22，`netlify dev`）：注册送 0.14 → 生图（`size=auto`→1024x1024，~90-120s）→ 落 Supabase → 扣 0.07；失败不扣已退、失败卡片友好中文。**唯一已知制约 = 上方中转并发闸**。
+> ✅ **生图核心链路已 live 验证通过**（2026-06-22，`netlify dev`）：注册送 0.14 → 生图（`size=auto`→1024x1024，~90-120s）→ 落 Supabase → 扣 0.07；失败不扣已退、失败卡片友好中文。
 
 ## 执行节奏
 - 站长批准本计划（尤其 §0 六个开放问题）后开工。
