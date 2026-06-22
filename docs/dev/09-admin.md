@@ -218,9 +218,9 @@ await tx(async (c) => {
 
 ## 10.4 灵感库 CRUD
 
-对应 wireframes 14/17。封面图上传 R2（[06-storage.md §7.3](06-storage.md)），前台展示在 [08-frontend.md §9.6](08-frontend.md)。
+对应 wireframes 14/17。**本期封面 = admin 贴公有 URL（`cover_url`）**（multipart 上传落存储 + 自动 `cover_key` 留增强）；前台展示在 [08-frontend.md §9.6](08-frontend.md)，读路径契约见 [07-api.md §8.3 灵感库](07-api.md)。
 
-### 表（建议 `inspirations`，§16 灵感库 CRUD）
+### 表 `inspirations`（§16 灵感库 CRUD；迁移 `drizzle/0001_inspirations.sql` + `drizzle/0002_inspirations_dims.sql`）
 
 > 规格 [§16](../redesign-requirements.md) 未独立列灵感库表 DDL；按 §9 字段建表，与其它表同风格（金额无关，无 mp）：
 
@@ -228,11 +228,13 @@ await tx(async (c) => {
 CREATE TABLE inspirations (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   title       text NOT NULL,
-  cover_key   text NOT NULL,            -- R2 内部 key
+  cover_key   text,                     -- 存储内部 key（multipart 上传时填；贴 URL 时可空）
   cover_url   text NOT NULL,            -- 前端只读公有 URL（[06 §7.6](06-storage.md)）
   category    text,                     -- 品类标签（单值，本期）
   prompt      text NOT NULL,            -- 「用此提示词」一键带回的内容（§24-10）
   summary     text,                     -- 一行摘要
+  width       int,                      -- 封面原始宽（瀑布流原比例预留盒、避免抖动；P3-S4 0002，可空）
+  height      int,                      -- 封面原始高（同上，可空）
   sort        int  NOT NULL DEFAULT 0,
   active      boolean NOT NULL DEFAULT true,  -- 是否上架（前台只展示 active）
   created_at  timestamptz NOT NULL DEFAULT now(),
@@ -241,16 +243,16 @@ CREATE TABLE inspirations (
 CREATE INDEX ix_insp_active_sort ON inspirations(active, sort);
 ```
 
-### 端点
+### 端点（单 `POST /api/admin/inspirations`，`op` 判别联合 [`contracts/admin.ts InspirationAction`](../../src/contracts/admin.ts)）
 
-| 操作 | 端点 | 要点 |
+| 操作 | op | 要点 |
 |---|---|---|
-| 列表 | `GET /api/admin/inspirations` | 含未上架；按 `sort, created_at` |
-| 封面上传 | `POST /api/admin/inspirations/cover` | multipart → 落 R2 → 返回 `{cover_key, cover_url}`（[06 §7.3](06-storage.md)） |
-| 新增/编辑 | `POST` / `PUT /api/admin/inspirations/:id` | Zod 校验非空（title/prompt/cover）；写 audit `target_type='inspiration'` |
-| 删除 | `DELETE /api/admin/inspirations/:id` | 软删可选 `active=false`；硬删则**同时清 R2 封面对象** |
+| 列表 | `GET /api/admin/inspirations` | 含未上架；按 `sort, created_at`；返回 `width/height` |
+| 新增/编辑 | `create` / `update` | Zod 校验非空（title/prompt/cover）+ 可选 `width/height`；写 audit `target_type='inspiration'`。上下架=`update` 翻转 `active`（前端一键不开整表单） |
+| 排序 | `reorder` | `{id, direction:'up'\|'down'}`：事务内取全表顺序 → 与相邻互换 → **规整 `sort=0..N-1`**（比对每行当前 sort≠新下标才写，去重去间隙；并列 sort 时仍正确）；边界 no-op |
+| 删除 | `delete` | 硬删（封面为贴入 URL、无对象需清）+ 写 audit |
 
-> 灵感库非钱/码，不需 `FOR UPDATE` 事务，单语句即可；但增删改属内容运营，仍**写 audit_log**（动作可审）。
+> 灵感库非钱/码、单语句即可，但 `create/update/reorder/delete` 均走 `tx()` 事务以与 `writeAudit` 同提交（增删改属内容运营，动作可审）。封面探测宽高（admin 表单「从封面探测」）为纯客户端 `Image` 加载回填，非端点。
 
 ---
 

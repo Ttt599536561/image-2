@@ -177,12 +177,13 @@ ai-image-workshop/
 - [ ] 钱链路对真 Neon 分支库跑事务测试 + Playwright 冒烟 + CI（[10 §11.10](10-ops-test.md)）
 - [ ] 构建期密钥断言 `assert-no-secrets-in-bundle.ts` 挂 CI（[00 §1.4](00-overview.md)）
 
-### 阶段三 · 增强（上线后迭代）
+### 阶段三 · 增强（✅ 收官并合并 `main`；施工清单/状态以 [PHASE3-PLAN.md](PHASE3-PLAN.md) + [PROGRESS.md](../PROGRESS.md) 为准）
 
-- [ ] 搜索（会话/资产库）
-- [ ] 资产库高级管理：日期筛选 / 批量多选删除 / zip 导出（[§9](08-frontend.md)，规格 §24.8/9）
-- [ ] 灵感库运营化 + 客服 360 视图 + RBAC 分级（超管/审核员/客服，规格 §23）
-- [ ] 优化提示词（现为占位按钮，激活）
+- [x] **P3-S2 搜索**（会话标题 + 资产提示词，owner-scoped ILIKE + 转义 + debounce）
+- [x] **P3-S1 资产库高级管理**：自定义日期区间 / 桌面框选 + 移动长按多选 / zip 导出 / 过期角标（[§9](08-frontend.md)，规格 §24.8/9）
+- [x] **P3-S4 灵感库运营化**：category/q 下沉 SQL + 动态品类 DISTINCT + 瀑布流宽高回填（新增 `inspirations.width/height`）+ 后台上下移/上下架（[07 §8.3](07-api.md)/[09 §10.4](09-admin.md)）
+- 🚫 **P3-S6 优化提示词**：本期跳过——中转 `api.tangguo.xin` 只配 `gpt-image-2`、无 chat/文本模型（[PHASE3-PLAN §6](PHASE3-PLAN.md)）；药丸保持占位，中转开 chat 渠道后再做
+- 🚫 **P3-S3 RBAC / P3-S5 客服 360**：本期不做（站长：维持单管理员）
 - [ ] （更远）图生图 / 一次多图 / 单图编辑 / 订阅与真实支付（本期明确不做，规格 §21）
 - [ ] （规模化）DB-as-queue → 独立 worker + Redis/BullMQ 或 QStash，`generations` 状态机不变（[01 §2.5](01-architecture.md)）
 

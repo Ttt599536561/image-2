@@ -102,12 +102,16 @@ node --env-file=.env --import tsx scripts/promote-admin.ts <你的邮箱>
 |---|---|
 | `auth-smoke.ts` | 注册 → 送 140mp → 幂等 |
 | `relay-smoke.ts` | **真中转生图** → Supabase → public_url 200 |
-| `reads-smoke.ts` | 端到端：注册→送140→兑换→生成→详情/资产回流→存入→删除→限流（25 检查）|
+| `reads-smoke.ts` | 端到端：注册→送140→兑换→生成→详情/资产回流→存入→删除→限流（26 检查）|
 | `admin-smoke.ts` | 后台全套（发码/用户/调积分/套餐/灵感/看板/审计，27 检查）|
 | `search-smoke.ts` | 搜索（owner-scoped/转义/ILIKE，13 检查）|
+| `inspirations-smoke.ts` | **P3-S4 灵感运营化**（SQL 过滤/动态品类 DISTINCT/宽高回流/LIKE 转义/reorder 互换规整还原/上下架/红线无 storage_key，20 检查）|
+| `relay-chat-probe.ts` | **中转 chat 模型探测**（P3-S6 前置）：列 `/models` + 试打候选 chat 模型。**当前中转只有 `gpt-image-2`、无 chat 模型 → S6 跳过**；中转开 chat 渠道后复跑确认模型名 |
 | `cron-smoke.ts` | cron（超时重扫/过期/对账/清图/预算，27 检查，注入 R2 桩）|
 | `db-verify.ts` / `db-smoke.ts` / `storage-smoke.ts` | 种子/迁移 / FOR UPDATE / 存储往返 |
 | `npm run test:money` | 钱链路 33 例真库（并发/重入/幂等）|
+
+> 迁移：灵感库表 `scripts/migrate-inspirations.ts`(0001) + 封面宽高列 `scripts/migrate-inspirations-dims.ts`(0002，P3-S4，幂等 `ADD COLUMN IF NOT EXISTS`)。
 
 ## 6. 验收须知
 

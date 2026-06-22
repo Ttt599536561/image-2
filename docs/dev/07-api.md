@@ -148,9 +148,10 @@ export function httpError(status: number, code: string, message: string, details
 
 | 方法 | 路径 | 入参 | 响应 | 码 | 通道 |
 |---|---|---|---|---|---|
-| GET | `/api/inspirations?category=&q=&page=` | 品类 Tab + 搜索（本期占位） | `{ items:[{id,cover,title,summary,prompt,category}] }` | 200 | loader |
+| GET | `/api/inspirations?category=&q=` | 品类筛选 + 关键词搜索（服务端 ILIKE，匹配 title/summary/prompt） | `{ items:[{id,cover,title,summary,prompt,category,width,height}], categories:[string] }` | 200 | loader |
 
-> 仅返回**已上架**卡；「用此提示词」纯前端回填 Composer（[§13](../redesign-requirements.md)/[§24-10](../redesign-requirements.md)），无独立端点。CRUD 是后台能力（[09-admin.md §10.4](09-admin.md)）。
+> 仅返回**已上架**(`active=true`)卡；「用此提示词」纯前端回填 Composer（[§13](../redesign-requirements.md)/[§24-10](../redesign-requirements.md)），无独立端点。CRUD 是后台能力（[09-admin.md §10.4](09-admin.md)）。
+> **P3-S4**：`category`/`q` 下沉为 SQL（`likePattern` 转义 `\%_` + 参数化绑定防注入），**仅当表无 active 卡时**回退服务端种子（`EXISTS(active)` 判定，非「筛选后为空」误回）；`categories` = `DISTINCT category`（active、排除 NULL/''，独立于当前筛选）供前台动态品类 Tab（前端补「全部」首位）；`width/height` = 封面原始宽高（瀑布流原比例，可空）。
 
 ### 充值 / 兑换（[§7](../redesign-requirements.md)）
 
