@@ -22,6 +22,7 @@ import { useGenerationStatus } from "../../hooks/useGenerationStatus";
 import { useConversationDetail, useMe } from "../../hooks/queries";
 import { apiPost } from "../../lib/api-client";
 import { PRICE_PER_IMAGE_MP } from "../../lib/credits";
+import { formatCredits } from "../../lib/format";
 import { copyImageToClipboard, downloadImage, imageFilename } from "../../lib/download";
 import { redactText } from "../../lib/redaction";
 import { useLockBodyScroll } from "../../lib/useLockBodyScroll";
@@ -116,7 +117,9 @@ export function ConversationView({
   const turns = conv?.generations ?? [];
   const succeededCount = turns.filter((t) => t.status === "succeeded").length;
   const balanceMp = me.data?.balanceMp ?? 0;
-  const canAfford = balanceMp >= PRICE_PER_IMAGE_MP;
+  // 单图价取 /api/me 实时值（后台改价即时生效）；无数据时回退常量兜底首帧。
+  const priceMp = me.data?.pricePerImageMp ?? PRICE_PER_IMAGE_MP;
+  const canAfford = balanceMp >= priceMp;
 
   const lastTurn = turns[turns.length - 1];
 
@@ -203,7 +206,7 @@ export function ConversationView({
 
   const runGeneration = (req: GenerateRequest, file: File | null = null, onAccepted?: () => void) => {
     if (!req.prompt.trim()) return;
-    if (balanceMp < PRICE_PER_IMAGE_MP) {
+    if (balanceMp < priceMp) {
       toast.error("积分不足，去充值");
       return;
     }
@@ -287,6 +290,7 @@ export function ConversationView({
       disabled={isGenerating}
       canAfford={canAfford}
       balanceMp={balanceMp}
+      pricePerImageMp={priceMp}
       variant={turns.length === 0 ? "full" : "compact"}
       textareaRef={textareaRef}
       inputImageFile={inputImageFile}
@@ -303,7 +307,7 @@ export function ConversationView({
           <div className={styles.welcomeInner}>
             <div className={styles.hero}>
               <h1 className={styles.heroTitle}>今天想画点什么?</h1>
-              <p className={styles.heroSub}>用一句话描述画面，AI 帮你生成。每张固定 0.07 积分，成功才扣。</p>
+              <p className={styles.heroSub}>用一句话描述画面，AI 帮你生成。每张固定 {formatCredits(priceMp)} 积分，成功才扣。</p>
             </div>
             {composer}
             <div className={styles.gallerySection}>

@@ -5,6 +5,7 @@ import { RedeemResponse, REDEEM_CODE_RE } from "../../contracts/redeem";
 import type { PackageItem, PackagesResponse } from "../../contracts/package";
 import { useMe, usePackages } from "../../hooks/queries";
 import { ApiError, apiPost } from "../../lib/api-client";
+import { PRICE_PER_IMAGE_MP } from "../../lib/credits";
 import { formatCash, formatCredits, formatMonthDay, formatValidDays } from "../../lib/format";
 import { DEFAULT_PURCHASE_URL } from "../../lib/site";
 import { useShell } from "../shell/ShellContext";
@@ -39,6 +40,7 @@ export function BillingPage({ initialPackages }: { initialPackages?: PackagesRes
   const selected = selectedId ?? recommendedId ?? packages[0]?.id ?? null;
 
   const balanceMp = me.data?.balanceMp ?? 0;
+  const priceMp = me.data?.pricePerImageMp ?? PRICE_PER_IMAGE_MP; // 单图价实时值（后台改价即时生效）
   const expiringSoon = me.data?.expiringSoon;
   const expMp = Number(expiringSoon?.mp || "0");
 
@@ -78,7 +80,7 @@ export function BillingPage({ initialPackages }: { initialPackages?: PackagesRes
           <div className={styles.balanceCard}>
             <div>
               <div className={styles.balanceNum}>{formatCredits(balanceMp)}</div>
-              <div className={styles.balanceLabel}>当前积分余额 · 1 积分 = ¥1 · 0.07 积分/张</div>
+              <div className={styles.balanceLabel}>当前积分余额 · 1 积分 = ¥1 · {formatCredits(priceMp)} 积分/张</div>
             </div>
             {expMp > 0 && expiringSoon?.nearestExpiresAt ? (
               <span className={styles.expiring}>

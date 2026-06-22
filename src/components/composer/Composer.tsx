@@ -31,6 +31,8 @@ export interface ComposerProps {
   disabled?: boolean;
   canAfford: boolean;
   balanceMp: number;
+  // 单图价（毫积分）；父级从 /api/me 实时取，缺省回退常量（首帧/无数据兜底）。
+  pricePerImageMp?: number;
   variant?: "full" | "compact";
   textareaRef?: Ref<HTMLTextAreaElement>;
   // ④b 图生图：参考图（受控于父级；父级负责校验类型/大小并 toast）。null = 文生图。
@@ -45,6 +47,7 @@ export function Composer({
   disabled = false,
   canAfford,
   balanceMp,
+  pricePerImageMp = PRICE_PER_IMAGE_MP,
   variant = "full",
   textareaRef,
   inputImageFile = null,
@@ -298,7 +301,7 @@ export function Composer({
         <div className={styles.right}>
           {canAfford ? (
             <span className={styles.costHint}>
-              本次消耗 <span className={styles.costStrong}>{formatCredits(PRICE_PER_IMAGE_MP)}</span>{" "}
+              本次消耗 <span className={styles.costStrong}>{formatCredits(pricePerImageMp)}</span>{" "}
               积分 / 剩余 {formatCredits(balanceMp)} 积分
             </span>
           ) : null}

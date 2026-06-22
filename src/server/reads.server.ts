@@ -11,6 +11,7 @@ import type { LedgerResponse, LotsResponse, RedemptionsResponse } from "../contr
 import type { MeResponse } from "../contracts/me";
 import type { NotificationListResponse } from "../contracts/notification";
 import type { PackagesResponse } from "../contracts/package";
+import { getConfigInt } from "./config.server";
 import { getSql } from "../db/db.server";
 import { SEED_INSPIRATIONS } from "./inspirations.server";
 import { deleteManyFromR2 } from "./r2.server";
@@ -38,6 +39,8 @@ export async function loadMe(userId: string): Promise<MeResponse> {
     FROM credit_lots
     WHERE user_id = ${userId} AND remaining_mp > 0
       AND expires_at IS NOT NULL AND expires_at < now() + interval '3 days'`) as Row[];
+  // 单图价实时下发（后台改 app_config 即时生效；缺省回退默认 70=0.07/张）。
+  const pricePerImageMp = await getConfigInt("price_per_image_mp", 70);
   return {
     user: {
       id: u.id as string,
@@ -47,6 +50,7 @@ export async function loadMe(userId: string): Promise<MeResponse> {
     },
     balanceMp: num(u.balance_mp),
     maxConcurrency: num(u.max_concurrency),
+    pricePerImageMp,
     hasPaid: u.has_paid === true,
     expiringSoon: { mp: String(exp?.mp ?? "0"), nearestExpiresAt: isoOrNull(exp?.nearest) },
   };
