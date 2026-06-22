@@ -15,7 +15,24 @@
 | 5 | **开发文档（技术设计文档）** | ✅ 定稿（docs/dev/，12 章；钱链路已签字） |
 | 6 | 阶段一 · 前端形态 | ✅ 完成并合并进 `main`（RR8 骨架 + 三栏壳 + 五态 + 灵感画廊 + 主题，mock 跑通并验证 + QA/走查打磨） |
 | 7 | 阶段二 · 账号+积分+存储 | ✅ **完成（①–⑦ 全做完并对真 Neon 验证）**：schema/迁移/seed + Better Auth + 预算熔断/入队三闸/抢占/⓪双守卫扣费/兑换/过期/调账/对账 + 3 生图端点 + ⑤前端接真(11 资源路由读+REST 写/auth/生成轮询/loader 换 mock/资产库批量/铃铛/限流) + ⑥后台(`/admin/*` 12 资源路由+8 server+`_admin` 6 页) + **⑦ 上线闸**(5 Scheduled cron+netlify.toml 错峰/可观测 sentry+alert/密钥断言+CI/Playwright @smoke/成本对账方法论)；**测试**：tsc 0·test:run 30·test:money 33·build 0·cron-smoke 27 + reads-smoke 25 + admin-smoke 27 全绿(对真 Neon)·assert-no-secrets PASS·客户端 0 密钥+0 schema 泄露·多代理对抗审查(cron 链路 6 维 14 agents，1 major 已修)。**成本对账真·毛利数待上线灰度 ≥200 张跑量后填（毛利>0 才放量）** |
-| 8 | 阶段三 · 增强 | ⬜ 未开始 ← **下一阶段** |
+| 8 | 阶段三 · 增强 | 🚧 进行中（P3-S1 资产高级筛选/框选 + P3-S2 搜索 已先行；S3–S6 暂停待答 §0 Q2–Q6）← **当前** |
+
+## 🆕 新会话从这接手（2026-06-22 末次会话状态）
+> 先读 [CLAUDE.md](../CLAUDE.md) → 本段 → [docs/dev/PHASE3-PLAN.md](dev/PHASE3-PLAN.md)。代码在 **`phase3` 分支**（从 `phase2`，从 `main`）。
+
+**整体进度**：阶段二（①–⑦）全部完成。阶段三 P3-S1（资产高级筛选/框选）+ P3-S2（搜索）已做完。**本地验收已跑通并修了 3 个验收 bug + 写死了管理员**。**生图核心链路 live 验证通过**。
+
+**本地怎么跑验收**（关键，见 [docs/dev/local-acceptance.md](dev/local-acceptance.md)）：
+- 用 **`netlify dev`（端口 8888）**，**不是** `npm run dev`。起前先 **`rm -rf build .netlify`**（否则服务旧构建→无样式）。`netlify-cli` 已装。
+- 管理员账号已写死：**`599536561@qq.com` / `fefc8389`**（凭据在 `.env` 的 `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD`，脚本 `scripts/seed-admin.ts`）。登录 `/login` → 后台 `/admin`。
+
+**下一步该做什么（按优先级）**：
+1. **【上线前 P0】全局中转并发闸** —— 中转 `api.tangguo.xin` 单 Key **并发请求会挂起**（隔离单请求所有尺寸 90-120s 正常；并发则 hang 到超时）。诊断见 `scripts/relay-debug.ts`。**这是上线前必处理的真问题**（生图代码本身全对）。方案：调中转前查全站在跑生图数 ≤ 中转可扛并发、超则保持 queued 由派发 cron 补发；或 `default_max_concurrency`=1 + 配 `RELAY_BASE_URL_BACKUP`。**站长倾向先做这个并发闸**（上条会话末尾在问）。
+2. **续阶段三 S3–S6**：需站长先答 [PHASE3-PLAN §0](dev/PHASE3-PLAN.md) **Q2–Q6**（尤其 Q4=是否上 RBAC/客服）。Q1 已定。
+3. **成本对账真·毛利数**：灰度 ≥200 张跑量后填 [cost-reconciliation.md](dev/cost-reconciliation.md)（铁律②，毛利>0 才放量）。
+4. **合并**：`phase2`/`phase3` 待站长签字快进合并 `main`。
+
+**测试基线**：tsc 0·test:run 44·test:money 33·build 0·assert-no-secrets PASS·cron/reads/admin/search smoke 全绿。
 
 ## 当前状态
 **需求 + 低保真原型（含 6 个二级页）+ UI 视觉风格 + 技术选型 + 开发文档（技术设计文档）均已定稿。** UI 风格落 `docs/prototypes/design-system.html`（同步进 §17）；二级页线框补齐进 `wireframes.html`（共 21 节）；**技术选型已锁定**（见下方独立条目）；**开发文档已定稿** → `docs/dev/`（README 索引 + `00`–`11` 共 12 章），经**三轮**多代理审查（① 起草+对抗校验 → ② 单一真相源裁决修订 + 全局终审 → ③ 正确性/完整性对抗审查，3 blocker + 一批 major 全修）跨章口径收敛一致；**钱链路（03/04）已逐条向站长导读并签字**（成功才扣的慢图代价 D、预算软/硬闸过冲 E/F、callRelay 软超时+主备 Base G、adjust 红线 H 均经确认）。**阶段一已全部完成**：slice 1（铁律④·修 v1 真后台 + 代理读 env key + 全链路删 apiKey）+ **前端形态主体均已落地并验证**。前端形态主体把 v1 双栏 SPA 重构为 **React Router 8 framework 模式（SSR）** 的对话式三栏壳：`tokens.css` 落地 design-system（明/暗 + 不反相 `--cosmic-*`）；侧栏(nav+最近) ｜ 对话+Composer ｜ 「本次·N」面板（≥1024 常驻/<1024 抽屉/<768 折叠）；**Composer 五态**（欢迎/生成中=宇宙星空动效+`生成中 M:SS`/成功=成品图+5 操作/失败=504+未扣已退+重试/积分不足=拦截去充值）；尺寸 6 档 + 高级设置（质量/背景）药丸；灵感画廊（封面瀑布流+一键带回）；深色/暖色 cookie 主题（SSR 无闪烁）；全局 Lightbox/Toast/Skeleton；次级页 mock 占位（/billing 做实兑换）。**账号/积分全 mock**，未接 Neon/Better Auth/R2（阶段二）。**验证**：vitest 42/42、`react-router typegen && tsc` 0、`react-router build` 通过；preview 工具逐态实测（提交→星空→成功扣 0.07、失败未扣、积分不足拦截→/billing、兑换 +10「积分到账」、主题切换、lightbox、灵感带回均通过）。**git 隔离**：环境非 git 仓库且 worktree 工具不可用 → 改用 `git init` + `main`(v1 基线 8667d04) + `phase1-frontend` 分支隔离。**阶段一已签字并快进合并进 `main`（`4f81022`）**，`phase1-frontend` 分支作里程碑标记保留（同一提交）。**阶段二施工计划已批准并落库** → [docs/dev/PHASE2-PLAN.md](dev/PHASE2-PLAN.md)（7 阶段可勾选清单 + 钱链路红线 + 外部密钥清单 §0；基于 5 路多代理精读 docs/dev 02–11 综合）。**阶段二已开工（`phase2` 分支，从 `main`）：① 地基 + ② 鉴权已完成并对真 Neon 验证**（迁移/13 表/7-7 索引谓词/FOR UPDATE/seed 幂等 + Better Auth 注册→送 140mp 幂等；tsc 0·vitest 45·build 绿·客户端 0 泄露 + 多轮多代理对抗校验，修真库 42P08）。**Neon 已开通**（站长给 direct 串，存 `.env` 已 gitignore；用 `node --env-file=.env …` 跑迁移/seed/`scripts/*`）；**R2/中转/告警密钥待开通**（仅 ④ 落图/生图与 ① putToR2 往返需要，**不挡 ③**）。**③ 钱链路（命门）已完成并对真 Neon 验证**：8 个文件（budget 软闸+硬上限 TOCTOU / enqueue 三闸 / preempt 抢占 / debit ⓪双守卫+FIFO / redeem 原子核销+首兑顺延 / expire 幂等 / adjust 同事务动 lots+余额+audit / reconcile 对账）；**28 例真库测试全绿**（`tests/money/`，10 文件，`npm run test:money`，`Promise.all` 真并发/重入）；**多代理对抗审查**（7 维并行 + 逐条证伪，0 blocker / 1 confirmed major 已修：adjust 减额漏过滤已过期批次→会被对账 cron 反转抵消，补 `AND (expires_at IS NULL OR expires_at>now())` + 同步修 09 §10.3 规格示例 + 加端到端回归）；tsc 0·vitest 45·build。**下一步：阶段二 ④ 生图管线 + API 接真**——generate* 真后台(同步入队→`-background` 抢占→callRelay→putToR2→debit)/DB-as-queue/6 值归一/限流/前端接真，**需 R2 + 中转密钥**（§0）才能跑通落图/生图往返。随后 ⑤ 前端接真 → ⑥ 后台 → ⑦ cron/可观测/CI(密钥断言+每 PR Neon test branch)/成本对账上线闸。**①–⑥ 已全部完成（⑤ 前端接真 commit `76dcad5`、⑥ 后台 `fa2a4e9`/`520837a`/`9ad4822`）；下一步 = ⑦（最后一阶段·上线闸）。新对话接手顺序：CLAUDE.md → 本文件 → [docs/dev/PHASE2-PLAN.md](dev/PHASE2-PLAN.md) §7 → docs/dev/10(cron·可观测·测试·主)/04(管线超时重扫)/03(过期·对账)/06(清图保留期)/07(通知)；进度勾选只在 PHASE2-PLAN §1–§7 + 本文件维护。**
@@ -64,6 +81,8 @@
   - **可人工验收（注册/登录/生图/兑换/后台）**：链路代码已对真后端 smoke 验过；浏览器验收用 **`netlify dev`(8888，= `BETTER_AUTH_URL`)**（非 `npm run dev`——它不注入 .env、不服务生图 Functions）。手册 + 清单 → [docs/dev/local-acceptance.md](dev/local-acceptance.md)。前置：`npm i -D netlify-cli`（未装）。
   - [x] **P3-S1 资产库高级筛选/框选补全**（按站长「自动进行下一步」先行）：自定义日期区间（原生 date input，注册日~今天）+ 桌面拖拽框选（仅鼠标·bulk）+ 移动端长按进多选（仅 touch·450ms）+「N 天后过期」角标（≤3 天）。纯前端读路径、不碰钱。纯逻辑抽到 `src/lib/assetsSelection.ts` 并单测（rectsIntersect/expiringInDays/dayStr）。**验证**：tsc 0·test:run 44(+14)·build 0·assert-no-secrets PASS；手势 tsc/build 验证，鉴权态 dev 预览需 DB-env，留合并前手动手势 QA。commit `0371b61`。
   - [x] **P3-S2 搜索（会话标题 + 资产提示词）**：`loadConversations(q?)`/`loadImages(q?)` owner-scoped ILIKE + `likePattern()` 转义 `\%_`；contracts/路由透传 q；侧栏搜索入口（替占位）+ 资产搜索框 + `useDebouncedValue` 250ms；点结果跳 `/c/:id`。**验证**：tsc 0·test:run 44·build 0·`scripts/search-smoke.ts` **13 检查全绿**(对真 Neon：命中/owner-scoped/`%` 转义/ILIKE 大小写)·assert-no-secrets PASS。暂 ILIKE 顺序扫（量大才上 pg_trgm，§0 Q6）。
+  - [x] **本地验收启用 + 验收驱动修复（2026-06-22 本会话后半段，浏览器对真实测）**：装 `netlify-cli` + `netlify.toml [dev] port=8888`(=BETTER_AUTH_URL) → `netlify dev` 跑通**注册→登录→生图→兑换→后台**全链路 live 验证。**写死管理员** `scripts/seed-admin.ts`(env 驱动建号+提权，凭据进 `.env` 不进 git；已建 `599536561@qq.com`) + 应急解封 `scripts/unban.ts`。**坑（已记 local-acceptance.md）**：① `netlify dev` 起前须 `rm -rf build .netlify`、且 `[dev]` 不可设 `framework=#custom`，否则服务旧构建产物→页面无样式(commit `d76abc7`)。**修复**：① 生图 `size="auto"` 被中转拒(rix「size must use WIDTHxHEIGHT」)→ `relay.ts toRelaySize` 边界落 1024x1024(`ec1b207`) ② **管理员能封禁自己→自锁后台漏洞**：`setBanned` 守卫 `adminId===userId` 抛 400 + UI 本人行禁用 + admin-smoke 回归(`a5153ab`) ③ 失败卡片按 error_code 显友好中文(原直显中转英文)(`07c76ad`)。**生图全链路 live 验证通过**(注册送 0.14→生图 1024x1024 扣 0.07→失败不扣已退)。
+  - ⚠️ **【上线前 P0·新发现】中转并发承载有限**：中转 `api.tangguo.xin` 单 Key **并发多请求会挂起**(隔离单请求所有尺寸 90-120s 正常返回 200；并发则部分 hang 到软超时 4.5min)。诊断工具 `scripts/relay-debug.ts`(复刻请求+计时)。**即生图代码/参数/尺寸全对，超时是中转并发问题。上线前必做之一**：(a) **全局中转并发闸**(调中转前检查全站在跑生图数 ≤ 中转可扛并发，超则保持 queued、派发 cron 补发) ——最稳；或 (b) `default_max_concurrency` 设 1 + 配 `RELAY_BASE_URL_BACKUP` 备用中转(代码已支持失败转移)；或 (c) 找中转商提高单 Key 并发。
 
 ## 未决项 / 待确认（不阻塞起步；解决了打 `[x]`）
 - [ ] 中转 api.tangguo.xin 是否支持**独立子 Key**（Key 防护②）。

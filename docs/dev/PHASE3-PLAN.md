@@ -123,8 +123,11 @@
 | DB-as-queue → Redis/BullMQ/QStash | §20/01 §2.5 规模化后再做；`generations` 抢占式状态机不变 |
 | 退款/争议处理 | §23 later；撤销赠送走 `adjust`(已有)，退真金涉第三方对账，并入 CS 360 时仅「上报超管」 |
 
-## 上线前置（非编码 · 与阶段三并行/独立）
+## 上线前置（需在放量前处理）
+- [ ] **【P0·新发现 2026-06-22】全局中转并发闸**：本地验收实测发现中转 `api.tangguo.xin` 单 Key **并发多请求会挂起**（隔离单请求所有尺寸 90-120s 正常返回 200；并发则部分 hang 到软超时 4.5min → `provider_timeout`）。**生图代码/参数/尺寸全对**（诊断工具 `scripts/relay-debug.ts` 复刻请求+计时已证）。**方案**（择一/组合）：(a) **全局并发闸**——`process.ts` 调中转前查全站在跑生图数（`COUNT(status IN claimed,running)` HTTP 单语句）≤ 配置的中转可扛并发，超则**不调中转、保持 queued**，由 `dispatchStaleQueued` 派发 cron 稍后补发（需防饥饿/加 jitter）；阈值进 `app_config`(`relay_max_concurrency`)。(b) `default_max_concurrency`=1（后台参数即改）防单用户自挤。(c) 配 `RELAY_BASE_URL_BACKUP` 备用中转（`relay.ts` 已支持失败转移，但当前 AbortError 不转移——可扩超时也转 backup）。(d) 找中转商提高单 Key 并发。**站长上条会话末倾向先做 (a) 并发闸。**
 - [ ] **成本对账真·毛利数（铁律②·硬闸）**：上线灰度 ≥200 张取 p95 GB-hour、算单图成本对账 0.07，**毛利>0 才放量**。方法论 + 对账表占位见 [cost-reconciliation.md](cost-reconciliation.md)。**需上线跑量后填实测数**，本阶段无法编码完成。
+
+> ✅ **生图核心链路已 live 验证通过**（2026-06-22，`netlify dev`）：注册送 0.14 → 生图（`size=auto`→1024x1024，~90-120s）→ 落 Supabase → 扣 0.07；失败不扣已退、失败卡片友好中文。**唯一已知制约 = 上方中转并发闸**。
 
 ## 执行节奏
 - 站长批准本计划（尤其 §0 六个开放问题）后开工。
