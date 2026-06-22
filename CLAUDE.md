@@ -22,6 +22,7 @@
 - **完整需求规格（唯一真相源）** → [docs/redesign-requirements.md](docs/redesign-requirements.md)
 
 ## 文档地图
+> 🧭 **按任务找文档（索引→详情）**：要做什么→`redesign-requirements.md`｜怎么写代码→`docs/dev/00–11`｜长什么样→`prototypes/`（结构 wireframes·风格 design-system）｜进度·接手·待开发→`PROGRESS.md`｜本地跑/逐条验收→`dev/local-acceptance.md`｜**红线提醒**（编辑钱/客户端/后台代码时按 `paths` 自动加载）→`.claude/rules/`。
 - `docs/redesign-requirements.md` — **v2 完整产品规格**（页面/五态/积分/兑换码/后台/系统架构/数据库 schema/风险/分期）。读它就懂"要做什么"。
 - `docs/PROGRESS.md` — 现在做到哪、下一步、未决项、上次若中断从哪接。
 - `docs/prototypes/wireframes.html` — **全部页面/状态的低保真原型**（浏览器打开即看；研发照此开发**结构**）。`docs/prototypes/README.md` 是索引。
@@ -29,6 +30,7 @@
 - `docs/dev/` — **v2 技术开发文档（研发照着写代码的蓝图）**：`README.md` 是索引 + 全局约定 + 4 铁律；`00`–`11` 共 12 章（栈/env·密钥、架构、DB DDL、钱链路、生图管线、鉴权、存储、API、前端、后台、cron·测试、目录·分期）+ **`PHASE2-PLAN.md`**（阶段二 ①–⑦ ✅）+ **`PHASE3-PLAN.md`**（阶段三 S1/S2/S4 ✅、S6 跳过、S3/S5 不做）+ **`PHASE3-FEEDBACK.md`（← 当前主线：验收 20 条追踪表）** + **`cost-reconciliation.md`**（成本对账上线闸·铁律②）+ **`local-acceptance.md`**（本地验收/运行指南 + 无界面 smoke 清单）。**怎么写代码看这里；要做什么看规格、长什么样看原型**。
 - `docs/requirements.md`、`docs/development.md`、`docs/test-cases.md` — **v1 现状**（顶部都有 banner 指向 v2）。
 - `docs/superpowers/` — 最早的 v1 计划/设计，历史存档，别改。
+- `.claude/rules/` — **path-scoped 红线提醒**（按官方 memory 指南，编辑匹配代码时才自动加载，不占常驻上下文）：`money.md`（钱/管线）、`client-safety.md`（前端 0 密钥+0 schema）、`admin.md`（后台双守卫/审计/#14 分离）。各自指向权威 docs，是「编辑该区代码时必守的 5 条」而非真相源。
 
 ## 技术栈
 - 现状(v1)：Vite + React 19 + TS；后端 Netlify Functions + Blobs，经"中转站"(One-API 风格 `https://api.tangguo.xin/v1`)异步代理生图 + 前端短轮询；Vitest。
