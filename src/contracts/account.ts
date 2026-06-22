@@ -32,3 +32,41 @@ export const LedgerResponse = z.object({
   pageSize: z.number().int().optional(),
 });
 export type LedgerResponse = z.infer<typeof LedgerResponse>;
+
+// #8 账号页：积分批次（含有效期）。source 与 credit_lots.source 同枚举。
+export const LotItem = z.object({
+  id: z.uuid(),
+  source: z.enum(["signup", "code", "adjust"]),
+  grantedMp: z.number().int(),
+  remainingMp: z.number().int(),
+  expiresAt: z.string().nullable(), // NULL=永久
+  createdAt: z.string(),
+});
+export type LotItem = z.infer<typeof LotItem>;
+
+export const LotsResponse = z.object({
+  items: z.array(LotItem),
+  total: z.number().int(),
+  page: z.number().int(),
+  pageSize: z.number().int(),
+});
+export type LotsResponse = z.infer<typeof LotsResponse>;
+
+// #8 账号页：兑换记录（credit_ledger 中 entry_type='credit'+ref_type='code'，LEFT JOIN redeem_codes 取码/面值/有效期）。
+export const RedemptionItem = z.object({
+  id: z.uuid(),
+  amountMp: z.number().int(),
+  code: z.string().nullable(), // 已脱敏（XXXX…XXXX）
+  cashValue: z.number().int().nullable(), // 面值（分）
+  validDays: z.number().int().nullable(),
+  createdAt: z.string(),
+});
+export type RedemptionItem = z.infer<typeof RedemptionItem>;
+
+export const RedemptionsResponse = z.object({
+  items: z.array(RedemptionItem),
+  total: z.number().int(),
+  page: z.number().int(),
+  pageSize: z.number().int(),
+});
+export type RedemptionsResponse = z.infer<typeof RedemptionsResponse>;

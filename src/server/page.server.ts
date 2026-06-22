@@ -21,12 +21,13 @@ export async function requireUserPage(request: Request): Promise<PageUser> {
 }
 
 /**
- * 后台 _admin 布局 loader 守卫（09 §10.1）：每请求查 DB（不吃 cookieCache）+ role=admin + 未封禁。
- * 非 admin → redirect("/")（不暴露后台存在）。与「每个 /api/admin/* 各自 requireAdmin」构成双守卫。
+ * 后台 _admin 布局 loader 守卫（09 §10.1 / #14）：每请求查 DB（不吃 cookieCache）+ role=admin + 未封禁。
+ * 未登录 → /admin/login（后台独立登录页，UX 与用户端彻底分离）；
+ * 已登录非 admin → "/"（不暴露后台存在）。与「每个 /api/admin/* 各自 requireAdmin」构成双守卫。
  */
 export async function requireAdminPage(request: Request): Promise<PageUser> {
   const s = await auth.api.getSession({ headers: request.headers, query: { disableCookieCache: true } });
-  if (!s) throw redirect(`/login?next=${encodeURIComponent(new URL(request.url).pathname)}`);
+  if (!s) throw redirect("/admin/login");
   const rows = await getSql()`SELECT role, is_banned FROM users WHERE id=${s.user.id} LIMIT 1`;
   const row = rows[0] as { role?: string; is_banned?: boolean } | undefined;
   if (!row || row.is_banned || row.role !== "admin") throw redirect("/");

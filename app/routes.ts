@@ -16,6 +16,8 @@ export default [
   route("api/notifications", "routes/api.notifications.ts"),
   route("api/notifications/read", "routes/api.notifications.read.ts"),
   route("api/account/ledger", "routes/api.account.ledger.ts"),
+  route("api/account/lots", "routes/api.account.lots.ts"),
+  route("api/account/redemptions", "routes/api.account.redemptions.ts"),
   route("api/redeem", "routes/api.redeem.ts"),
   // 阶段二 ⑥：后台 API（资源路由，server-only；每个各自 requireAdmin = 双守卫之一）。
   route("api/admin/users", "routes/api.admin.users.ts"),
@@ -42,6 +44,8 @@ export default [
     route("login", "routes/_auth.login.tsx"),
     route("register", "routes/_auth.register.tsx"),
     route("forgot", "routes/_auth.forgot.tsx"),
+    // #14：管理员独立登录页（同一 Better Auth 账号体系；登录后校验 role 直达 /admin）。
+    route("admin/login", "routes/_auth.admin-login.tsx"),
   ]),
   // 阶段二 ⑥：后台 UI（独立 _admin 布局，requireAdminPage 守卫）。
   layout("routes/_admin.tsx", [

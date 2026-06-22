@@ -7,6 +7,15 @@ export function formatCredits(mp: number): string {
   return v.toFixed(2).replace(/\.?0+$/, "");
 }
 
+/**
+ * 积分（用户/管理员直接填的小数）→ 毫积分整数（后端仍存 mp）。#11：前端边界换算。
+ * Math.round 防浮点失真（如 0.29*1000=289.999… 用 floor 会得 289）。NaN 归 0。
+ */
+export function creditsToMp(credits: number): number {
+  if (!Number.isFinite(credits)) return 0;
+  return Math.round(credits * 1000);
+}
+
 /** 分 → 元展示串（990→"9.9"）。 */
 export function formatCash(cash: number): string {
   const v = cash / 100;

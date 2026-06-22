@@ -20,7 +20,7 @@ function mapSignUpError(err: AuthError): string {
   return err.message || "注册失败，请重试";
 }
 
-export function AuthForm({ mode }: { mode: "login" | "register" }) {
+export function AuthForm({ mode, admin = false }: { mode: "login" | "register"; admin?: boolean }) {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const next = params.get("next") || "/";
@@ -42,6 +42,23 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
     if (mode === "register" && confirm !== password) return setError("两次输入的密码不一致");
 
     setPending(true);
+    // #14：管理员登录——同一 Better Auth；登录后校验 role=admin 才直达 /admin，否则登出并报错（不泄露后台）。
+    if (admin) {
+      const { error: err } = await authClient.signIn.email({ email: mail, password });
+      if (err) {
+        setPending(false);
+        return setError(mapSignInError(err));
+      }
+      const sess = await authClient.getSession();
+      const role = (sess.data?.user as { role?: string } | undefined)?.role;
+      setPending(false);
+      if (role !== "admin") {
+        await authClient.signOut();
+        return setError("该账号无后台权限");
+      }
+      navigate("/admin");
+      return;
+    }
     if (mode === "login") {
       const { error: err } = await authClient.signIn.email({ email: mail, password });
       setPending(false);
@@ -67,20 +84,22 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
         <span className={styles.brandMark}>
           <Sparkles size={17} />
         </span>
-        AI 图像工坊
+        {admin ? "AI 图像工坊 · 后台" : "AI 图像工坊"}
       </div>
 
-      <div className={styles.tabs}>
-        <Link to="/login" className={`${styles.tab} ${mode === "login" ? styles.tabActive : ""}`}>
-          登录
-        </Link>
-        <Link
-          to="/register"
-          className={`${styles.tab} ${mode === "register" ? styles.tabActive : ""}`}
-        >
-          注册
-        </Link>
-      </div>
+      {admin ? null : (
+        <div className={styles.tabs}>
+          <Link to="/login" className={`${styles.tab} ${mode === "login" ? styles.tabActive : ""}`}>
+            登录
+          </Link>
+          <Link
+            to="/register"
+            className={`${styles.tab} ${mode === "register" ? styles.tabActive : ""}`}
+          >
+            注册
+          </Link>
+        </div>
+      )}
 
       {error ? (
         <div className={styles.error}>
@@ -144,11 +163,13 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       ) : null}
 
       <button type="submit" className={styles.submit} disabled={pending}>
-        {mode === "login" ? "登录" : "注册"}
+        {admin ? "登录后台" : mode === "login" ? "登录" : "注册"}
       </button>
 
       <div className={styles.footer}>
-        {mode === "login" ? (
+        {admin ? (
+          <span>仅管理员可登录</span>
+        ) : mode === "login" ? (
           <Link to="/forgot" className={styles.footerLink}>
             忘记密码?
           </Link>

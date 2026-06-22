@@ -4,7 +4,7 @@ import { useRevalidator } from "react-router";
 import { ConfirmDialog } from "../../src/components/ConfirmDialog/ConfirmDialog";
 import styles from "../../src/components/admin/Admin.module.css";
 import { ApiError, apiPost } from "../../src/lib/api-client";
-import { formatCredits } from "../../src/lib/format";
+import { creditsToMp, formatCredits } from "../../src/lib/format";
 import type { AdminUserRow } from "../../src/server/admin/users.server";
 import { searchUsers } from "../../src/server/admin/users.server";
 import { requireAdminPage } from "../../src/server/page.server";
@@ -283,19 +283,20 @@ function CreditModal({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const [deltaMp, setDeltaMp] = useState("");
+  const [creditsInput, setCreditsInput] = useState("");
   const [reason, setReason] = useState("");
   const [permanent, setPermanent] = useState(true);
   const [validDays, setValidDays] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const delta = Number(deltaMp);
+  // #11：管理员直接填积分（如 0.07 / -0.07），提交时换算回 mp（后端仍存 mp）。
+  const credits = Number(creditsInput);
+  const deltaMp = creditsToMp(credits);
   const valid =
-    deltaMp.trim() !== "" &&
-    Number.isFinite(delta) &&
-    Number.isInteger(delta) &&
-    delta !== 0 &&
+    creditsInput.trim() !== "" &&
+    Number.isFinite(credits) &&
+    deltaMp !== 0 &&
     reason.trim() !== "" &&
     (permanent || (validDays.trim() !== "" && Number(validDays) > 0));
 
@@ -306,7 +307,7 @@ function CreditModal({
     try {
       await apiPost(`/api/admin/users/${user.id}`, {
         op: "adjust_credit",
-        deltaMp: delta,
+        deltaMp,
         reason: reason.trim(),
         validDays: permanent ? null : Number(validDays),
       });
@@ -321,22 +322,21 @@ function CreditModal({
     <ModalShell title={`调整积分 · ${user.email}`} onClose={onClose}>
       <div className={styles.field}>
         <label className={styles.label} htmlFor="adj-delta">
-          调整毫积分（可负）
+          调整积分（可负）
         </label>
         <input
           id="adj-delta"
           type="number"
-          step={1}
+          step={0.001}
           className={styles.input}
-          value={deltaMp}
-          onChange={(e) => setDeltaMp(e.target.value)}
-          placeholder="如 70000（=70 积分），负数为扣减"
+          value={creditsInput}
+          onChange={(e) => setCreditsInput(e.target.value)}
+          placeholder="如 0.07 或 -0.07（1 张图 = 0.07 积分）"
         />
         <span className={styles.muted} style={{ fontSize: 11 }}>
-          毫积分，1 积分 = 1000；
-          {deltaMp.trim() !== "" && Number.isInteger(delta) && delta !== 0
-            ? `约 ${formatCredits(Math.abs(delta))} 积分${delta < 0 ? "（扣减）" : ""}`
-            : "正数充入、负数扣减"}
+          {valid
+            ? `将${deltaMp > 0 ? "充入" : "扣减"} ${formatCredits(Math.abs(deltaMp))} 积分`
+            : "正数充入、负数扣减；1 张图 0.07 积分"}
         </span>
       </div>
       <div className={styles.field}>

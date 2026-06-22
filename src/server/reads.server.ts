@@ -7,7 +7,7 @@
 import type { ConversationDetail, ConversationListResponse } from "../contracts/conversation";
 import type { ImageRange, ImagesResponse, SaveResponse } from "../contracts/image";
 import type { InspirationsResponse } from "../contracts/inspiration";
-import type { LedgerResponse } from "../contracts/account";
+import type { LedgerResponse, LotsResponse, RedemptionsResponse } from "../contracts/account";
 import type { MeResponse } from "../contracts/me";
 import type { NotificationListResponse } from "../contracts/notification";
 import type { PackagesResponse } from "../contracts/package";
@@ -271,16 +271,25 @@ export async function loadPackages(): Promise<PackagesResponse> {
   };
 }
 
-// ===================== /api/account/ledger（积分流水，倒序分页） =====================
-export async function loadLedger(userId: string, page = 1, pageSize = 20): Promise<LedgerResponse> {
+// ===================== /api/account/ledger（积分流水，倒序分页，可按类型筛 #8） =====================
+export async function loadLedger(
+  userId: string,
+  page = 1,
+  pageSize = 20,
+  entryType?: string,
+): Promise<LedgerResponse> {
   const sql = getSql();
   const offset = (page - 1) * pageSize;
+  const type = entryType?.trim() ? entryType.trim() : null; // null=全部
   const items = (await sql`
     SELECT id, entry_type, amount_mp, balance_after_mp, reason, ref_type, ref_id, created_at
     FROM credit_ledger WHERE user_id = ${userId}
+      AND (${type}::text IS NULL OR entry_type = ${type})
     ORDER BY created_at DESC
     LIMIT ${pageSize} OFFSET ${offset}`) as Row[];
-  const [c] = (await sql`SELECT COUNT(*)::int AS n FROM credit_ledger WHERE user_id = ${userId}`) as Row[];
+  const [c] = (await sql`
+    SELECT COUNT(*)::int AS n FROM credit_ledger WHERE user_id = ${userId}
+      AND (${type}::text IS NULL OR entry_type = ${type})`) as Row[];
   return {
     items: items.map((r) => ({
       id: r.id as string,
@@ -290,6 +299,69 @@ export async function loadLedger(userId: string, page = 1, pageSize = 20): Promi
       reason: (r.reason as string | null) ?? null,
       refType: (r.ref_type as string | null) ?? null,
       refId: (r.ref_id as string | null) ?? null,
+      createdAt: iso(r.created_at),
+    })),
+    total: num(c?.n),
+    page,
+    pageSize,
+  };
+}
+
+// ===================== /api/account/lots（积分批次 + 有效期，倒序分页 #8） =====================
+export async function loadLots(userId: string, page = 1, pageSize = 20): Promise<LotsResponse> {
+  const sql = getSql();
+  const offset = (page - 1) * pageSize;
+  const items = (await sql`
+    SELECT id, source, granted_mp, remaining_mp, expires_at, created_at
+    FROM credit_lots WHERE user_id = ${userId}
+    ORDER BY created_at DESC
+    LIMIT ${pageSize} OFFSET ${offset}`) as Row[];
+  const [c] = (await sql`SELECT COUNT(*)::int AS n FROM credit_lots WHERE user_id = ${userId}`) as Row[];
+  return {
+    items: items.map((r) => ({
+      id: r.id as string,
+      source: r.source as LotsResponse["items"][number]["source"],
+      grantedMp: num(r.granted_mp),
+      remainingMp: num(r.remaining_mp),
+      expiresAt: isoOrNull(r.expires_at),
+      createdAt: iso(r.created_at),
+    })),
+    total: num(c?.n),
+    page,
+    pageSize,
+  };
+}
+
+// ===================== /api/account/redemptions（兑换记录，倒序分页 #8） =====================
+// credit_ledger 中 entry_type='credit' + ref_type='code' 即兑换入账；LEFT JOIN redeem_codes（ref_id=code uuid）取码/面值/有效期。
+function maskCode(code: string | null): string | null {
+  if (!code) return null;
+  return code.length > 8 ? `${code.slice(0, 4)}…${code.slice(-4)}` : code;
+}
+export async function loadRedemptions(
+  userId: string,
+  page = 1,
+  pageSize = 20,
+): Promise<RedemptionsResponse> {
+  const sql = getSql();
+  const offset = (page - 1) * pageSize;
+  const items = (await sql`
+    SELECT l.id, l.amount_mp, l.created_at, rc.code, rc.cash_value, rc.valid_days
+    FROM credit_ledger l
+    LEFT JOIN redeem_codes rc ON rc.id::text = l.ref_id
+    WHERE l.user_id = ${userId} AND l.entry_type = 'credit' AND l.ref_type = 'code'
+    ORDER BY l.created_at DESC
+    LIMIT ${pageSize} OFFSET ${offset}`) as Row[];
+  const [c] = (await sql`
+    SELECT COUNT(*)::int AS n FROM credit_ledger
+    WHERE user_id = ${userId} AND entry_type = 'credit' AND ref_type = 'code'`) as Row[];
+  return {
+    items: items.map((r) => ({
+      id: r.id as string,
+      amountMp: num(r.amount_mp),
+      code: maskCode((r.code as string | null) ?? null),
+      cashValue: numOrNull(r.cash_value),
+      validDays: numOrNull(r.valid_days),
       createdAt: iso(r.created_at),
     })),
     total: num(c?.n),

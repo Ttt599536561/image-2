@@ -1,5 +1,15 @@
-import { Coins, Image as ImageIcon, LayoutDashboard, Lightbulb, Package, Ticket, Users } from "lucide-react";
-import { NavLink, Outlet } from "react-router";
+import {
+  Coins,
+  Image as ImageIcon,
+  LayoutDashboard,
+  Lightbulb,
+  LogOut,
+  Package,
+  Ticket,
+  Users,
+} from "lucide-react";
+import { NavLink, Outlet, useNavigate } from "react-router";
+import { authClient } from "../../src/lib/auth-client";
 import styles from "../../src/components/admin/Admin.module.css";
 import { requireAdminPage } from "../../src/server/page.server";
 import type { Route } from "./+types/_admin";
@@ -20,6 +30,12 @@ const NAV = [
 ];
 
 export default function AdminLayout() {
+  const navigate = useNavigate();
+  // #14：后台 UX 与用户端彻底分离——无「返回工作台」入口；唯一出口=退出登录 → 回后台登录页。
+  const logout = async () => {
+    await authClient.signOut();
+    navigate("/admin/login");
+  };
   return (
     <div className={styles.shell}>
       <nav className={styles.nav}>
@@ -39,9 +55,10 @@ export default function AdminLayout() {
           </NavLink>
         ))}
         <div className={styles.navSpacer} />
-        <a href="/" className={styles.backLink}>
-          ← 返回工作台
-        </a>
+        <button type="button" className={styles.backLink} onClick={logout}>
+          <LogOut size={15} />
+          退出登录
+        </button>
       </nav>
       <main className={styles.main}>
         <Outlet />

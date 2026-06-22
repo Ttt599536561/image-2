@@ -4,7 +4,7 @@ import { useRevalidator } from "react-router";
 import styles from "../../src/components/admin/Admin.module.css";
 import { ConfirmDialog } from "../../src/components/ConfirmDialog/ConfirmDialog";
 import { ApiError, apiPost } from "../../src/lib/api-client";
-import { formatCash, formatCredits } from "../../src/lib/format";
+import { creditsToMp, formatCash, formatCredits } from "../../src/lib/format";
 import { listAudit } from "../../src/server/admin/audit.server";
 import { getAllConfig } from "../../src/server/admin/config.server";
 import { listAllPackages } from "../../src/server/admin/packages.server";
@@ -27,10 +27,10 @@ type PackageRow = Route.ComponentProps["loaderData"]["packages"]["items"][number
 type ConfigRow = Route.ComponentProps["loaderData"]["config"]["items"][number];
 type AuditRow = Route.ComponentProps["loaderData"]["audit"]["items"][number];
 
-// 参数键中文标签（09 §10.6）。
+// 参数键中文标签（09 §10.6）。#11：积分类键以「积分」为单位展示/录入（后端仍存 mp）。
 const CONFIG_LABELS: Record<string, string> = {
-  price_per_image_mp: "单价（毫积分）",
-  signup_grant_mp: "注册赠送（毫积分）",
+  price_per_image_mp: "单价（积分/张）",
+  signup_grant_mp: "注册赠送（积分）",
   signup_grant_valid_days: "赠送有效期（天）",
   retention_free_days: "免费保留（天）",
   retention_paid_days: "付费保留（天）",
@@ -38,6 +38,17 @@ const CONFIG_LABELS: Record<string, string> = {
   daily_relay_budget_calls: "单日预算（次）",
   daily_relay_budget_ms: "单日预算（ms）",
 };
+
+// #11：哪些参数键是毫积分（UI 填积分、提交 ×1000）。其余键为普通整数，原样。
+const MP_CONFIG_KEYS = new Set<string>(["price_per_image_mp", "signup_grant_mp"]);
+/** 后端 mp 值 → 录入框展示值（mp 键转积分小数，其余整数原样）。 */
+function cfgToDisplay(key: string, value: number): string {
+  return MP_CONFIG_KEYS.has(key) ? formatCredits(value) : String(value);
+}
+/** 录入框值 → 后端 mp 值（mp 键 ×1000 取整，其余整数截断）。 */
+function cfgToMp(key: string, str: string): number {
+  return MP_CONFIG_KEYS.has(key) ? creditsToMp(Number(str)) : Math.trunc(Number(str));
+}
 
 // 套餐表单的可编辑形态（字符串态，提交时再换算/解析）。
 interface PackageForm {
@@ -151,7 +162,7 @@ export default function PackagesPage({ loaderData }: Route.ComponentProps) {
   // ===== section 2 全局参数 =====
   const initialConfig = useMemo(() => {
     const m: Record<string, string> = {};
-    for (const c of config.items as ConfigRow[]) m[c.key] = String(c.value);
+    for (const c of config.items as ConfigRow[]) m[c.key] = cfgToDisplay(c.key, c.value);
     return m;
   }, [config.items]);
   const [cfgValues, setCfgValues] = useState<Record<string, string>>(initialConfig);
@@ -159,16 +170,16 @@ export default function PackagesPage({ loaderData }: Route.ComponentProps) {
   const [cfgBusy, setCfgBusy] = useState(false);
   const [cfgMsg, setCfgMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
-  // 与 loader 对比，找出被改动的键。
+  // 与 loader 对比，找出被改动的键（按展示值比较）。
   const changedKeys = useMemo(
-    () => (config.items as ConfigRow[]).filter((c) => cfgValues[c.key] !== String(c.value)),
+    () => (config.items as ConfigRow[]).filter((c) => cfgValues[c.key] !== cfgToDisplay(c.key, c.value)),
     [config.items, cfgValues],
   );
 
   const saveConfig = async () => {
     setCfgBusy(true);
     setCfgMsg(null);
-    const updates = changedKeys.map((c) => ({ key: c.key, value: Math.trunc(Number(cfgValues[c.key])) }));
+    const updates = changedKeys.map((c) => ({ key: c.key, value: cfgToMp(c.key, cfgValues[c.key]) }));
     try {
       await apiPost("/api/admin/config", { updates });
       setCfgConfirmOpen(false);
@@ -270,6 +281,8 @@ export default function PackagesPage({ loaderData }: Route.ComponentProps) {
                 id={`cfg-${c.key}`}
                 className={styles.input}
                 type="number"
+                min={MP_CONFIG_KEYS.has(c.key) ? "0" : "1"}
+                step={MP_CONFIG_KEYS.has(c.key) ? "0.001" : "1"}
                 value={cfgValues[c.key] ?? ""}
                 onChange={(e) => setCfgValues((prev) => ({ ...prev, [c.key]: e.target.value }))}
               />

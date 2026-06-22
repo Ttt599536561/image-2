@@ -3,6 +3,7 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useRouteLoaderData } from "react-router";
 import type { loader as appLoader } from "../../app/routes/_app";
+import { LedgerResponse, LotsResponse, RedemptionsResponse } from "../contracts/account";
 import { ConversationDetail, ConversationListResponse } from "../contracts/conversation";
 import { type ImageRange, ImagesResponse } from "../contracts/image";
 import { InspirationsResponse } from "../contracts/inspiration";
@@ -98,6 +99,30 @@ export function useInspirations(category: string, q: string, initialData?: Inspi
     queryFn: () => apiGet(s ? `/api/inspirations?${s}` : "/api/inspirations", InspirationsResponse),
     initialData: isDefault ? initialData : undefined,
     placeholderData: keepPreviousData,
+  });
+}
+
+// #8 账号页：积分批次 / 流水（可按类型筛）/ 兑换记录。均 owner-scoped server 读，无 SSR initialData（次级页按需拉）。
+export function useLots() {
+  return useQuery({
+    queryKey: ["lots"],
+    queryFn: () => apiGet("/api/account/lots", LotsResponse),
+  });
+}
+
+export function useLedger(type: string) {
+  const t = type && type !== "all" ? type : "";
+  return useQuery({
+    queryKey: ["ledger", t || "all"],
+    queryFn: () => apiGet(t ? `/api/account/ledger?type=${t}` : "/api/account/ledger", LedgerResponse),
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useRedemptions() {
+  return useQuery({
+    queryKey: ["redemptions"],
+    queryFn: () => apiGet("/api/account/redemptions", RedemptionsResponse),
   });
 }
 
