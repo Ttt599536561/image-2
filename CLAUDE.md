@@ -15,7 +15,7 @@
 - `docs/PROGRESS.md` — 现在做到哪、下一步、未决项、上次若中断从哪接。
 - `docs/prototypes/wireframes.html` — **全部页面/状态的低保真原型**（浏览器打开即看；研发照此开发**结构**）。`docs/prototypes/README.md` 是索引。
 - `docs/prototypes/design-system.html` — **UI 视觉风格 / 设计令牌真相源**（明暗两套 + 全部 token + 组件样例；研发取色/间距/圆角一律引其 CSS 变量。结构看 wireframes、风格看这里、行为看规格）。
-- `docs/dev/` — **v2 技术开发文档（研发照着写代码的蓝图）**：`README.md` 是索引 + 全局约定 + 4 铁律；`00`–`11` 共 12 章（栈/env·密钥、架构、DB DDL、钱链路、生图管线、鉴权、存储、API、前端、后台、cron·测试、目录·分期）+ **`PHASE2-PLAN.md`（阶段二施工清单：①–⑦ ✅ 全完成）** + **`PHASE3-PLAN.md`（阶段三「增强」施工清单·草拟待批）** + **`cost-reconciliation.md`（成本对账上线闸·铁律②，方法论+占位）**。**怎么写代码看这里；要做什么看规格、长什么样看原型**。
+- `docs/dev/` — **v2 技术开发文档（研发照着写代码的蓝图）**：`README.md` 是索引 + 全局约定 + 4 铁律；`00`–`11` 共 12 章（栈/env·密钥、架构、DB DDL、钱链路、生图管线、鉴权、存储、API、前端、后台、cron·测试、目录·分期）+ **`PHASE2-PLAN.md`（阶段二施工清单：①–⑦ ✅ 全完成）** + **`PHASE3-PLAN.md`（阶段三「增强」施工清单·草拟待批，P3-S1/S2 已先行）** + **`cost-reconciliation.md`（成本对账上线闸·铁律②，方法论+占位）** + **`local-acceptance.md`（本地验收/运行指南：`netlify dev`(8888) 跑通注册→登录→生图→兑换→后台 + 无界面 smoke 清单）**。**怎么写代码看这里；要做什么看规格、长什么样看原型**。
 - `docs/requirements.md`、`docs/development.md`、`docs/test-cases.md` — **v1 现状**（顶部都有 banner 指向 v2）。
 - `docs/superpowers/` — 最早的 v1 计划/设计，历史存档，别改。
 

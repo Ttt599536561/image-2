@@ -23,8 +23,9 @@
 
 > 📌 **施工计划（落地顺序/任务/外部依赖；00–11 是设计真相源）**：
 > - **[PHASE2-PLAN.md](PHASE2-PLAN.md) — 阶段二「账号+积分+存储」✅ 已完成**（①–⑦ 全勾，对真 Neon 验证，`phase2` 分支待签字合并 `main`）。
-> - **[PHASE3-PLAN.md](PHASE3-PLAN.md) — 阶段三「增强」施工清单（草拟·待站长批准）** ← 下一步从这份开工。
+> - **[PHASE3-PLAN.md](PHASE3-PLAN.md) — 阶段三「增强」施工清单（草拟·待批）**：P3-S1/S2 已先行（`phase3` 分支），余暂停待答 §0 开放问题。
 > - **[cost-reconciliation.md](cost-reconciliation.md) — 成本对账上线闸（铁律②）**：方法论 + 对账表占位（真·毛利数待上线灰度跑量后填，毛利>0 才放量）。
+> - **[local-acceptance.md](local-acceptance.md) — 本地验收/运行指南**：`netlify dev`(8888) 跑通注册→登录→生图→兑换→后台的人工验收手册 + 无界面 smoke 清单。
 
 ## 全文档共享约定（任何章节都默认遵守，不再重复声明）
 
