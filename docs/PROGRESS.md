@@ -15,27 +15,30 @@
 | 5 | **开发文档（技术设计文档）** | ✅ 定稿（docs/dev/，12 章；钱链路已签字） |
 | 6 | 阶段一 · 前端形态 | ✅ 完成并合并进 `main`（RR8 骨架 + 三栏壳 + 五态 + 灵感画廊 + 主题，mock 跑通并验证 + QA/走查打磨） |
 | 7 | 阶段二 · 账号+积分+存储 | ✅ **完成（①–⑦ 全做完并对真 Neon 验证）**：schema/迁移/seed + Better Auth + 预算熔断/入队三闸/抢占/⓪双守卫扣费/兑换/过期/调账/对账 + 3 生图端点 + ⑤前端接真(11 资源路由读+REST 写/auth/生成轮询/loader 换 mock/资产库批量/铃铛/限流) + ⑥后台(`/admin/*` 12 资源路由+8 server+`_admin` 6 页) + **⑦ 上线闸**(5 Scheduled cron+netlify.toml 错峰/可观测 sentry+alert/密钥断言+CI/Playwright @smoke/成本对账方法论)；**测试**：tsc 0·test:run 30·test:money 33·build 0·cron-smoke 27 + reads-smoke 25 + admin-smoke 27 全绿(对真 Neon)·assert-no-secrets PASS·客户端 0 密钥+0 schema 泄露·多代理对抗审查(cron 链路 6 维 14 agents，1 major 已修)。**成本对账真·毛利数待上线灰度 ≥200 张跑量后填（毛利>0 才放量）** |
-| 8 | 阶段三 · 增强 | ✅ 收官并合并 `main`（`51f2b0b` 快进）：P3-S1 框选 + P3-S2 搜索 + **P3-S4 灵感运营化** ✅；**P3-S6 优化提示词跳过**=中转无 chat 模型；S3 RBAC/S5 客服 360 不做=单管理员 |
+| 8 | 阶段三 · 增强 | ✅ 收官并合并 `main`（`51f2b0b`）：P3-S1 框选 + P3-S2 搜索 + P3-S4 灵感运营化；S6 跳过(中转无 chat 模型)、S3/S5 不做(单管理员) |
+| 9 | 阶段三+ · 验收反馈打磨（站长 20 条） | 🚧 进行中 → [PHASE3-FEEDBACK.md](dev/PHASE3-FEEDBACK.md)：**Wave A(8) ✅**；余 12=Wave B 图片操作 / C 新能力·后端 / D 大重构 ← **当前** |
 
-## 🆕 新会话从这接手（2026-06-22 末次会话状态）
-> 先读 [CLAUDE.md](../CLAUDE.md) → 本段 → [docs/dev/PHASE3-PLAN.md](dev/PHASE3-PLAN.md)。代码在 **`phase3` 分支**（从 `phase2`，从 `main`）。
+## 🆕 新会话从这接手（2026-06-22）
+> 顺序：[CLAUDE.md](../CLAUDE.md) → 本段 → **当前主线 [docs/dev/PHASE3-FEEDBACK.md](dev/PHASE3-FEEDBACK.md)**。代码在 **`main`**（v2 主体全部已合并）。
 
-**整体进度**：阶段二（①–⑦）全部完成。阶段三 P3-S1（资产高级筛选/框选）+ P3-S2（搜索）+ **P3-S4（灵感库运营化）** 已做完。**P3-S6（优化提示词）本会话跳过**——中转只配 `gpt-image-2`、无 chat 模型，站长拍板跳过（药丸保持占位）。**阶段三主线已清空，剩 `phase2`/`phase3` 合并 `main`（待站长发话）。** 本地验收已跑通并修了 3 个验收 bug + 写死了管理员；生图核心链路 live 验证通过。
+**整体进度**：v2 主体（阶段一壳 + 阶段二接真后端 + 阶段三增强 S1/S2/S4）全部完成并合并 `main`（`51f2b0b`）。S6 跳过（中转无 chat 模型）、S3/S5 不做（单管理员）。
 
-**本地怎么跑验收**（关键，见 [docs/dev/local-acceptance.md](dev/local-acceptance.md)）：
-- 用 **`netlify dev`（端口 8888）**，**不是** `npm run dev`。起前先 **`rm -rf build .netlify`**（否则服务旧构建→无样式）。`netlify-cli` 已装。
-- 管理员账号已写死：**`599536561@qq.com` / `fefc8389`**（凭据在 `.env` 的 `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD`，脚本 `scripts/seed-admin.ts`）。登录 `/login` → 后台 `/admin`。
+**当前主线 = 站长本地验收提的 20 条改进** → [PHASE3-FEEDBACK.md](dev/PHASE3-FEEDBACK.md)（4 决策已确认 + 逐项追踪）：
+- **Wave A（8 项 #2/#5/#6/#7/#10/#13/#15/#16）✅ 已完成**（commit `59a09c7`）。
+- **余 12 项**：Wave B 图片操作（#17/#18/#19/#20/#1）→ C 新能力·后端（#3 删会话 / #12 删生成记录硬删+清R2 / #9 输出格式 png·jpeg / #4 资产日期控件重做）→ D 大重构（#8 账号页重构 / #11 全局参数去毫积分 / #14 后台 UX 彻底分离）。
 
-**下一步该做什么**：
-1. ✅ ~~合并 `phase2`/`phase3` → `main`~~ **已完成**（2026-06-22 快进合并，`main`=`51f2b0b`==`phase3`，33 commits[phase2 ①–⑦ + phase3 S1/S2/S4]带入；本地仓无 remote、未 push；`phase2`/`phase3`/`phase1-frontend` 分支保留作里程碑）。**阶段三收官、阶段二全部进 main。**
-2. （若中转日后开 chat 渠道）再单独做 **P3-S6 优化提示词**：先跑 `node --env-file=.env --import tsx scripts/relay-chat-probe.ts` 确认可用模型名 → 按 [PHASE3-PLAN §6](dev/PHASE3-PLAN.md) 原计划落地（端点 requireUserStrict + 复用 rateLimit + env 可配模型 + 脱敏失败归一 + 覆盖输入框不弹确认）。
-3. 上线前置（非编码）：成本对账真·毛利数（站长已对账确认 OK）、可选配 `SENTRY_DSN`/`ADMIN_ALERT_WEBHOOK`（缺则 no-op）。
-- ~~全局中转并发闸~~ → **不做**（站长：中转并发足够；验收超时是同会话内我并发跑诊断挤的，单人不复现）。
-- ~~成本对账真·毛利数~~ → **站长已对账确认 OK**。
+**本地怎么跑**（见 [local-acceptance.md](dev/local-acceptance.md)）：
+- **`netlify dev`（8888）**，**不是** `npm run dev`。起前先 **`rm -rf build .netlify`**、`[dev]` 不设 framework（否则无样式）。
+- 管理员 **`599536561@qq.com` / `fefc8389`**（凭据在 `.env`，`scripts/seed-admin.ts`）。
+- ⚠️ **本机 Bash coreutils 偶发缺失（sleep/seq/tail）→ 跑 npm/长命令用 PowerShell**。会话 cookie 可经 `auth.api.signInEmail({asResponse:true})` 服务端铸造做 HTTP QA（绕路由层限流）。
 
-**测试基线**：tsc 0·test:run 53·test:money 33·build 0·assert-no-secrets PASS·cron/reads/admin/search/**inspirations** smoke 全绿（对真 Neon）·灵感库 `netlify dev` live 15/15。
+**测试基线**：tsc 0·test:run 53·test:money 33·build 0·assert-no-secrets PASS·cron/reads/admin/search/inspirations smoke 全绿（对真 Neon）。
 
-## 当前状态
+**待上线（非编码）**：成本对账真·毛利数（站长已确认 OK）、可选配 `SENTRY_DSN`/`ADMIN_ALERT_WEBHOOK`（缺则 no-op）；P3-S6 待中转开 chat 渠道（复跑 `scripts/relay-chat-probe.ts`）。本地仓无 remote、未 push。
+
+## 历史归档（阶段一~三建设详情 · 当前状态看上方「🆕 新会话从这接手」，此段不必逐字读）
+> 以下为逐阶段建设纪要，留作追溯；逐项也在 git log + 各 PLAN 文件。新会话只需读上方接手段 + [PHASE3-FEEDBACK.md](dev/PHASE3-FEEDBACK.md)。
+
 **需求 + 低保真原型（含 6 个二级页）+ UI 视觉风格 + 技术选型 + 开发文档（技术设计文档）均已定稿。** UI 风格落 `docs/prototypes/design-system.html`（同步进 §17）；二级页线框补齐进 `wireframes.html`（共 21 节）；**技术选型已锁定**（见下方独立条目）；**开发文档已定稿** → `docs/dev/`（README 索引 + `00`–`11` 共 12 章），经**三轮**多代理审查（① 起草+对抗校验 → ② 单一真相源裁决修订 + 全局终审 → ③ 正确性/完整性对抗审查，3 blocker + 一批 major 全修）跨章口径收敛一致；**钱链路（03/04）已逐条向站长导读并签字**（成功才扣的慢图代价 D、预算软/硬闸过冲 E/F、callRelay 软超时+主备 Base G、adjust 红线 H 均经确认）。**阶段一已全部完成**：slice 1（铁律④·修 v1 真后台 + 代理读 env key + 全链路删 apiKey）+ **前端形态主体均已落地并验证**。前端形态主体把 v1 双栏 SPA 重构为 **React Router 8 framework 模式（SSR）** 的对话式三栏壳：`tokens.css` 落地 design-system（明/暗 + 不反相 `--cosmic-*`）；侧栏(nav+最近) ｜ 对话+Composer ｜ 「本次·N」面板（≥1024 常驻/<1024 抽屉/<768 折叠）；**Composer 五态**（欢迎/生成中=宇宙星空动效+`生成中 M:SS`/成功=成品图+5 操作/失败=504+未扣已退+重试/积分不足=拦截去充值）；尺寸 6 档 + 高级设置（质量/背景）药丸；灵感画廊（封面瀑布流+一键带回）；深色/暖色 cookie 主题（SSR 无闪烁）；全局 Lightbox/Toast/Skeleton；次级页 mock 占位（/billing 做实兑换）。**账号/积分全 mock**，未接 Neon/Better Auth/R2（阶段二）。**验证**：vitest 42/42、`react-router typegen && tsc` 0、`react-router build` 通过；preview 工具逐态实测（提交→星空→成功扣 0.07、失败未扣、积分不足拦截→/billing、兑换 +10「积分到账」、主题切换、lightbox、灵感带回均通过）。**git 隔离**：环境非 git 仓库且 worktree 工具不可用 → 改用 `git init` + `main`(v1 基线 8667d04) + `phase1-frontend` 分支隔离。**阶段一已签字并快进合并进 `main`（`4f81022`）**，`phase1-frontend` 分支作里程碑标记保留（同一提交）。**阶段二施工计划已批准并落库** → [docs/dev/PHASE2-PLAN.md](dev/PHASE2-PLAN.md)（7 阶段可勾选清单 + 钱链路红线 + 外部密钥清单 §0；基于 5 路多代理精读 docs/dev 02–11 综合）。**阶段二已开工（`phase2` 分支，从 `main`）：① 地基 + ② 鉴权已完成并对真 Neon 验证**（迁移/13 表/7-7 索引谓词/FOR UPDATE/seed 幂等 + Better Auth 注册→送 140mp 幂等；tsc 0·vitest 45·build 绿·客户端 0 泄露 + 多轮多代理对抗校验，修真库 42P08）。**Neon 已开通**（站长给 direct 串，存 `.env` 已 gitignore；用 `node --env-file=.env …` 跑迁移/seed/`scripts/*`）；**R2/中转/告警密钥待开通**（仅 ④ 落图/生图与 ① putToR2 往返需要，**不挡 ③**）。**③ 钱链路（命门）已完成并对真 Neon 验证**：8 个文件（budget 软闸+硬上限 TOCTOU / enqueue 三闸 / preempt 抢占 / debit ⓪双守卫+FIFO / redeem 原子核销+首兑顺延 / expire 幂等 / adjust 同事务动 lots+余额+audit / reconcile 对账）；**28 例真库测试全绿**（`tests/money/`，10 文件，`npm run test:money`，`Promise.all` 真并发/重入）；**多代理对抗审查**（7 维并行 + 逐条证伪，0 blocker / 1 confirmed major 已修：adjust 减额漏过滤已过期批次→会被对账 cron 反转抵消，补 `AND (expires_at IS NULL OR expires_at>now())` + 同步修 09 §10.3 规格示例 + 加端到端回归）；tsc 0·vitest 45·build。**下一步：阶段二 ④ 生图管线 + API 接真**——generate* 真后台(同步入队→`-background` 抢占→callRelay→putToR2→debit)/DB-as-queue/6 值归一/限流/前端接真，**需 R2 + 中转密钥**（§0）才能跑通落图/生图往返。随后 ⑤ 前端接真 → ⑥ 后台 → ⑦ cron/可观测/CI(密钥断言+每 PR Neon test branch)/成本对账上线闸。**①–⑥ 已全部完成（⑤ 前端接真 commit `76dcad5`、⑥ 后台 `fa2a4e9`/`520837a`/`9ad4822`）；下一步 = ⑦（最后一阶段·上线闸）。新对话接手顺序：CLAUDE.md → 本文件 → [docs/dev/PHASE2-PLAN.md](dev/PHASE2-PLAN.md) §7 → docs/dev/10(cron·可观测·测试·主)/04(管线超时重扫)/03(过期·对账)/06(清图保留期)/07(通知)；进度勾选只在 PHASE2-PLAN §1–§7 + 本文件维护。**
 
 > **阶段一前端落地要点（研发须知）**：① **栈用 RR8 不是 RR7**——RR7(7.x) 仅支持 vite≤7，而本仓 vite 已是 8.0.11（v1 42 测试基线），RR8.0.1 的 framework 模式与 RR7 同构（loader/action/SSR/`routes.ts`/`+types`/`react-router.config.ts`），且原生支持 vite 8，故用 RR8 + `@netlify/vite-plugin-react-router@4`（React 钉到 19.2.7 满足 RR8 peer）；docs/dev 文中「RR7」即指 framework 模式，版本以此为准。② **vitest 与 RR 插件分离**：`vitest.config.ts` 只挂 `@vitejs/plugin-react`，不加 `reactRouter()`（同时加载冲突）。③ **目录**：`app/`(root+routes+路由模块) + `src/`(components/hooks/lib/mocks/contracts/styles/server)，与 11 §12.1 一致；mock 客户端态在 `src/mocks/store.tsx`(MockProvider)，job 轮询 hook 在 `src/hooks/`。④ **短轮询 `refetchIntervalInBackground:true`**（比 08 §9.3 示例的 false 更贴合「提交后切走等结果」，且修复隐藏标签页不轮询）。⑤ 删了 v1 SPA 入口（index.html/main.tsx/App.tsx/styles.css/GeneratorForm/ResultPanel）；`src/lib/storage.ts` **保留**（`imageProxy.ts` 仍依赖其 `DEFAULT_API_CONFIG`，阶段二随真生成链路再清模型 localStorage 残留）。⑥ preview 截图工具对 vite dev（HMR 长连不 idle）超时，故用 snapshot + eval 驱动逐态验证。⑦ **已做一轮多代理 QA 体检（39 项）并修复**：尺寸浮层改向下弹（欢迎态不再遮标题）+ 选项内描边环零回流不溢出、充值套餐卡可点选中（陶土环，默认推荐档）、灵感跨路由带回走受控 gating、抽屉/弹窗统一锁背景滚动 + ESC、本次面板 <768 底部抽屉、三栏列改 CSS 门控消除水合闪烁、z-index 统一令牌（toast 恒在 lightbox 上）、通知铃铛改占位、删 storage 死代码（保留 DEFAULT_API_CONFIG）等；唯一驳回：放宽兑换码正则（dev 文档锁 18 位去 I/L/O，现状已符）。vitest 45/45。⑧ **两轮站长走查反馈已并入并验收**：尺寸浮层向下弹（欢迎态不遮标题）+ 选项内描边环、充值套餐卡可点选中、账号信息改**只读「标签+值」横排**（非输入框、邮箱不断词）、高级设置选完即关浮层（与尺寸一致）、灵感「用此提示词」不再弹「替换当前输入?」、删演示码提示；并按 **Apple HIG「在用户操作处反馈」**把表单校验（改密/兑换）从右上角 toast 改为**表单内联**、瞬时 toast 从右上角移到**顶部居中**。vitest 45/45、tsc 0、build 通过、preview 逐项实测。
