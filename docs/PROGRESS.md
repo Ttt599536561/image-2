@@ -15,7 +15,7 @@
 | 5 | **开发文档（技术设计文档）** | ✅ 定稿（docs/dev/，12 章；钱链路已签字） |
 | 6 | 阶段一 · 前端形态 | ✅ 完成并合并进 `main`（RR8 骨架 + 三栏壳 + 五态 + 灵感画廊 + 主题，mock 跑通并验证 + QA/走查打磨） |
 | 7 | 阶段二 · 账号+积分+存储 | ✅ **完成（①–⑦ 全做完并对真 Neon 验证）**：schema/迁移/seed + Better Auth + 预算熔断/入队三闸/抢占/⓪双守卫扣费/兑换/过期/调账/对账 + 3 生图端点 + ⑤前端接真(11 资源路由读+REST 写/auth/生成轮询/loader 换 mock/资产库批量/铃铛/限流) + ⑥后台(`/admin/*` 12 资源路由+8 server+`_admin` 6 页) + **⑦ 上线闸**(5 Scheduled cron+netlify.toml 错峰/可观测 sentry+alert/密钥断言+CI/Playwright @smoke/成本对账方法论)；**测试**：tsc 0·test:run 30·test:money 33·build 0·cron-smoke 27 + reads-smoke 25 + admin-smoke 27 全绿(对真 Neon)·assert-no-secrets PASS·客户端 0 密钥+0 schema 泄露·多代理对抗审查(cron 链路 6 维 14 agents，1 major 已修)。**成本对账真·毛利数待上线灰度 ≥200 张跑量后填（毛利>0 才放量）** |
-| 8 | 阶段三 · 增强 | 🚧 收尾（P3-S1 框选 + P3-S2 搜索 + **P3-S4 灵感运营化** ✅；**P3-S6 优化提示词跳过**=中转无 chat 模型；S3 RBAC/S5 客服 360 不做=单管理员）→ **剩合并 main** |
+| 8 | 阶段三 · 增强 | ✅ 收官并合并 `main`（`51f2b0b` 快进）：P3-S1 框选 + P3-S2 搜索 + **P3-S4 灵感运营化** ✅；**P3-S6 优化提示词跳过**=中转无 chat 模型；S3 RBAC/S5 客服 360 不做=单管理员 |
 
 ## 🆕 新会话从这接手（2026-06-22 末次会话状态）
 > 先读 [CLAUDE.md](../CLAUDE.md) → 本段 → [docs/dev/PHASE3-PLAN.md](dev/PHASE3-PLAN.md)。代码在 **`phase3` 分支**（从 `phase2`，从 `main`）。
@@ -27,8 +27,9 @@
 - 管理员账号已写死：**`599536561@qq.com` / `fefc8389`**（凭据在 `.env` 的 `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD`，脚本 `scripts/seed-admin.ts`）。登录 `/login` → 后台 `/admin`。
 
 **下一步该做什么**：
-1. **合并 `phase2`/`phase3` → `main`**（快进，待站长发话）← **唯一剩余主线**（S4 已完成、S6 阻塞跳过、S3/S5 不做）。
+1. ✅ ~~合并 `phase2`/`phase3` → `main`~~ **已完成**（2026-06-22 快进合并，`main`=`51f2b0b`==`phase3`，33 commits[phase2 ①–⑦ + phase3 S1/S2/S4]带入；本地仓无 remote、未 push；`phase2`/`phase3`/`phase1-frontend` 分支保留作里程碑）。**阶段三收官、阶段二全部进 main。**
 2. （若中转日后开 chat 渠道）再单独做 **P3-S6 优化提示词**：先跑 `node --env-file=.env --import tsx scripts/relay-chat-probe.ts` 确认可用模型名 → 按 [PHASE3-PLAN §6](dev/PHASE3-PLAN.md) 原计划落地（端点 requireUserStrict + 复用 rateLimit + env 可配模型 + 脱敏失败归一 + 覆盖输入框不弹确认）。
+3. 上线前置（非编码）：成本对账真·毛利数（站长已对账确认 OK）、可选配 `SENTRY_DSN`/`ADMIN_ALERT_WEBHOOK`（缺则 no-op）。
 - ~~全局中转并发闸~~ → **不做**（站长：中转并发足够；验收超时是同会话内我并发跑诊断挤的，单人不复现）。
 - ~~成本对账真·毛利数~~ → **站长已对账确认 OK**。
 
