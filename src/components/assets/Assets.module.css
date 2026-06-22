@@ -74,50 +74,13 @@
   color: var(--text-tertiary);
 }
 
-/* —— 自定义日期区间（§24-8）—— */
+/* —— 自定义日期区间（§24-8）：控件本体在 DateRangePicker.module.css，此处仅容器 —— */
 .customRow {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   flex-wrap: wrap;
-  margin: calc(var(--space-5) * -1 + var(--space-1)) 0 var(--space-5);
-  padding: var(--space-2) var(--space-3);
-  background: var(--bg-subtle);
-  border-radius: var(--radius-md);
-}
-.dateLabel {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-.dateInput {
-  height: 30px;
-  padding: 0 var(--space-2);
-  border-radius: var(--radius-sm);
-  border: 0.5px solid var(--border-strong);
-  background: var(--bg-surface);
-  color: var(--text-primary);
-  font-size: 12px;
-  font-family: inherit;
-}
-.dateSep {
-  color: var(--text-tertiary);
-  font-size: 12px;
-}
-.clearBtn {
-  margin-left: auto;
-  padding: var(--space-1) var(--space-3);
-  border-radius: var(--radius-full);
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 12px;
-  cursor: pointer;
-}
-.clearBtn:hover {
-  color: var(--text-primary);
+  margin: calc(var(--space-3) * -1) 0 var(--space-4);
 }
 
 /* —— 框选区域 + 选择矩形（桌面鼠标增强）—— */

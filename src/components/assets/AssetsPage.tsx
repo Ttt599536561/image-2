@@ -10,6 +10,7 @@ import { downloadImage, imageFilename } from "../../lib/download";
 import { dateGroupLabel } from "../../lib/format";
 import { downloadImagesAsZip, exportZipName } from "../../lib/zip";
 import { ConfirmDialog } from "../ConfirmDialog/ConfirmDialog";
+import { DateRangePicker } from "./DateRangePicker";
 import { useLightbox } from "../Lightbox/LightboxProvider";
 import { useShell } from "../shell/ShellContext";
 import { TopBar } from "../shell/TopBar";
@@ -270,34 +271,17 @@ export function AssetsPage({ initialImages }: { initialImages?: ImagesResponse }
 
           {isCustom ? (
             <div className={styles.customRow}>
-              <label className={styles.dateLabel}>
-                从
-                <input
-                  type="date"
-                  className={styles.dateInput}
-                  value={customFrom}
-                  min={minDate}
-                  max={customTo || maxDate}
-                  onChange={(e) => setCustomFrom(e.target.value)}
-                />
-              </label>
-              <span className={styles.dateSep}>—</span>
-              <label className={styles.dateLabel}>
-                到
-                <input
-                  type="date"
-                  className={styles.dateInput}
-                  value={customTo}
-                  min={customFrom || minDate}
-                  max={maxDate}
-                  onChange={(e) => setCustomTo(e.target.value)}
-                />
-              </label>
-              {customFrom || customTo ? (
-                <button type="button" className={styles.clearBtn} onClick={clearCustom}>
-                  清除
-                </button>
-              ) : null}
+              <DateRangePicker
+                from={customFrom}
+                to={customTo}
+                min={minDate}
+                max={maxDate}
+                onChange={(f, t) => {
+                  setCustomFrom(f);
+                  setCustomTo(t);
+                }}
+                onClear={clearCustom}
+              />
             </div>
           ) : null}
 

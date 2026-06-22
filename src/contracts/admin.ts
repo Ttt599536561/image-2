@@ -107,3 +107,19 @@ export const InspirationAction = z.discriminatedUnion("op", [
   ReorderInspAction,
 ]);
 export type InspirationAction = z.infer<typeof InspirationAction>;
+
+// ===================== 生成记录删除（#12 硬删 + 清 R2，单删/批删）=====================
+// 账本（credit_ledger）保留：对账走 credit_lots，不受删除影响。
+export const DeleteGenerationAction = z.object({
+  op: z.literal("delete_generation"),
+  id: z.uuid(),
+});
+export const DeleteGenerationsBatchAction = z.object({
+  op: z.literal("delete_generations_batch"),
+  ids: z.array(z.uuid()).min(1).max(200), // 软上限防超大事务
+});
+export const GenerationAction = z.discriminatedUnion("op", [
+  DeleteGenerationAction,
+  DeleteGenerationsBatchAction,
+]);
+export type GenerationAction = z.infer<typeof GenerationAction>;

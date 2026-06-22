@@ -1,0 +1,187 @@
+/* #4：自定义日期区间控件（替原生 date input）。贴 tokens，明暗自适应。 */
+.wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 34px;
+  padding: 0 var(--space-2) 0 var(--space-3);
+  border: 0.5px solid var(--border-strong);
+  border-radius: var(--radius-full);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+.trigger:hover {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+}
+.triggerSet {
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+.triggerLabel {
+  white-space: nowrap;
+}
+.triggerClear {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-full);
+  color: var(--text-tertiary);
+}
+.triggerClear:hover {
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+}
+
+/* —— 浮层日历 —— */
+.popover {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  left: 0;
+  z-index: var(--z-popover);
+  width: 280px;
+  padding: var(--space-3);
+  background: var(--bg-surface);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+}
+
+.calHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+.monthLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.navBtn {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.navBtn:hover:not(:disabled) {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+}
+.navBtn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.weekRow,
+.grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+.weekCell {
+  display: grid;
+  place-items: center;
+  height: 28px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.pad {
+  height: 32px;
+}
+.day {
+  display: grid;
+  place-items: center;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+.day:hover:not(:disabled) {
+  background: var(--bg-subtle);
+}
+.day:disabled {
+  color: var(--text-tertiary);
+  opacity: 0.4;
+  cursor: default;
+}
+/* 区间内：陶土淡底 */
+.dayIn {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-radius: 0;
+}
+/* 起点 / 终点：陶土实心 */
+.dayStart,
+.dayEnd {
+  background: var(--accent);
+  color: var(--primary-fg);
+}
+.dayStart:hover:not(:disabled),
+.dayEnd:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+.dayStart {
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+.dayEnd {
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 0.5px solid var(--border-subtle);
+}
+.footerHint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+.footerClear {
+  flex: 0 0 auto;
+  padding: var(--space-1) var(--space-3);
+  border: none;
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+.footerClear:hover {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .trigger,
+  .navBtn,
+  .day {
+    transition: none;
+  }
+}

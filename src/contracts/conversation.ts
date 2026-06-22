@@ -54,3 +54,7 @@ export type ConversationDetail = z.infer<typeof ConversationDetail>;
 
 export const RenameRequest = z.object({ title: z.string().min(1).max(200) });
 export type RenameRequest = z.infer<typeof RenameRequest>;
+
+// #3 删除会话（owner-scoped，不可恢复；级联 generations→images + 尽力删 R2）。
+export const ConversationDeleteResponse = z.object({ deleted: z.number().int() });
+export type ConversationDeleteResponse = z.infer<typeof ConversationDeleteResponse>;

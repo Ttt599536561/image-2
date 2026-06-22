@@ -1,9 +1,14 @@
-import { Image as ImageIcon, Lightbulb, Plus, Search, Sparkles, User } from "lucide-react";
+import { Image as ImageIcon, Lightbulb, Plus, Search, Sparkles, Trash2, User } from "lucide-react";
 import { useEffect, useState } from "react";
-import { NavLink, useNavigate } from "react-router";
+import { NavLink, useLocation, useNavigate } from "react-router";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { ConversationDeleteResponse } from "../../contracts/conversation";
 import { useConversations, useMe } from "../../hooks/queries";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
+import { apiDelete } from "../../lib/api-client";
 import { useLockBodyScroll } from "../../lib/useLockBodyScroll";
+import { ConfirmDialog } from "../ConfirmDialog/ConfirmDialog";
+import { useToast } from "../Toast/ToastProvider";
 import styles from "./Sidebar.module.css";
 
 export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: () => void }) {
@@ -13,6 +18,29 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
   const searching = debouncedQuery.length > 0;
   const conversations = useConversations(debouncedQuery).data?.items ?? [];
   const navigate = useNavigate();
+  const location = useLocation();
+  const qc = useQueryClient();
+  const toast = useToast();
+
+  // #3 删除会话二次确认
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; title: string } | null>(null);
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) =>
+      apiDelete(`/api/conversations/${id}`, undefined, ConversationDeleteResponse),
+    onSuccess: (_res, id) => {
+      qc.invalidateQueries({ queryKey: ["conversations"] });
+      qc.removeQueries({ queryKey: ["conversation", id] });
+      // 若正看着被删会话，回到新建态
+      if (location.pathname === `/c/${id}`) navigate("/");
+      setPendingDelete(null);
+      toast.success("会话已删除");
+    },
+    onError: () => {
+      setPendingDelete(null);
+      toast.error("删除失败，请重试");
+    },
+  });
 
   // 移动端抽屉：锁背景滚动 + ESC 关闭
   useLockBodyScroll(open);
@@ -68,17 +96,31 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
           </div>
         ) : (
           conversations.map((c) => (
-            <NavLink
-              key={c.id}
-              to={`/c/${c.id}`}
-              onClick={onClose}
-              className={({ isActive }) =>
-                `${styles.recentItem} ${isActive ? styles.recentActive : ""}`
-              }
-              title={c.title}
-            >
-              {c.title}
-            </NavLink>
+            <div key={c.id} className={styles.recentRow}>
+              <NavLink
+                to={`/c/${c.id}`}
+                onClick={onClose}
+                className={({ isActive }) =>
+                  `${styles.recentItem} ${isActive ? styles.recentActive : ""}`
+                }
+                title={c.title}
+              >
+                {c.title || "未命名对话"}
+              </NavLink>
+              <button
+                type="button"
+                className={styles.recentDelete}
+                aria-label={`删除会话：${c.title || "未命名对话"}`}
+                title="删除会话"
+                onClick={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setPendingDelete({ id: c.id, title: c.title || "未命名对话" });
+                }}
+              >
+                <Trash2 size={14} />
+              </button>
+            </div>
           ))
         )}
 
@@ -106,6 +148,21 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
           <span className={styles.accountEmail}>{me.data?.user.email ?? ""}</span>
         </NavLink>
       </aside>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        danger
+        title="删除该会话？"
+        message={
+          pendingDelete
+            ? `「${pendingDelete.title}」及其全部生成图将被永久删除，不可恢复。`
+            : undefined
+        }
+        confirmLabel="删除"
+        busy={deleteMutation.isPending}
+        onConfirm={() => pendingDelete && deleteMutation.mutate(pendingDelete.id)}
+        onCancel={() => setPendingDelete(null)}
+      />
     </>
   );
 }

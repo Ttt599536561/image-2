@@ -124,6 +124,35 @@ export async function loadConversationDetail(userId: string, id: string): Promis
   };
 }
 
+/**
+ * #3 删除会话（owner-scoped，不可恢复）。先取其下全部图的 storage_key（DELETE 级联后行就没了），
+ * 再删会话（DB 级联 generations→images），最后尽力删 Supabase 对象（失败留孤儿由清理 cron 兜底）。
+ * 账本（credit_ledger）按设计保留（只追加；对账走 credit_lots，不受影响）。
+ */
+export async function deleteConversations(userId: string, ids: string[]): Promise<{ deleted: number }> {
+  if (ids.length === 0) return { deleted: 0 };
+  const sql = getSql();
+  // 级联删除前先抓 R2 keys（owner-scoped）。
+  const keyRows = (await sql`
+    SELECT i.storage_key FROM images i
+    JOIN generations g ON g.id = i.generation_id
+    WHERE i.user_id = ${userId} AND g.conversation_id = ANY(${ids}::uuid[])`) as Row[];
+  const keys = keyRows.map((r) => r.storage_key as string).filter(Boolean);
+  const rows = (await sql`
+    DELETE FROM conversations WHERE user_id = ${userId} AND id = ANY(${ids}::uuid[])
+    RETURNING id`) as Row[];
+  if (keys.length > 0) {
+    try {
+      const failed = await deleteManyFromR2(keys);
+      if (failed.length > 0)
+        console.error("[deleteConversations] R2 删除部分失败（孤儿由清理 cron 兜底）", failed.length);
+    } catch (e) {
+      console.error("[deleteConversations] R2 删除异常（DB 行已删，孤儿由清理 cron 兜底）", e);
+    }
+  }
+  return { deleted: rows.length };
+}
+
 // ===================== /api/images（资产库，日期筛选 + 分页） =====================
 function rangeLowerBound(range: ImageRange | undefined, from: string | undefined): string | null {
   switch (range) {

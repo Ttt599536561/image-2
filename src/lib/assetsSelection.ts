@@ -25,3 +25,53 @@ export function expiringInDays(expiresAt: string | null, now: number = Date.now(
 export function dayStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+
+// ===================== 自定义日期区间控件（#4）纯逻辑 =====================
+// YYYY-MM-DD 同格式字符串可直接字典序比较 = 时间序比较，故区间判定无需 Date。
+
+/** 解析 YYYY-MM-DD → {y,m,d}（m 为 1-12）；非法返回 null。 */
+export function parseDay(s: string): { y: number; m: number; d: number } | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return null;
+  return { y: Number(m[1]), m: Number(m[2]), d: Number(m[3]) };
+}
+
+/** {y,m1,d} → YYYY-MM-DD（m1 为 1-12）。 */
+export function fmtDay(y: number, m1: number, d: number): string {
+  return `${y}-${String(m1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
+
+/**
+ * 该月日历网格（按周日起，长度补足为 7 的倍数）。
+ * 每格为 YYYY-MM-DD，月首前/月末后的补位为 null。year + month1(1-12)。
+ */
+export function monthGrid(year: number, month1: number): (string | null)[] {
+  const startDow = new Date(year, month1 - 1, 1).getDay(); // 0=周日
+  const daysInMonth = new Date(year, month1, 0).getDate();
+  const cells: (string | null)[] = [];
+  for (let i = 0; i < startDow; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(fmtDay(year, month1, d));
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
+
+/** 月份步进（month1 为 1-12，可正负），返回 {year, month1}。 */
+export function stepMonth(year: number, month1: number, delta: number): { year: number; month1: number } {
+  const idx = (year * 12 + (month1 - 1)) + delta;
+  return { year: Math.floor(idx / 12), month1: (idx % 12) + 1 };
+}
+
+/** ymd 是否落在 [min,max] 闭区间内（任一边界空=不限）。同格式字典序比较。 */
+export function dayInBounds(ymd: string, min?: string, max?: string): boolean {
+  if (min && ymd < min) return false;
+  if (max && ymd > max) return false;
+  return true;
+}
+
+/** 区间态：start=区间起点，end=区间终点，in=严格之间，none=不在区间。 */
+export function rangeState(ymd: string, from: string, to: string): "start" | "end" | "in" | "none" {
+  if (from && ymd === from) return "start";
+  if (to && ymd === to) return "end";
+  if (from && to && ymd > from && ymd < to) return "in";
+  return "none";
+}

@@ -1,6 +1,9 @@
 // ★server-only：后台生成记录列表（09 §10.5，纯记录、不做收录）。默认近 7 天/50 条/倒序；失败行直显三列。
+// #12 硬删：级联 images + 清 R2，单删/批删，写审计；账本保留（对账走 credit_lots，不受影响）。
 import { getSql } from "../../db/db.server";
+import { deleteManyFromR2 } from "../r2.server";
 import { toInt } from "../sumCodec";
+import { writeAuditHttp } from "./audit.server";
 
 type Row = Record<string, unknown>;
 
@@ -73,4 +76,42 @@ export async function listGenerations(args: {
     page,
     pageSize,
   };
+}
+
+/**
+ * #12 后台硬删生成记录（级联 images + 清 R2）。admin 可删任意用户记录（按设计无 owner-scope）；
+ * 先抓 R2 keys 再 DELETE（级联 images），最后尽力删对象（失败留孤儿由清理 cron 兜底）。
+ * 账本保留（credit_ledger 只追加；对账以 credit_lots 为准，不受影响）。返回真实删除行数。
+ */
+export async function deleteGenerations(args: {
+  adminId: string;
+  ids: string[];
+  ip?: string | null;
+}): Promise<{ deleted: number }> {
+  if (args.ids.length === 0) return { deleted: 0 };
+  const sql = getSql();
+  // 级联删前抓 R2 keys（images.generation_id 唯一，每条最多 1 图）。
+  const keyRows = (await sql`
+    SELECT storage_key FROM images WHERE generation_id = ANY(${args.ids}::uuid[])`) as Row[];
+  const keys = keyRows.map((r) => r.storage_key as string).filter(Boolean);
+  const rows = (await sql`
+    DELETE FROM generations WHERE id = ANY(${args.ids}::uuid[]) RETURNING id`) as Row[];
+  if (keys.length > 0) {
+    try {
+      const failed = await deleteManyFromR2(keys);
+      if (failed.length > 0)
+        console.error("[deleteGenerations] R2 删除部分失败（孤儿由清理 cron 兜底）", failed.length);
+    } catch (e) {
+      console.error("[deleteGenerations] R2 删除异常（DB 行已删，孤儿由清理 cron 兜底）", e);
+    }
+  }
+  await writeAuditHttp({
+    adminId: args.adminId,
+    action: args.ids.length > 1 ? "delete_generations_batch" : "delete_generation",
+    targetType: "generation",
+    targetId: args.ids.length === 1 ? args.ids[0] : null,
+    after: { requested: args.ids.length, deleted: rows.length, images: keys.length },
+    ip: args.ip ?? null,
+  });
+  return { deleted: rows.length };
 }
