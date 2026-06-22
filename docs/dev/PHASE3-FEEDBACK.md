@@ -17,12 +17,12 @@
 - [x] ~~#15 Composer/比例/分辨率 + 右面板随滚动跑掉~~ → `Shell.module.css` `.shell` height:100dvh+overflow:hidden、`.main` min-height:0 → 内部 .flow/面板各自滚动，四周固定
 - [x] ~~#16 顶部「当前对话」标题随滚动~~ → 同上（TopBar 随 shell 定高固定）
 
-## Wave B · 图片操作
-- [ ] #17 本次面板「下载」实际只放大、没真下载 → 修为真下载
-- [ ] #18 本次面板每张图直接可下载（不用先点放大）
-- [ ] #19 所有生图加「复制到剪贴板」按钮（复制图片 blob）
-- [ ] #20 下载按钮移到图右下角；原下载位置换成复制；本次面板每张图下方复制 + 右下角下载
-- [ ] #1 灵感卡点击放大（lightbox）+ 放大后文字仍悬浮图上（高级视觉）
+## Wave B · 图片操作 ✅ 完成（commit 待填）
+- [x] ~~#17 本次面板「下载」实际只放大、没真下载~~ → **根因=跨域 Supabase 公链下 `<a download>` 被浏览器忽略只会开新标签**；`lib/download.ts downloadImage` 改 fetch→blob→objectURL 真下载（失败回退直链），lightbox 下载键同改（原 `<a download>` → 真下载按钮）
+- [x] ~~#18 本次面板每张图直接可下载~~ → 每图右下角悬浮下载键（点图仍可放大）
+- [x] ~~#19 所有生图加「复制到剪贴板」~~ → 新增 `copyImageToClipboard`（fetch blob→非 png 经 canvas 转码→`ClipboardItem(Promise<Blob>)` 保 Safari 手势激活）；成功态/本次面板/lightbox 均加「复制图片」+ toast
+- [x] ~~#20 下载移图右下角、原位换复制~~ → 成功态：图右下角悬浮下载 + actionBar 首键改「复制图片」（提示词复制改 ClipboardCopy 图标避撞）；本次面板：每图右下角下载 + 图下方「复制」
+- [x] ~~#1 灵感卡点击放大 + 文字悬浮~~ → Lightbox 扩 `open(src,filename?,{caption,showActions})`；灵感卡封面/渐变区点击放大（「用此提示词」阻止冒泡），放大后标题/摘要/用此提示词悬浮图上（陶土按钮，showActions:false 不显下载/复制）
 
 ## Wave C · 新能力/后端
 - [ ] #3 左栏「最近」会话支持删除（新增 owner-scoped 删会话端点 + 级联 + R2 + 前端确认）

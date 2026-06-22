@@ -1,5 +1,15 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Bookmark, Check, Copy, Download, FileText, RefreshCw, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Bookmark,
+  Check,
+  ClipboardCopy,
+  Copy,
+  Download,
+  FileText,
+  RefreshCw,
+  X,
+} from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import type { ConversationDetail, ConversationGeneration } from "../../contracts/conversation";
@@ -11,7 +21,7 @@ import { useGenerationStatus } from "../../hooks/useGenerationStatus";
 import { useConversationDetail, useMe } from "../../hooks/queries";
 import { apiPost } from "../../lib/api-client";
 import { PRICE_PER_IMAGE_MP } from "../../lib/credits";
-import { downloadImage, imageFilename } from "../../lib/download";
+import { copyImageToClipboard, downloadImage, imageFilename } from "../../lib/download";
 import { redactText } from "../../lib/redaction";
 import { useLockBodyScroll } from "../../lib/useLockBodyScroll";
 import { useMediaQuery } from "../../lib/useMediaQuery";
@@ -229,8 +239,16 @@ export function ConversationView({
 
   const copyPrompt = (prompt: string) => {
     navigator.clipboard?.writeText(prompt).then(
-      () => toast.success("已复制"),
+      () => toast.success("已复制提示词"),
       () => toast.error("复制失败"),
+    );
+  };
+
+  // #19：复制图片本身（blob）到剪贴板，不是复制链接。
+  const copyImage = (url: string) => {
+    copyImageToClipboard(url).then(
+      () => toast.success("图片已复制到剪贴板"),
+      () => toast.error("复制图片失败，请改用下载"),
     );
   };
 
@@ -362,25 +380,38 @@ export function ConversationView({
                 lightbox.open(turn.image.publicUrl, imageFilename(turn.image.publicUrl, turn.id))
               }
             />
+            {/* #20：下载按钮移到图片右下角悬浮 */}
+            <button
+              type="button"
+              className={styles.mediaDownload}
+              title="下载"
+              aria-label="下载图片"
+              onClick={(e) => {
+                e.stopPropagation();
+                if (turn.image)
+                  downloadImage(turn.image.publicUrl, imageFilename(turn.image.publicUrl, turn.id));
+              }}
+            >
+              <Download size={15} />
+            </button>
           </div>
         ) : null}
         <div className={styles.actionBar}>
+          {/* #20：原「下载」位置换成「复制图片」（#19 复制 blob 到剪贴板） */}
           <button
             type="button"
             className={styles.chip}
-            onClick={() =>
-              turn.image && downloadImage(turn.image.publicUrl, imageFilename(turn.image.publicUrl, turn.id))
-            }
+            onClick={() => turn.image && copyImage(turn.image.publicUrl)}
           >
-            <Download size={13} />
-            下载
+            <Copy size={13} />
+            复制图片
           </button>
           <button type="button" className={styles.chip} onClick={() => regenerate(turn)}>
             <RefreshCw size={13} />
             重新生成
           </button>
           <button type="button" className={styles.chip} onClick={() => copyPrompt(turn.prompt)}>
-            <Copy size={13} />
+            <ClipboardCopy size={13} />
             复制提示词
           </button>
           <button type="button" className={styles.chip} onClick={() => setRawTurn(turn)}>

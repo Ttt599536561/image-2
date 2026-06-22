@@ -15,6 +15,15 @@
   animation: lb-fade 0.18s ease both;
 }
 
+/* 图容器（相对定位，承载可选的悬浮说明层） */
+.figure {
+  position: relative;
+  display: flex;
+  margin: 0;
+  max-width: 86vw;
+  max-height: 86vh;
+}
+
 /* 居中图（最大约 86vw / 86vh，整图可见不裁切）*/
 .image {
   display: block;
@@ -26,6 +35,29 @@
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   animation: lb-pop 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* #1：放大后仍悬浮在图上的说明层（渐变压底保证白字可读，圆角贴合图片下沿） */
+.caption {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 52px var(--space-5) var(--space-4);
+  border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+  background: linear-gradient(
+    to top,
+    rgba(0, 0, 0, 0.72) 0%,
+    rgba(0, 0, 0, 0.6) 32%,
+    rgba(0, 0, 0, 0.16) 74%,
+    rgba(0, 0, 0, 0) 100%
+  );
+  animation: lb-pop 0.2s cubic-bezier(0.22, 1, 0.36, 1) both;
+  pointer-events: none;
+}
+/* 说明层内可交互元素（按钮）恢复点击 */
+.caption :is(button, a) {
+  pointer-events: auto;
 }
 
 /* 右上角圆形关闭键 */
@@ -57,8 +89,15 @@
   outline-offset: 2px;
 }
 
-/* 图下方半透明「下载」按钮 */
-.download {
+/* 图下方操作行（下载 / 复制） */
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+/* 半透明玻璃按钮 */
+.action {
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -76,12 +115,12 @@
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-.download:hover {
+.action:hover {
   background: rgba(255, 255, 255, 0.2);
   border-color: rgba(255, 255, 255, 0.7);
 }
 
-.download:focus-visible {
+.action:focus-visible {
   outline: 2px solid #fff;
   outline-offset: 2px;
 }
@@ -108,7 +147,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .overlay,
-  .image {
+  .image,
+  .caption {
     animation: none;
   }
 }

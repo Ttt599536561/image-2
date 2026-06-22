@@ -9,18 +9,29 @@ import {
   type JSX,
   type ReactNode,
 } from "react";
-import { Download, X } from "lucide-react";
+import { Copy, Download, X } from "lucide-react";
+import { copyImageToClipboard, downloadImage } from "../../lib/download";
 import { useLockBodyScroll } from "../../lib/useLockBodyScroll";
+import { useToast } from "../Toast/ToastProvider";
 import styles from "./Lightbox.module.css";
 
+export interface LightboxOptions {
+  /** 浮在放大图上的说明层（如灵感卡的标题/摘要/用此提示词，#1 高级视觉）。 */
+  caption?: ReactNode;
+  /** 是否显示下载/复制操作（默认 true；灵感卡传 false 只看图+悬浮文字）。 */
+  showActions?: boolean;
+}
+
 export interface LightboxApi {
-  open: (src: string, filename?: string) => void;
+  open: (src: string, filename?: string, options?: LightboxOptions) => void;
   close: () => void;
 }
 
 interface LightboxState {
   src: string;
   filename: string;
+  caption?: ReactNode;
+  showActions: boolean;
 }
 
 const LightboxContext = createContext<LightboxApi | null>(null);
@@ -29,13 +40,19 @@ export function LightboxProvider({ children }: { children: ReactNode }): JSX.Ele
   const [state, setState] = useState<LightboxState | null>(null);
   // 仅客户端挂载后渲染浮层，避免 SSR 触碰 document。
   const [mounted, setMounted] = useState(false);
+  const toast = useToast();
 
   useEffect(() => {
     setMounted(true);
   }, []);
 
-  const open = useCallback((src: string, filename?: string) => {
-    setState({ src, filename: filename ?? "image.png" });
+  const open = useCallback((src: string, filename?: string, options?: LightboxOptions) => {
+    setState({
+      src,
+      filename: filename ?? "image.png",
+      caption: options?.caption,
+      showActions: options?.showActions ?? true,
+    });
   }, []);
 
   const close = useCallback(() => {
@@ -63,6 +80,13 @@ export function LightboxProvider({ children }: { children: ReactNode }): JSX.Ele
     if (isOpen) closeRef.current?.focus();
   }, [isOpen]);
 
+  const copyImage = (src: string) => {
+    copyImageToClipboard(src).then(
+      () => toast.success("图片已复制到剪贴板"),
+      () => toast.error("复制图片失败，请改用下载"),
+    );
+  };
+
   return (
     <LightboxContext.Provider value={api}>
       {children}
@@ -87,22 +111,28 @@ export function LightboxProvider({ children }: { children: ReactNode }): JSX.Ele
             <X size={18} aria-hidden />
           </button>
 
-          <img
-            className={styles.image}
-            src={state.src}
-            alt=""
-            onClick={(e) => e.stopPropagation()}
-          />
+          <figure className={styles.figure} onClick={(e) => e.stopPropagation()}>
+            <img className={styles.image} src={state.src} alt="" />
+            {state.caption ? <div className={styles.caption}>{state.caption}</div> : null}
+          </figure>
 
-          <a
-            className={styles.download}
-            href={state.src}
-            download={state.filename}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <Download size={15} aria-hidden />
-            下载
-          </a>
+          {state.showActions ? (
+            <div className={styles.actions} onClick={(e) => e.stopPropagation()}>
+              {/* #17：真下载（fetch blob，跨域直链 download 属性会被忽略） */}
+              <button
+                type="button"
+                className={styles.action}
+                onClick={() => downloadImage(state.src, state.filename)}
+              >
+                <Download size={15} aria-hidden />
+                下载
+              </button>
+              <button type="button" className={styles.action} onClick={() => copyImage(state.src)}>
+                <Copy size={15} aria-hidden />
+                复制
+              </button>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </LightboxContext.Provider>

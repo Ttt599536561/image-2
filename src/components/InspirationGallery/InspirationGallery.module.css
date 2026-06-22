@@ -90,12 +90,31 @@
   object-fit: cover;
 }
 
+/* #1：点图放大热区（覆盖整张封面，渐变浮层 z-index:2 在其上，故底部文字/按钮区不被它拦截） */
+.enlarge {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: zoom-in;
+  appearance: none;
+}
+.enlarge:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 /* ---- 品类标签（浮左上，半透明深色玻璃药丸） ---- */
 .chip {
   position: absolute;
   top: 10px;
   left: 10px;
   z-index: 2;
+  /* 让点击穿透到放大热区（标签纯展示，不拦截放大） */
+  pointer-events: none;
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -125,6 +144,7 @@
   right: 0;
   bottom: 0;
   z-index: 2;
+  cursor: zoom-in;
   padding: 38px var(--space-3) var(--space-3);
   background: linear-gradient(
     to top,
@@ -240,6 +260,66 @@
     opacity: 1;
     transform: none;
   }
+}
+
+/* ---- #1：lightbox 内悬浮说明层（放大后标题/摘要/按钮叠在图上，高级视觉） ---- */
+.lbCaption {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+.lbChip {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  margin-bottom: 4px;
+  padding: 0 11px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 500;
+  color: #fff;
+  background: rgba(20, 18, 14, 0.5);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.lbTitle {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #fff;
+  line-height: 1.35;
+}
+.lbSummary {
+  margin: 2px 0 0;
+  max-width: 60ch;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.82);
+  line-height: 1.5;
+}
+.lbUse {
+  margin-top: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 18px;
+  border-radius: var(--radius-full);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--primary-fg);
+  background: var(--accent);
+  border: 0.5px solid var(--accent);
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+.lbUse:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+.lbUse:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
 }
 
 /* ---- 降级：尊重 prefers-reduced-motion ---- */

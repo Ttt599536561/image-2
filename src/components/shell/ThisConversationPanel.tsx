@@ -1,9 +1,10 @@
-import { Download, X } from "lucide-react";
+import { Copy, Download, X } from "lucide-react";
 import { useEffect } from "react";
 import type { ConversationGeneration } from "../../contracts/conversation";
-import { downloadImage, imageFilename } from "../../lib/download";
+import { copyImageToClipboard, downloadImage, imageFilename } from "../../lib/download";
 import { useLockBodyScroll } from "../../lib/useLockBodyScroll";
 import { useLightbox } from "../Lightbox/LightboxProvider";
+import { useToast } from "../Toast/ToastProvider";
 import styles from "./ThisConversationPanel.module.css";
 
 export function ThisConversationPanel({
@@ -16,6 +17,7 @@ export function ThisConversationPanel({
   onClose?: () => void;
 }) {
   const lightbox = useLightbox();
+  const toast = useToast();
   const images = turns.filter((t) => t.status === "succeeded" && t.image).slice().reverse();
 
   // 抽屉态：锁背景滚动 + ESC 关闭
@@ -28,6 +30,14 @@ export function ThisConversationPanel({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [mode, onClose]);
+
+  // #19：复制图片 blob 到剪贴板
+  const copyImage = (url: string) => {
+    copyImageToClipboard(url).then(
+      () => toast.success("图片已复制到剪贴板"),
+      () => toast.error("复制图片失败，请改用下载"),
+    );
+  };
 
   const body = (
     <div className={`${styles.panel} ${mode === "column" ? styles.column : styles.drawer}`}>
@@ -62,14 +72,41 @@ export function ThisConversationPanel({
         <div className={styles.grid}>
           {images.map((t) =>
             t.image ? (
-              <button
-                key={t.id}
-                type="button"
-                className={styles.thumb}
-                onClick={() => lightbox.open(t.image!.publicUrl, imageFilename(t.image!.publicUrl, t.id))}
-              >
-                <img src={t.image.publicUrl} alt={t.prompt} />
-              </button>
+              <div className={styles.tile} key={t.id}>
+                <div className={styles.thumbWrap}>
+                  {/* #18：每张图直接可下载、不必先放大；点图仍可放大 */}
+                  <button
+                    type="button"
+                    className={styles.thumb}
+                    onClick={() =>
+                      lightbox.open(t.image!.publicUrl, imageFilename(t.image!.publicUrl, t.id))
+                    }
+                  >
+                    <img src={t.image.publicUrl} alt={t.prompt} />
+                  </button>
+                  {/* #20：右下角悬浮下载 */}
+                  <button
+                    type="button"
+                    className={styles.thumbDownload}
+                    title="下载"
+                    aria-label="下载图片"
+                    onClick={() =>
+                      downloadImage(t.image!.publicUrl, imageFilename(t.image!.publicUrl, t.id))
+                    }
+                  >
+                    <Download size={14} />
+                  </button>
+                </div>
+                {/* #20：图下方复制 */}
+                <button
+                  type="button"
+                  className={styles.thumbCopy}
+                  onClick={() => copyImage(t.image!.publicUrl)}
+                >
+                  <Copy size={12} />
+                  复制
+                </button>
+              </div>
             ) : null,
           )}
         </div>

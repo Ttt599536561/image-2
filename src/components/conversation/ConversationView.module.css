@@ -104,6 +104,7 @@
 }
 
 .resultMedia {
+  position: relative;
   width: 100%;
   max-width: 340px;
 }
@@ -114,6 +115,43 @@
   border: 0.5px solid var(--border-subtle);
   display: block;
   cursor: zoom-in;
+}
+/* #20：图片右下角悬浮下载键（深色玻璃，hover 浮现强化） */
+.mediaDownload {
+  position: absolute;
+  right: var(--space-2);
+  bottom: var(--space-2);
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0.5px solid rgba(255, 255, 255, 0.45);
+  border-radius: var(--radius-full);
+  background: rgba(20, 18, 14, 0.5);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0.85;
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  transition: opacity 0.15s ease, background 0.15s ease, transform 0.15s ease;
+}
+.resultMedia:hover .mediaDownload {
+  opacity: 1;
+}
+.mediaDownload:hover {
+  background: rgba(20, 18, 14, 0.68);
+  transform: translateY(-1px);
+}
+.mediaDownload:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+  opacity: 1;
+}
+@media (hover: none) {
+  .mediaDownload {
+    opacity: 1;
+  }
 }
 .doneTag {
   display: inline-flex;
@@ -257,7 +295,8 @@
 
 @media (prefers-reduced-motion: reduce) {
   .chip,
-  .resultImage {
+  .resultImage,
+  .mediaDownload {
     transition: none;
   }
 }
