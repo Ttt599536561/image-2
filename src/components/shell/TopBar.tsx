@@ -67,7 +67,7 @@ export function TopBar({
           </button>
         ) : null}
 
-        <Link to="/billing" className={styles.pill} title={expTip}>
+        <Link to="/billing" prefetch="intent" className={styles.pill} title={expTip}>
           <Coins size={15} className={styles.coin} />
           {formatCredits(balanceMp)} 积分
           {expMp > 0 ? <span className={styles.warnDot} aria-hidden="true" /> : null}

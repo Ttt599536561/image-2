@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { ConversationDeleteResponse, ConversationRenameResponse } from "../../contracts/conversation";
+import type { ConversationDetail, ConversationListResponse } from "../../contracts/conversation";
 import { useConversations, useMe } from "../../hooks/queries";
 import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { apiDelete, apiPatch } from "../../lib/api-client";
@@ -29,34 +30,64 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
 
+  // ⚡ 乐观更新：跨境 mutation 往返 300-800ms，期间侧栏保持旧态是最直观的「慢半拍」。
+  // onMutate 先就地改 TanStack Query 缓存（侧栏立即变化），失败时 onError 用快照回滚，onSettled invalidate 兜底对齐。
+  // setQueriesData 覆盖所有 ["conversations", *]（含搜索结果态）。
   const deleteMutation = useMutation({
     mutationFn: (id: string) =>
       apiDelete(`/api/conversations/${id}`, undefined, ConversationDeleteResponse),
+    onMutate: async (id: string) => {
+      await qc.cancelQueries({ queryKey: ["conversations"] });
+      const prev = qc.getQueriesData<ConversationListResponse>({ queryKey: ["conversations"] });
+      qc.setQueriesData<ConversationListResponse>({ queryKey: ["conversations"] }, (old) =>
+        old
+          ? { ...old, items: old.items.filter((c) => c.id !== id), total: Math.max(0, old.total - 1) }
+          : old,
+      );
+      return { prev };
+    },
     onSuccess: (_res, id) => {
-      qc.invalidateQueries({ queryKey: ["conversations"] });
       qc.removeQueries({ queryKey: ["conversation", id] });
       // 若正看着被删会话，回到新建态
       if (location.pathname === `/c/${id}`) navigate("/");
       setPendingDelete(null);
       toast.success("会话已删除");
     },
-    onError: () => {
+    onError: (_e, _id, ctx) => {
+      for (const [key, data] of ctx?.prev ?? []) qc.setQueryData(key, data);
       setPendingDelete(null);
       toast.error("删除失败，请重试");
     },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["conversations"] }),
   });
 
   const renameMutation = useMutation({
     mutationFn: (v: { id: string; title: string }) =>
       apiPatch(`/api/conversations/${v.id}`, { title: v.title }, ConversationRenameResponse),
-    onSuccess: (_res, v) => {
-      // 列表 + 当前会话详情（TopBar 标题取自详情）同步刷新。
+    onMutate: async (v: { id: string; title: string }) => {
+      await qc.cancelQueries({ queryKey: ["conversations"] });
+      const prev = qc.getQueriesData<ConversationListResponse>({ queryKey: ["conversations"] });
+      qc.setQueriesData<ConversationListResponse>({ queryKey: ["conversations"] }, (old) =>
+        old
+          ? { ...old, items: old.items.map((c) => (c.id === v.id ? { ...c, title: v.title } : c)) }
+          : old,
+      );
+      // 当前会话详情（TopBar 标题取自详情）一并就地改。
+      qc.setQueryData<ConversationDetail>(["conversation", v.id], (old) =>
+        old ? { ...old, title: v.title } : old,
+      );
+      setEditingId(null); // 立即退出编辑态（乐观）
+      return { prev };
+    },
+    onSuccess: () => toast.success("已重命名"),
+    onError: (_e, _v, ctx) => {
+      for (const [key, data] of ctx?.prev ?? []) qc.setQueryData(key, data);
+      toast.error("重命名失败，请重试");
+    },
+    onSettled: (_d, _e, v) => {
       qc.invalidateQueries({ queryKey: ["conversations"] });
       qc.invalidateQueries({ queryKey: ["conversation", v.id] });
-      setEditingId(null);
-      toast.success("已重命名");
     },
-    onError: () => toast.error("重命名失败，请重试"),
   });
 
   const startRename = (id: string, title: string) => {
@@ -161,6 +192,7 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
               <div key={c.id} className={styles.recentRow}>
                 <NavLink
                   to={`/c/${c.id}`}
+                  prefetch="intent"
                   onClick={onClose}
                   className={({ isActive }) =>
                     `${styles.recentItem} ${isActive ? styles.recentActive : ""}`
@@ -206,6 +238,7 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
 
         <NavLink
           to="/assets"
+          prefetch="intent"
           onClick={onClose}
           className={({ isActive }) => `${styles.nav} ${isActive ? styles.navActive : ""}`}
         >
@@ -214,6 +247,7 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
         </NavLink>
         <NavLink
           to="/inspiration"
+          prefetch="intent"
           onClick={onClose}
           className={({ isActive }) => `${styles.nav} ${isActive ? styles.navActive : ""}`}
         >
@@ -221,7 +255,7 @@ export function Sidebar({ open = false, onClose }: { open?: boolean; onClose?: (
           灵感库
         </NavLink>
 
-        <NavLink to="/account" onClick={onClose} className={styles.account}>
+        <NavLink to="/account" prefetch="intent" onClick={onClose} className={styles.account}>
           <User size={18} />
           <span className={styles.accountEmail}>{me.data?.user.email ?? ""}</span>
         </NavLink>

@@ -162,14 +162,35 @@ export function ConversationView({
     return () => clearTimeout(t);
   }, [pendingId]);
 
+  // ⚡ 乐观更新：点「存入资产库」立即把按钮置灰（image.savedToLibrary=true），不等跨境往返。
+  // 乐观态与服务端成功态一致（都置 true），故详情无需再 invalidate 重拉；仅刷新资产库列表纳入新图。失败回滚。
   const saveMutation = useMutation({
     mutationFn: (generationId: string) => apiPost("/api/images/save", { generationId }, SaveResponse),
+    onMutate: async (generationId: string) => {
+      await qc.cancelQueries({ queryKey: ["conversation", conversationId] });
+      const prev = qc.getQueryData<ConversationDetail>(["conversation", conversationId]);
+      qc.setQueryData<ConversationDetail>(["conversation", conversationId], (old) =>
+        old
+          ? {
+              ...old,
+              generations: old.generations.map((g) =>
+                g.id === generationId && g.image
+                  ? { ...g, image: { ...g.image, savedToLibrary: true } }
+                  : g,
+              ),
+            }
+          : old,
+      );
+      return { prev };
+    },
     onSuccess: () => {
-      if (conv) qc.invalidateQueries({ queryKey: ["conversation", conv.id] });
       qc.invalidateQueries({ queryKey: ["assets"] });
       toast.success("已存入资产库");
     },
-    onError: () => toast.error("存入失败，请重试"),
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["conversation", conversationId], ctx.prev);
+      toast.error("存入失败，请重试");
+    },
   });
 
   // 新轮加入 OR 末轮态变化（骨架→成品/失败，结果通常更高）后滚到底

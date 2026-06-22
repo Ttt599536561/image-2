@@ -50,6 +50,7 @@ export default function AdminLayout() {
             key={n.to}
             to={n.to}
             end={n.end}
+            prefetch="intent"
             className={({ isActive }) => `${styles.navLink} ${isActive ? styles.navLinkActive : ""}`}
           >
             <n.icon size={16} />

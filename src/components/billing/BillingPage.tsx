@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Clock, Coins, ExternalLink, Ticket } from "lucide-react";
 import { useMemo, useState } from "react";
+import type { MeResponse } from "../../contracts/me";
 import { RedeemResponse, REDEEM_CODE_RE } from "../../contracts/redeem";
 import type { PackageItem, PackagesResponse } from "../../contracts/package";
 import { useMe, usePackages } from "../../hooks/queries";
@@ -49,7 +50,13 @@ export function BillingPage({ initialPackages }: { initialPackages?: PackagesRes
     onSuccess: (res) => {
       setRedeemOk(`兑换成功，到账 ${formatCredits(res.creditsValueMp)} 积分`);
       setCode("");
+      // ⚡ 立即把到账积分加到余额（不等 /api/me 跨境回来再显示，消除短暂旧值）。
+      qc.setQueryData<MeResponse>(["me", "balance"], (old) =>
+        old ? { ...old, balanceMp: old.balanceMp + res.creditsValueMp } : old,
+      );
+      // 后台对齐 hasPaid / 即将过期 / 批次（兑换可能升级付费、新增带有效期批次）。
       qc.invalidateQueries({ queryKey: ["me", "balance"] });
+      qc.invalidateQueries({ queryKey: ["lots"] });
     },
     onError: (e) => setError(e instanceof ApiError ? e.message : "兑换失败，请重试"),
   });

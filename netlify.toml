@@ -13,6 +13,13 @@
 [dev]
   port = 8888
 
+# ⚡ 静态资源强缓存：Vite 产物已带内容 hash（改动即换名），可安全 immutable 缓存一年。
+# 让二次访问命中本地缓存、免跨境重下 JS/CSS，缩短交互就绪时间。HTML/loader 不在此列（默认不强缓存，保证更新即时）。
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
 # 生图 REST：同步入队 /api/generate + 短轮询 /api/generate-status → 经典 Functions（v2 Request 处理器）。
 # generate-background 由 generate 内部 fire-and-forget 触发（/.netlify/functions/generate-background，-background=15min 后台）。
 [[redirects]]

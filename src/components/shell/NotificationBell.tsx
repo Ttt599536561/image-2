@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Bell, Clock, Megaphone } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
-import type { NotificationItem } from "../../contracts/notification";
+import type { NotificationItem, NotificationListResponse } from "../../contracts/notification";
 import { useNotifications } from "../../hooks/queries";
 import { type AnnouncementLinkKind, classifyAnnouncementLink } from "../../lib/announcementLink";
 import { apiPost } from "../../lib/api-client";
@@ -27,9 +27,22 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
   const display = frozen ?? items;
   const [detail, setDetail] = useState<AnnouncementDetail | null>(null);
 
+  // ⚡ 乐观更新：打开铃铛即把未读就地置已读，红点立即消失（不等跨境往返）。失败回滚，onSettled 兜底对齐。
   const markRead = useMutation({
     mutationFn: () => apiPost("/api/notifications/read", {}),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["notifications"] }),
+    onMutate: async () => {
+      await qc.cancelQueries({ queryKey: ["notifications"] });
+      const prev = qc.getQueryData<NotificationListResponse>(["notifications"]);
+      const now = new Date().toISOString();
+      qc.setQueryData<NotificationListResponse>(["notifications"], (old) =>
+        old ? { ...old, items: old.items.map((n) => (n.readAt ? n : { ...n, readAt: now })) } : old,
+      );
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(["notifications"], ctx.prev);
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ["notifications"] }),
   });
 
   // 任何路径关闭浮层（toggle / 外部点击 / ESC / 点条目）都清掉冻结快照。

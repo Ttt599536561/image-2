@@ -15,3 +15,34 @@
   min-height: 0;
   overflow: hidden;
 }
+
+/* ⚡ 导航转换态进度条：路由 loader 加载中固定在视口顶部，给点击即时反馈。
+   仅用 transform 动画（合成层、不触发重排）。 */
+.navProgress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  z-index: var(--z-toast);
+  overflow: hidden;
+  background: var(--accent-surface);
+}
+.navProgress::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: var(--accent);
+  border-radius: var(--radius-full);
+  animation: navProgressSlide 0.9s ease-in-out infinite;
+  will-change: transform;
+}
+@keyframes navProgressSlide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(350%);
+  }
+}
