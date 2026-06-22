@@ -88,6 +88,10 @@ function buildEditsForm(req: {
   fd.append("prompt", req.prompt);
   fd.append("size", toRelaySize(req.size));
   fd.append("n", "1");
+  // 关键性能：强制内联返回字节（b64_json）。否则中转默认回 us-west aliyuncs 临时 url，
+  // putToR2 还要二次下载该跨境 url（实测从国内慢到数分钟、超 5min 轮询窗口 → 前端看不到图）。
+  // 实测 relay-edits-probe：带此参 → 200 直接回 b64（~48s）、不带 → 回 url（需慢速下载）。
+  fd.append("response_format", "b64_json");
   if (req.quality && req.quality !== "auto") fd.append("quality", req.quality);
   if (req.background && req.background !== "auto") fd.append("background", req.background);
   fd.append(
