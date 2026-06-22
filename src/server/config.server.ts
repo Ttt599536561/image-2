@@ -17,3 +17,18 @@ export async function getConfigInt(key: string, fallback: number): Promise<numbe
   const v = Number(rows[0].value_json);
   return Number.isFinite(v) ? v : fallback;
 }
+
+/**
+ * HTTP 读字符串配置（中转 base_url/api_key 等，存为 JSON 字符串标量；neon 驱动 jsonb→JS string）。
+ * 🔴 这条用于 relay 解析，必须**对 DB 不可达鲁棒**：任何异常/缺失/空串 → 回退（防中转因配置读失败全挂）。
+ */
+export async function getConfigString(key: string, fallback: string | null = null): Promise<string | null> {
+  try {
+    const rows = await getSql()`SELECT value_json FROM app_config WHERE key=${key}`;
+    if (rows.length === 0) return fallback;
+    const v = rows[0].value_json;
+    return typeof v === "string" && v.length > 0 ? v : fallback;
+  } catch {
+    return fallback;
+  }
+}

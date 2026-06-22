@@ -11,8 +11,8 @@ import {
   type ParsedImage,
   parseImageGenerationResponse,
 } from "../api/imageGeneration";
-import { getSql } from "../db/db.server";
 import { redactText } from "../lib/redaction";
+import { getConfigString } from "./config.server";
 
 const RELAY_SOFT_TIMEOUT_MS = 4.5 * 60_000; // 略小于 cron 5min，本函数自归一化 provider_timeout（F-relay）
 
@@ -36,20 +36,21 @@ export class RelayError extends Error {
   }
 }
 
-// 主/备 Base：主取 app_config.relay_base_url，备取 env；DB 不可达时回退纯 env（防 relay 因配置缺失全挂）。
+// 主/备 Base：主取 app_config.relay_base_url（后台可改、换厂商即时生效），备取 env；
+// getConfigString 已对 DB 不可达鲁棒（回退 null）→ 再回退 env（防 relay 因配置读失败全挂）。
 async function relayBases(): Promise<string[]> {
-  let primary = process.env.RELAY_BASE_URL;
-  try {
-    const sql = getSql();
-    const rows = await sql`SELECT value_json->>'relay_base_url' AS base FROM app_config WHERE key='relay_base_url'`;
-    primary = (rows[0]?.base as string | undefined) || process.env.RELAY_BASE_URL;
-  } catch {
-    // app_config 未配 / DB 不可达 → 用 env Base
-    primary = process.env.RELAY_BASE_URL;
-  }
+  const primary = (await getConfigString("relay_base_url")) || process.env.RELAY_BASE_URL;
   if (!primary) throw new Error("[relay] 缺少 RELAY_BASE_URL（见 PHASE2-PLAN §0）");
   const backup = process.env.RELAY_BASE_URL_BACKUP; // 可空；无备用则只试主
   return backup && backup !== primary ? [primary, backup] : [primary];
+}
+
+// 中转 Key：主取 app_config.relay_api_key（后台可改、换厂商即时生效），回退 env RELAY_API_KEY。
+// ★ Key 只在 Background Function 内解析、注入 Authorization，绝不下发客户端（后台 GET 也只回 masked）。
+async function relayKey(): Promise<string> {
+  const key = (await getConfigString("relay_api_key")) || process.env.RELAY_API_KEY;
+  if (!key) throw new Error("[relay] 缺少 RELAY_API_KEY（见 PHASE2-PLAN §0）");
+  return key;
 }
 
 // v1 解析输出 {src,kind} → putToR2 入参 {b64_json?,url?}：任意 base64 data URL 提取 b64_json，否则当 url。
@@ -109,8 +110,7 @@ export async function callRelay(req: {
   background?: string | null;
   inputImage?: RelayInputImage | null; // ④b：有值 → 走 /images/edits multipart（图生图），无 → JSON 文生图
 }): Promise<{ images: RelayImage[]; raw: unknown }> {
-  const key = process.env.RELAY_API_KEY; // ★ 只在 Background Function 注入
-  if (!key) throw new Error("[relay] 缺少 RELAY_API_KEY（见 PHASE2-PLAN §0）");
+  const key = await relayKey(); // ★ 只在 Background Function 解析（app_config 优先、回退 env）
   const bases = await relayBases();
   const isEdit = !!req.inputImage;
   const endpoint = isEdit ? "/images/edits" : undefined; // undefined → 默认 /images/generations

@@ -1,7 +1,7 @@
 // 扣费事务真库用例（03 §4.3 / §4.3.1 / 10 §11.10）：成功才扣 + generation_id 幂等 + ⓪双守卫 + FIFO 跨批。
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { chargeOnSuccess } from "../../src/server/money/debit.server";
-import { type TestCtx, ensureSeedConfig, newCtx } from "./_helpers";
+import { type TestCtx, ensureSeedConfig, newCtx, priceMp } from "./_helpers";
 
 const PUT = (genId: string) => ({
   generationId: genId,
@@ -14,29 +14,34 @@ const PUT = (genId: string) => ({
 });
 
 let ctx: TestCtx;
-beforeAll(async () => ensureSeedConfig(newCtx().sql));
+let PRICE = 70; // 当前生效单图价（mp），beforeAll 读取，断言据此算
+beforeAll(async () => {
+  const sql = newCtx().sql;
+  await ensureSeedConfig(sql);
+  PRICE = await priceMp(sql);
+});
 beforeEach(() => {
   ctx = newCtx();
 });
 afterEach(() => ctx.cleanup());
 
 describe("扣费事务（debit）", () => {
-  it("正常成功扣 70mp：余额减一次、1 条 debit 账本、1 张 image、gen=succeeded", async () => {
+  it("正常成功扣单价：余额减一次、1 条 debit 账本、1 张 image、gen=succeeded", async () => {
     const uid = await ctx.createUser({ balanceMp: 140 });
     await ctx.addLot(uid, 140, { source: "signup", expiresInDays: 30 });
     const { generationId } = await ctx.createGeneration(uid, { status: "running" });
 
     const r = await chargeOnSuccess({ userId: uid, ...PUT(generationId) });
     expect(r.outcome).toBe("charged");
-    expect(r.charged).toBe(70);
-    expect(r.balanceAfter).toBe(70);
+    expect(r.charged).toBe(PRICE);
+    expect(r.balanceAfter).toBe(140 - PRICE);
 
-    expect(await ctx.balanceMp(uid)).toBe(70);
+    expect(await ctx.balanceMp(uid)).toBe(140 - PRICE);
     expect((await ctx.ledger(uid, "debit")).length).toBe(1);
     expect((await ctx.images(generationId)).length).toBe(1);
     const g = await ctx.gen(generationId);
     expect(g?.status).toBe("succeeded");
-    expect(Number(g?.credits_charged_mp)).toBe(70);
+    expect(Number(g?.credits_charged_mp)).toBe(PRICE);
     expect(Number(g?.duration_ms)).toBeGreaterThanOrEqual(0); // EXTRACT(EPOCH)*1000，非 MILLISECONDS 截断
   });
 
@@ -50,7 +55,7 @@ describe("扣费事务（debit）", () => {
     expect(second.outcome).toBe("not_running"); // 第二次进来 gen 已 succeeded
     expect(second.charged).toBe(0);
 
-    expect(await ctx.balanceMp(uid)).toBe(70);
+    expect(await ctx.balanceMp(uid)).toBe(140 - PRICE);
     expect((await ctx.ledger(uid, "debit")).length).toBe(1);
     expect((await ctx.images(generationId)).length).toBe(1);
   });
@@ -67,7 +72,7 @@ describe("扣费事务（debit）", () => {
     expect(second.outcome).toBe("idempotent");
     expect(second.charged).toBe(0);
 
-    expect(await ctx.balanceMp(uid)).toBe(70); // 仍只扣一次
+    expect(await ctx.balanceMp(uid)).toBe(140 - PRICE); // 仍只扣一次
     expect((await ctx.ledger(uid, "debit")).length).toBe(1);
     expect((await ctx.gen(generationId))?.status).toBe("succeeded");
   });
@@ -84,9 +89,9 @@ describe("扣费事务（debit）", () => {
     const outcomes = [a.outcome, b.outcome].sort();
     // 一个 charged、另一个被 ⓪a/⓪b 挡（not_running 或 idempotent）。
     expect(outcomes).toContain("charged");
-    expect(a.charged + b.charged).toBe(70);
+    expect(a.charged + b.charged).toBe(PRICE);
 
-    expect(await ctx.balanceMp(uid)).toBe(70);
+    expect(await ctx.balanceMp(uid)).toBe(140 - PRICE);
     expect((await ctx.ledger(uid, "debit")).length).toBe(1);
     expect((await ctx.images(generationId)).length).toBe(1);
   });
@@ -99,12 +104,12 @@ describe("扣费事务（debit）", () => {
     const { generationId } = await ctx.createGeneration(uid, { status: "running" });
 
     const r = await chargeOnSuccess({ userId: uid, ...PUT(generationId) });
-    expect(r.charged).toBe(70);
+    expect(r.charged).toBe(PRICE);
 
     const lots = await ctx.lots(uid);
-    expect(Number(lots.find((l) => l.id === early)?.remaining_mp)).toBe(0); // 早过期批次扣空
-    expect(Number(lots.find((l) => l.id === late)?.remaining_mp)).toBe(70); // 100 - 30
-    expect(await ctx.balanceMp(uid)).toBe(70);
+    expect(Number(lots.find((l) => l.id === early)?.remaining_mp)).toBe(0); // 早过期批次扣空（单价>40）
+    expect(Number(lots.find((l) => l.id === late)?.remaining_mp)).toBe(140 - PRICE); // 100 -(单价-40)
+    expect(await ctx.balanceMp(uid)).toBe(140 - PRICE);
   });
 
   it("⓪a 失败守卫：gen=failed（超时 cron 已置）→ 绝不扣费、不插 image（成功才扣硬边界）", async () => {

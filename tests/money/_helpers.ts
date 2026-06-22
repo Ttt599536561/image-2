@@ -5,6 +5,23 @@ import { getSql } from "../../src/db/db.server";
 
 type Sql = ReturnType<typeof getSql>;
 
+/**
+ * 读当前生效单图价（mp）。钱测试断言随后台改价自适应——不写死 70。
+ * （测试与生产共用一个 Neon 库；ensureSeedConfig 用 DO NOTHING 不覆盖站长设定的价，故断言必须按实际价算。）
+ */
+export async function priceMp(sql: Sql): Promise<number> {
+  const r = await sql`SELECT value_json FROM app_config WHERE key='price_per_image_mp'`;
+  const v = Number(r[0]?.value_json);
+  return Number.isFinite(v) ? v : 70;
+}
+
+/** 读当前生效注册赠送额（mp）。同 priceMp：随后台配置自适应，不写死 140。 */
+export async function signupGrantMp(sql: Sql): Promise<number> {
+  const r = await sql`SELECT value_json FROM app_config WHERE key='signup_grant_mp'`;
+  const v = Number(r[0]?.value_json);
+  return Number.isFinite(v) ? v : 140;
+}
+
 /** 幂等确保核心 app_config（与 seed 默认一致；测试不依赖 seed 是否跑过）。 */
 export async function ensureSeedConfig(sql: Sql): Promise<void> {
   const defaults: Record<string, number> = {

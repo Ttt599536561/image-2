@@ -4,7 +4,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { PutResult } from "../../src/server/r2.server";
 import { budgetTodayKey } from "../../src/server/budget.server";
 import { type ProcessDeps, runGenerationJob } from "../../src/server/generation/process";
-import { type TestCtx, ensureSeedConfig, newCtx } from "./_helpers";
+import { type TestCtx, ensureSeedConfig, newCtx, priceMp } from "./_helpers";
 
 const TINY_PNG_B64 =
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
@@ -23,7 +23,12 @@ const stubDeps = (): ProcessDeps => ({
 });
 
 let ctx: TestCtx;
-beforeAll(async () => ensureSeedConfig(newCtx().sql));
+let PRICE = 70; // 当前生效单图价（mp），beforeAll 读取，断言据此算
+beforeAll(async () => {
+  const sql = newCtx().sql;
+  await ensureSeedConfig(sql);
+  PRICE = await priceMp(sql);
+});
 beforeEach(() => {
   ctx = newCtx();
 });
@@ -33,7 +38,7 @@ afterEach(async () => {
 });
 
 describe("后台生图编排（runGenerationJob）", () => {
-  it("queued → 成功：扣 70mp、images 1 张、gen=succeeded、duration_ms 落库", async () => {
+  it("queued → 成功：扣单价、images 1 张、gen=succeeded、duration_ms 落库", async () => {
     const uid = await ctx.createUser({ balanceMp: 140 });
     await ctx.addLot(uid, 140, { source: "signup" });
     const { generationId } = await ctx.createGeneration(uid, { status: "queued" });
@@ -43,10 +48,10 @@ describe("后台生图编排（runGenerationJob）", () => {
 
     const g = await ctx.gen(generationId);
     expect(g?.status).toBe("succeeded");
-    expect(Number(g?.credits_charged_mp)).toBe(70);
+    expect(Number(g?.credits_charged_mp)).toBe(PRICE);
     expect(Number(g?.duration_ms)).toBeGreaterThanOrEqual(0);
     expect((await ctx.images(generationId)).length).toBe(1);
-    expect(await ctx.balanceMp(uid)).toBe(70);
+    expect(await ctx.balanceMp(uid)).toBe(140 - PRICE);
   });
 
   it("平台重试：终态后再调 → claim 抢不到（lost），不重复扣", async () => {
@@ -57,7 +62,7 @@ describe("后台生图编排（runGenerationJob）", () => {
     await runGenerationJob(generationId, stubDeps());
     const again = await runGenerationJob(generationId, stubDeps());
     expect(again).toBe("lost");
-    expect(await ctx.balanceMp(uid)).toBe(70); // 仍只扣一次
+    expect(await ctx.balanceMp(uid)).toBe(140 - PRICE); // 仍只扣一次
     expect((await ctx.ledger(uid, "debit")).length).toBe(1);
     expect((await ctx.images(generationId)).length).toBe(1);
   });
@@ -73,7 +78,7 @@ describe("后台生图编排（runGenerationJob）", () => {
     ]);
     expect([a, b].filter((x) => x === "succeeded").length).toBe(1);
     expect([a, b].filter((x) => x === "lost").length).toBe(1);
-    expect(await ctx.balanceMp(uid)).toBe(70);
+    expect(await ctx.balanceMp(uid)).toBe(140 - PRICE);
     expect((await ctx.images(generationId)).length).toBe(1);
   });
 
@@ -127,7 +132,7 @@ describe("后台生图编排（runGenerationJob）", () => {
     expect(outcome).toBe("succeeded");
     expect(getCalledWith).toBe(key); // 用对了 owner 的 key
     expect(sawInput).toEqual({ contentType: "image/png", filename: "ref.png" }); // 走 edits 分支
-    expect(await ctx.balanceMp(uid)).toBe(70); // 同价 0.07
+    expect(await ctx.balanceMp(uid)).toBe(140 - PRICE); // 图生图同价
   });
 
   it("④b 图生图：参考图回读失败 → failed/invalid_request、未扣费、不调中转", async () => {

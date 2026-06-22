@@ -8,18 +8,21 @@ import { creditsToMp, formatCash, formatCredits } from "../../src/lib/format";
 import { listAudit } from "../../src/server/admin/audit.server";
 import { getAllConfig } from "../../src/server/admin/config.server";
 import { listAllPackages } from "../../src/server/admin/packages.server";
+import { getRelayConfig } from "../../src/server/admin/relay-config.server";
 import { requireAdminPage } from "../../src/server/page.server";
 import type { Route } from "./+types/_admin.packages";
 
-// 后台「套餐 / 全局参数 / 操作审计」（09 §10.6）。三段卡片：套餐 CRUD（软删）、参数即时改、审计只读。
+// 后台「套餐 / 全局参数 / 中转站配置 / 操作审计」（09 §10.6）。四段卡片：套餐 CRUD（软删）、参数即时改、
+// 中转 url/key 即时改（换厂商）、审计只读。
 export async function loader({ request }: Route.LoaderArgs) {
   await requireAdminPage(request);
-  const [packages, config, audit] = await Promise.all([
+  const [packages, config, audit, relay] = await Promise.all([
     listAllPackages(),
     getAllConfig(),
     listAudit({ pageSize: 50 }),
+    getRelayConfig(),
   ]);
-  return { packages, config, audit };
+  return { packages, config, audit, relay };
 }
 
 // —— 类型（loader 直出，JSON 安全）——
@@ -87,7 +90,7 @@ function toForm(p: PackageRow): PackageForm {
 }
 
 export default function PackagesPage({ loaderData }: Route.ComponentProps) {
-  const { packages, config, audit } = loaderData;
+  const { packages, config, audit, relay } = loaderData;
   const revalidator = useRevalidator();
 
   // ===== section 1 套餐 =====
@@ -192,6 +195,39 @@ export default function PackagesPage({ loaderData }: Route.ComponentProps) {
       setCfgBusy(false);
     }
   };
+
+  // ===== section 2.5 中转站配置（换厂商）=====
+  // base_url 预填可改；api_key 写后即焚（初始空、占位显示已配 hint，留空=不改）。
+  const [relayBase, setRelayBase] = useState(relay.baseUrl);
+  const [relayKeyInput, setRelayKeyInput] = useState("");
+  const [relayBusy, setRelayBusy] = useState(false);
+  const [relayMsg, setRelayMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [relayConfirmOpen, setRelayConfirmOpen] = useState(false);
+
+  const relayChanged =
+    (relayBase.trim() !== "" && relayBase.trim() !== relay.baseUrl) || relayKeyInput.trim() !== "";
+
+  const saveRelay = async () => {
+    setRelayBusy(true);
+    setRelayMsg(null);
+    const payload: { baseUrl?: string; apiKey?: string } = {};
+    if (relayBase.trim() && relayBase.trim() !== relay.baseUrl) payload.baseUrl = relayBase.trim();
+    if (relayKeyInput.trim()) payload.apiKey = relayKeyInput.trim();
+    try {
+      await apiPost("/api/admin/relay", payload);
+      setRelayConfirmOpen(false);
+      setRelayKeyInput(""); // 写后即焚：保存后清空输入框，绝不回显
+      setRelayMsg({ ok: true, text: "已保存中转配置（即时生效）" });
+      revalidator.revalidate();
+    } catch (e) {
+      setRelayConfirmOpen(false);
+      setRelayMsg({ ok: false, text: e instanceof ApiError ? e.message : "保存失败，请重试" });
+    } finally {
+      setRelayBusy(false);
+    }
+  };
+  const srcLabel = (s: "config" | "env" | "none") =>
+    s === "config" ? "后台" : s === "env" ? "环境变量" : "未配置";
 
   return (
     <>
@@ -303,6 +339,61 @@ export default function PackagesPage({ loaderData }: Route.ComponentProps) {
             }}
           >
             保存{changedKeys.length > 0 ? `（${changedKeys.length} 项改动）` : ""}
+          </button>
+        </div>
+      </div>
+
+      {/* —— section 2.5：中转站配置（换厂商）—— */}
+      <div className={styles.card}>
+        <h2 className={styles.cardTitle}>中转站配置</h2>
+        <p className={styles.muted} style={{ fontSize: 12, margin: "0 0 var(--space-4)" }}>
+          换厂商时改这里，<strong>即时生效</strong>（优先级高于环境变量、无需重新部署）。API Key
+          写后即焚——只显示末位、不回显明文，留空＝不修改。
+        </p>
+        <div className={styles.formGrid}>
+          <div className={styles.field}>
+            <label className={styles.label} htmlFor="relay-base">
+              中转 Base URL（当前来源：{srcLabel(relay.baseUrlSource)}）
+            </label>
+            <input
+              id="relay-base"
+              className={styles.input}
+              type="url"
+              placeholder="https://api.tangguo.xin/v1"
+              value={relayBase}
+              onChange={(e) => setRelayBase(e.target.value)}
+            />
+          </div>
+          <div className={styles.field}>
+            <label className={styles.label} htmlFor="relay-key">
+              API Key（
+              {relay.hasKey ? `已配置 ${relay.keyHint ?? ""}·来源：${srcLabel(relay.keySource)}` : "未配置"}）
+            </label>
+            <input
+              id="relay-key"
+              className={styles.input}
+              type="password"
+              autoComplete="new-password"
+              placeholder={relay.hasKey ? "留空＝不修改；填写＝替换为新 Key" : "填写中转 API Key"}
+              value={relayKeyInput}
+              onChange={(e) => setRelayKeyInput(e.target.value)}
+            />
+          </div>
+        </div>
+        {relayMsg ? (
+          <p className={`${styles.formMsg} ${relayMsg.ok ? styles.formOk : styles.formErr}`}>{relayMsg.text}</p>
+        ) : null}
+        <div className={styles.toolbar} style={{ marginTop: "var(--space-3)" }}>
+          <button
+            type="button"
+            className={`${styles.btn} ${styles.btnPrimary}`}
+            disabled={!relayChanged}
+            onClick={() => {
+              setRelayMsg(null);
+              setRelayConfirmOpen(true);
+            }}
+          >
+            保存中转配置
           </button>
         </div>
       </div>
@@ -522,6 +613,19 @@ export default function PackagesPage({ loaderData }: Route.ComponentProps) {
         onConfirm={saveConfig}
         onCancel={() => {
           if (!cfgBusy) setCfgConfirmOpen(false);
+        }}
+      />
+
+      {/* —— 保存中转配置确认（敏感写：影响全站生图）—— */}
+      <ConfirmDialog
+        open={relayConfirmOpen}
+        title="保存中转站配置"
+        message="将立即对全站生图生效（影响所有用户出图）。请确认 URL / Key 正确无误后再保存。"
+        confirmLabel="保存"
+        busy={relayBusy}
+        onConfirm={saveRelay}
+        onCancel={() => {
+          if (!relayBusy) setRelayConfirmOpen(false);
         }}
       />
     </>

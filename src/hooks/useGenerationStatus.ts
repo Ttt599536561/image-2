@@ -20,9 +20,9 @@ export function useGenerationStatus(generationId: string | null) {
       if (Date.now() - clock.current.t > 5 * 60_000) return false; // 满 5min 前端兜底（§5.5）
       return 2_000; // 每 2s
     },
-    // ⚡ 标签页切到后台时暂停轮询（默认 false）：后台函数仍在服务端跑完落库，用户切回时 TanStack Query
-    // 自动立即 refetch 拿到终态——无需在不可见时持续跨境拉 /api/generate-status，省流量/电池且不抢占点击请求。
-    refetchIntervalInBackground: false,
+    // 生成进行中即使标签页切到后台也继续轮询：用户提交后常切走等结果，保持轮询让「切回即见图」而非再等一拍。
+    // 这是有界短轮询（终态/5min 即停），代价小；与全局长缓存查询的「后台暂停」取舍不同，故此处保持 true。
+    refetchIntervalInBackground: true,
     gcTime: 0,
   });
 }

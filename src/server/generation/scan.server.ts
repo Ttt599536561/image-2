@@ -33,18 +33,19 @@ export async function rescanTimeouts(): Promise<{ id: string; userId: string }[]
 }
 
 /**
- * 派发兜底（常驻、§5.5）：扫仍 queued 且非短暂在途（updated_at < now()-1min）的行，重新 fire-and-forget 触发后台。
- * 主路径仍是入队后立即触发；本兜底只补「触发 fetch 偶发失败」的行。抢占式状态机（claim 原子）保证重发不重复下单。
- * 超 5min 的孤儿 queued 已被 rescanTimeouts 收为 failed，故此处只命中 1–5min 区间（先 rescan 后 dispatch 排序保证）。
+ * 派发兜底（常驻、§5.5）：扫仍 queued 且非短暂在途（updated_at < now()-45s）的行，重新触发后台。
+ * 主路径已改为 await 触发（reliable，trigger.ts）后此兜底极少命中；阈值由 1min 降到 45s 让偶发漏触发更快被救回。
+ * 抢占式状态机（claim 原子）保证重发不重复下单。超 5min 的孤儿 queued 已被 rescanTimeouts 收为 failed，
+ * 故此处只命中 45s–5min 区间（先 rescan 后 dispatch 排序保证）。多行并发触发（各自吞错），避免串行 await 拖慢 cron。
  */
 export async function dispatchStaleQueued(limit = 100): Promise<string[]> {
   const sql = getSql();
   const rows = (await sql`
     SELECT id FROM generations
-    WHERE status='queued' AND updated_at < now() - interval '1 minute'
+    WHERE status='queued' AND updated_at < now() - interval '45 seconds'
     ORDER BY created_at ASC
     LIMIT ${limit}`) as Array<{ id: string }>;
   const ids = rows.map((r) => r.id);
-  for (const id of ids) await triggerBackground(id); // fire-and-forget，触发失败只记日志、不抛
+  await Promise.all(ids.map((id) => triggerBackground(id))); // 并发触发；triggerBackground 各自吞错、不抛
   return ids;
 }

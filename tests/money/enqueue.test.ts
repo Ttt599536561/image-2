@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { budgetTodayKey } from "../../src/server/budget.server";
 import { enqueueGeneration } from "../../src/server/generation/enqueue";
-import { type TestCtx, ensureSeedConfig, newCtx } from "./_helpers";
+import { type TestCtx, ensureSeedConfig, newCtx, priceMp } from "./_helpers";
 
 async function status(p: Promise<unknown>): Promise<number> {
   try {
@@ -15,7 +15,12 @@ async function status(p: Promise<unknown>): Promise<number> {
 }
 
 let ctx: TestCtx;
-beforeAll(async () => ensureSeedConfig(newCtx().sql));
+let PRICE = 70; // 当前生效单图价（mp），beforeAll 读取，余额闸阈值据此算
+beforeAll(async () => {
+  const sql = newCtx().sql;
+  await ensureSeedConfig(sql);
+  PRICE = await priceMp(sql);
+});
 beforeEach(() => {
   ctx = newCtx();
 });
@@ -25,23 +30,23 @@ afterEach(async () => {
 });
 
 describe("入队三闸（enqueue）", () => {
-  it("余额不足（<70mp）→ 402、不入队、不扣费", async () => {
-    const uid = await ctx.createUser({ balanceMp: 60 });
-    await ctx.addLot(uid, 60, { source: "signup" });
+  it("余额不足（<单价）→ 402、不入队、不扣费", async () => {
+    const uid = await ctx.createUser({ balanceMp: PRICE - 1 });
+    await ctx.addLot(uid, PRICE - 1, { source: "signup" });
     const s = await status(enqueueGeneration({ user: { id: uid, maxConcurrency: 2 }, input: { prompt: "p", size: "auto" } }));
     expect(s).toBe(402);
     expect((await ctx.sql`SELECT 1 FROM generations WHERE user_id=${uid}`).length).toBe(0); // 未入队
   });
 
-  it("余额恰够（70mp）→ 通过、建会话 + queued 行", async () => {
-    const uid = await ctx.createUser({ balanceMp: 70 });
-    await ctx.addLot(uid, 70, { source: "signup" });
+  it("余额恰够（=单价）→ 通过、建会话 + queued 行", async () => {
+    const uid = await ctx.createUser({ balanceMp: PRICE });
+    await ctx.addLot(uid, PRICE, { source: "signup" });
     const res = await enqueueGeneration({ user: { id: uid, maxConcurrency: 2 }, input: { prompt: "hello world", size: "1024x1024" } });
     expect(res.generationId).toBeTruthy();
     const g = await ctx.gen(res.generationId);
     expect(g?.status).toBe("queued");
     expect(g?.model).toBe("gpt-image-2");
-    expect(await ctx.balanceMp(uid)).toBe(70); // 只判不扣
+    expect(await ctx.balanceMp(uid)).toBe(PRICE); // 只判不扣
   });
 
   it("并发已满（max=2，2 个进行中）→ 409", async () => {
@@ -65,8 +70,8 @@ describe("入队三闸（enqueue）", () => {
   });
 
   it("④b 图生图：input_image_key 属本人 → 入队、落库", async () => {
-    const uid = await ctx.createUser({ balanceMp: 70 });
-    await ctx.addLot(uid, 70, { source: "signup" });
+    const uid = await ctx.createUser({ balanceMp: PRICE });
+    await ctx.addLot(uid, PRICE, { source: "signup" });
     const key = `uploads/${uid}/2026/06/ref.png`;
     const res = await enqueueGeneration({
       user: { id: uid, maxConcurrency: 2 },
@@ -77,8 +82,8 @@ describe("入队三闸（enqueue）", () => {
   });
 
   it("④b owner-scope：input_image_key 属他人 → 400、不入队（越权防线）", async () => {
-    const uid = await ctx.createUser({ balanceMp: 70 });
-    await ctx.addLot(uid, 70, { source: "signup" });
+    const uid = await ctx.createUser({ balanceMp: PRICE });
+    await ctx.addLot(uid, PRICE, { source: "signup" });
     const othersKey = `uploads/${randomUUID()}/2026/06/ref.png`;
     const s = await status(
       enqueueGeneration({

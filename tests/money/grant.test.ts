@@ -2,22 +2,27 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { grantSignup } from "../../src/server/money/grant.server";
-import { type TestCtx, ensureSeedConfig, newCtx } from "./_helpers";
+import { type TestCtx, ensureSeedConfig, newCtx, signupGrantMp } from "./_helpers";
 
 let ctx: TestCtx;
-beforeAll(async () => ensureSeedConfig(newCtx().sql));
+let GRANT = 140; // 当前生效注册赠送额（mp），beforeAll 读取（用例假定 >0：发 1 批次）
+beforeAll(async () => {
+  const sql = newCtx().sql;
+  await ensureSeedConfig(sql);
+  GRANT = await signupGrantMp(sql);
+});
 beforeEach(() => {
   ctx = newCtx();
 });
 afterEach(() => ctx.cleanup());
 
 describe("注册原子发放（grant）", () => {
-  it("首次发放 140mp：1 signup 批次 + 1 grant 账本 + events", async () => {
+  it("首次发放（=配置赠送额）：1 signup 批次 + 1 grant 账本 + events", async () => {
     const uid = randomUUID();
     ctx.userIds.push(uid); // 交给 cleanup
     await grantSignup(uid, `grant+${uid.slice(0, 8)}@example.com`);
 
-    expect(await ctx.balanceMp(uid)).toBe(140);
+    expect(await ctx.balanceMp(uid)).toBe(GRANT);
     const lots = await ctx.lots(uid);
     expect(lots.length).toBe(1);
     expect(lots[0].source).toBe("signup");
@@ -28,7 +33,7 @@ describe("注册原子发放（grant）", () => {
     expect(evTypes).toContain("user_registered");
   });
 
-  it("重试/并发不重发：再调（含并发）仍只 1 批次 / 1 账本 / 余额 140", async () => {
+  it("重试/并发不重发：再调（含并发）仍只 1 批次 / 1 账本 / 余额=赠送额", async () => {
     const uid = randomUUID();
     ctx.userIds.push(uid);
     const email = `grant+${uid.slice(0, 8)}@example.com`;
@@ -37,7 +42,7 @@ describe("注册原子发放（grant）", () => {
     await grantSignup(uid, email);
     await Promise.allSettled([grantSignup(uid, email), grantSignup(uid, email)]);
 
-    expect(await ctx.balanceMp(uid)).toBe(140);
+    expect(await ctx.balanceMp(uid)).toBe(GRANT);
     expect((await ctx.lots(uid)).length).toBe(1);
     expect((await ctx.ledger(uid, "grant")).length).toBe(1);
   });

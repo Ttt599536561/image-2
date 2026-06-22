@@ -80,6 +80,20 @@ export const ConfigUpdateRequest = z.object({
 });
 export type ConfigUpdateRequest = z.infer<typeof ConfigUpdateRequest>;
 
+// ===================== 中转站配置（app_config: relay_base_url / relay_api_key，方便换厂商）=====================
+// 🔴 baseUrl 可改可见（非密）；apiKey **写后即焚**——只在非空时提交更新、GET 永不回明文（server 只回末 4 位 hint）。
+// 客户端可达 → 手写 Zod、绝不 import db/schema（⑤ 教训）；URL 格式终判在 server。
+export const RelayConfigUpdateRequest = z
+  .object({
+    baseUrl: z.string().max(2000).optional(),
+    apiKey: z.string().max(500).optional(), // 留空=不改 key
+  })
+  .refine(
+    (v) => (v.baseUrl != null && v.baseUrl.trim() !== "") || (v.apiKey != null && v.apiKey.trim() !== ""),
+    "无改动",
+  );
+export type RelayConfigUpdateRequest = z.infer<typeof RelayConfigUpdateRequest>;
+
 // ===================== 灵感库 CRUD（09 §10.4）=====================
 const inspFields = {
   title: z.string().min(1, "标题必填").max(100),
