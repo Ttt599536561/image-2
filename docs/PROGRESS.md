@@ -16,7 +16,7 @@
 | 6 | 阶段一 · 前端形态 | ✅ 完成并合并进 `main`（RR8 骨架 + 三栏壳 + 五态 + 灵感画廊 + 主题，mock 跑通并验证 + QA/走查打磨） |
 | 7 | 阶段二 · 账号+积分+存储 | ✅ **完成（①–⑦ 全做完并对真 Neon 验证）**：schema/迁移/seed + Better Auth + 预算熔断/入队三闸/抢占/⓪双守卫扣费/兑换/过期/调账/对账 + 3 生图端点 + ⑤前端接真(11 资源路由读+REST 写/auth/生成轮询/loader 换 mock/资产库批量/铃铛/限流) + ⑥后台(`/admin/*` 12 资源路由+8 server+`_admin` 6 页) + **⑦ 上线闸**(5 Scheduled cron+netlify.toml 错峰/可观测 sentry+alert/密钥断言+CI/Playwright @smoke/成本对账方法论)；**测试**：tsc 0·test:run 30·test:money 33·build 0·cron-smoke 27 + reads-smoke 25 + admin-smoke 27 全绿(对真 Neon)·assert-no-secrets PASS·客户端 0 密钥+0 schema 泄露·多代理对抗审查(cron 链路 6 维 14 agents，1 major 已修)。**成本对账真·毛利数待上线灰度 ≥200 张跑量后填（毛利>0 才放量）** |
 | 8 | 阶段三 · 增强 | ✅ 收官并合并 `main`（`51f2b0b`）：P3-S1 框选 + P3-S2 搜索 + P3-S4 灵感运营化；S6 跳过(中转无 chat 模型)、S3/S5 不做(单管理员) |
-| 9 | 阶段三+ · 验收反馈打磨（站长 20 条） | 🚧 进行中 → [PHASE3-FEEDBACK.md](dev/PHASE3-FEEDBACK.md)：**Wave A(8) ✅ + Wave B(5) ✅**（`5c1e5b8`）；余 7=Wave C 新能力·后端 / D 大重构 ← **当前** |
+| 9 | 阶段三+ · 验收反馈打磨（站长 20 条） | 🚧 进行中 → [PHASE3-FEEDBACK.md](dev/PHASE3-FEEDBACK.md)：**Wave A(8) ✅ + B(5) ✅ + C(4) ✅**（`5c1e5b8`/`8aa24ec`，#9 探测否决跳过）；余 3=Wave D 大重构 ← **当前** |
 
 ## 🆕 新会话从这接手（2026-06-22）
 > 顺序：[CLAUDE.md](../CLAUDE.md) → 本段 → **当前主线 [docs/dev/PHASE3-FEEDBACK.md](dev/PHASE3-FEEDBACK.md)**。代码在 **`main`**（v2 主体全部已合并）。
@@ -26,7 +26,8 @@
 **当前主线 = 站长本地验收提的 20 条改进** → [PHASE3-FEEDBACK.md](dev/PHASE3-FEEDBACK.md)（4 决策已确认 + 逐项追踪）：
 - **Wave A（8 项 #2/#5/#6/#7/#10/#13/#15/#16）✅ 已完成**（commit `59a09c7`）。
 - **Wave B（5 项 #17/#18/#19/#20/#1 图片操作）✅ 已完成**（commit `5c1e5b8`）：真下载（跨域 blob）+复制到剪贴板+下载键移图右下角+灵感卡放大悬浮文字。
-- **余 7 项**：Wave C 新能力·后端（#3 删会话 / #12 删生成记录硬删+清R2 / #9 输出格式 png·jpeg / #4 资产日期控件重做）→ D 大重构（#8 账号页重构 / #11 全局参数去毫积分 / #14 后台 UX 彻底分离）。
+- **Wave C（4 项 #3/#12/#9/#4 新能力·后端）✅ 已完成**（commit `8aa24ec`）：删会话（级联+R2+owner-scope）/ 后台删生成记录（硬删+审计+账本保留）/ #9 输出格式**探测否决跳过**（中转不透传 output_format，jpeg 仍返 PNG，同 S6）/ 资产日期控件重做（DateRangePicker）。deletes-smoke 18/18 真 Neon。
+- **余 3 项**：Wave D 大重构（#8 账号页重构 / #11 全局参数去毫积分 / #14 后台 UX 彻底分离）。
 
 **本地怎么跑**（见 [local-acceptance.md](dev/local-acceptance.md)）：
 - **`netlify dev`（8888）**，**不是** `npm run dev`。起前先 **`rm -rf build .netlify`**、`[dev]` 不设 framework（否则无样式）。

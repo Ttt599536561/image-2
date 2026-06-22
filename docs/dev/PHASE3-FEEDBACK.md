@@ -24,7 +24,7 @@
 - [x] ~~#20 下载移图右下角、原位换复制~~ → 成功态：图右下角悬浮下载 + actionBar 首键改「复制图片」（提示词复制改 ClipboardCopy 图标避撞）；本次面板：每图右下角下载 + 图下方「复制」
 - [x] ~~#1 灵感卡点击放大 + 文字悬浮~~ → Lightbox 扩 `open(src,filename?,{caption,showActions})`；灵感卡封面/渐变区点击放大（「用此提示词」阻止冒泡），放大后标题/摘要/用此提示词悬浮图上（陶土按钮，showActions:false 不显下载/复制）
 
-## Wave C · 新能力/后端 ✅ 完成（commit 待填）
+## Wave C · 新能力/后端 ✅ 完成（commit `8aa24ec`）
 - [x] ~~#3 左栏「最近」会话支持删除~~ → `DELETE /api/conversations/:id`（requireUserStrict owner-scoped）+ `deleteConversations`（先抓 R2 keys → 删会话级联 generations→images → 尽力删 R2，账本保留）+ 侧栏行内悬浮删除键 + 二次确认 + invalidate + 删当前会话回 "/"
 - [x] ~~#12 后台生成记录支持删除~~ → `GenerationAction`(delete_generation/delete_generations_batch) + `deleteGenerations`（硬删级联 images + 清 R2 + writeAuditHttp + 账本保留）+ 后台勾选/全选/单删/批删 + 二次确认 + revalidate
 - [x] ~~#9 输出格式 png/jpeg~~ → **探测否决跳过**（同 S6 范式）：`scripts/relay-format-probe.ts` 实测中转**不透传** `output_format`——`jpeg` 请求仍返 PNG（`content-type=image/png`，对照 png 也 png）。加 jpeg 药丸会误导（选了拿不到），故**不放 jpeg 档、保持只 png**；脚本保留，中转支持后再做
