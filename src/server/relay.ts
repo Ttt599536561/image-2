@@ -16,6 +16,13 @@ import { redactText } from "../lib/redaction";
 
 const RELAY_SOFT_TIMEOUT_MS = 4.5 * 60_000; // 略小于 cron 5min，本函数自归一化 provider_timeout（F-relay）
 
+// 中转网关（rix）要求 size 为 WIDTHxHEIGHT，不接受「auto」（会回 "size must use WIDTHxHEIGHT…"）。
+// 「auto / 比例·智能」档在中转边界落到默认方形；其它档本就是 WxH，原样透传。quality/background 的「auto」中转可接受、不转。
+const RELAY_AUTO_SIZE = "1024x1024";
+function toRelaySize(size: string): string {
+  return size === "auto" || !size ? RELAY_AUTO_SIZE : size;
+}
+
 /** 落 R2 的中转图形态（putToR2 入参，06 §7.3）。 */
 export type RelayImage = { b64_json?: string; url?: string };
 
@@ -76,7 +83,7 @@ export async function callRelay(req: {
     buildImageGenerationPayload({
       model: "gpt-image-2",
       prompt: req.prompt,
-      size: req.size,
+      size: toRelaySize(req.size), // 「auto」→ 1024x1024（中转不接受 auto，见 toRelaySize）
       quality: req.quality ?? "auto",
       background: req.background ?? "auto",
       moderation: "low",
