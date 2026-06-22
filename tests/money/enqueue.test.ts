@@ -94,4 +94,41 @@ describe("入队三闸（enqueue）", () => {
     expect(s).toBe(400);
     expect((await ctx.sql`SELECT 1 FROM generations WHERE user_id=${uid}`).length).toBe(0);
   });
+
+  it("乐观立即跳转：客户端提供 conversationId+generationId → 用该 id 建会话 + queued 行", async () => {
+    const uid = await ctx.createUser({ balanceMp: PRICE });
+    await ctx.addLot(uid, PRICE, { source: "signup" });
+    const cid = randomUUID();
+    const gid = randomUUID();
+    const res = await enqueueGeneration({
+      user: { id: uid, maxConcurrency: 2 },
+      input: { prompt: "hello world", size: "1024x1024", conversationId: cid, generationId: gid },
+    });
+    expect(res.conversationId).toBe(cid); // 用客户端 id
+    expect(res.generationId).toBe(gid);
+    const g = await ctx.gen(gid);
+    expect(g?.status).toBe("queued");
+    expect(g?.conversation_id).toBe(cid);
+    const conv = (await ctx.sql`SELECT user_id FROM conversations WHERE id=${cid}`) as Array<{ user_id: string }>;
+    expect(conv.length).toBe(1);
+    expect(conv[0].user_id).toBe(uid); // owner=本人
+  });
+
+  it("乐观跳转 owner-scope：客户端 conversationId 属他人 → 404、不入队、不改他人会话", async () => {
+    const owner = await ctx.createUser({ balanceMp: PRICE });
+    const ownerConv = randomUUID();
+    await ctx.sql`INSERT INTO conversations(id, user_id, title) VALUES(${ownerConv}, ${owner}, 'owned')`;
+    const attacker = await ctx.createUser({ balanceMp: PRICE });
+    await ctx.addLot(attacker, PRICE, { source: "signup" });
+    const s = await status(
+      enqueueGeneration({
+        user: { id: attacker, maxConcurrency: 2 },
+        input: { prompt: "p", size: "auto", conversationId: ownerConv, generationId: randomUUID() },
+      }),
+    );
+    expect(s).toBe(404); // 他人占用该 id → upsert 不命中、拒
+    expect((await ctx.sql`SELECT 1 FROM generations WHERE conversation_id=${ownerConv}`).length).toBe(0);
+    const conv = (await ctx.sql`SELECT user_id FROM conversations WHERE id=${ownerConv}`) as Array<{ user_id: string }>;
+    expect(conv[0].user_id).toBe(owner); // 他人会话 owner 不变
+  });
 });
