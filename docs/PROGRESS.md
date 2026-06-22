@@ -50,7 +50,7 @@
 
 **C. 功能 / 探测 待后续**
 - ⬜ **通知开关 / 参数②**（第一批遗留）：到期提醒提前天数等，落 `app_config`（当前广播公告已做，开关参数留后续）。
-- ⬜ **t2i 文生图强制 `b64_json`**：现仅图生图(edits)强制了 b64，文生图(generations)仍可能回 url 多一次下载（生产同区影响小）；要做需先付费探测中转 generations 是否接受 `response_format=b64_json`。
+- ✅ **t2i 文生图强制 `b64_json`（2026-06-23）**：探测 `scripts/relay-t2i-format-probe.ts` 实测——**默认文生图回 us-west-1 aliyuncs 临时 url**（`putToR2` 需二次下载、且临时链接有过期丢图风险）；**带 `response_format=b64_json` → 中转 200 直接回 b64**。→ `relay.ts` 文生图 JSON body 加该参（同图生图 `buildEditsForm`），免二次下载。已上线。
 - ⬜ **P3-S6 优化提示词**：待中转开 chat 渠道（复跑 `scripts/relay-chat-probe.ts`，现全 503，药丸保持 disabled 占位）。
 
 **不做（已决策，非未完成）**：S3 RBAC / S5 客服 360（单管理员）、合规内容审核（站长风险自担）。

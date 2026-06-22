@@ -117,8 +117,8 @@ export async function callRelay(req: {
   // JSON 文生图 body 不变（一次构造可复用）；图生图 multipart 每次新建（见 buildEditsForm）。
   const jsonBody = isEdit
     ? null
-    : JSON.stringify(
-        buildImageGenerationPayload({
+    : JSON.stringify({
+        ...buildImageGenerationPayload({
           model: "gpt-image-2",
           prompt: req.prompt,
           size: toRelaySize(req.size), // 「auto」→ 1024x1024（中转不接受 auto，见 toRelaySize）
@@ -127,7 +127,11 @@ export async function callRelay(req: {
           moderation: "low",
           n: 1, // ★ 固定 n=1 / moderation=low
         }),
-      );
+        // 关键性能：强制内联 b64（同图生图 buildEditsForm）。实测探测 `scripts/relay-t2i-format-probe.ts`：
+        // 默认文生图回 us-west-1 aliyuncs 临时 url → putToR2 需二次下载（且临时链接有过期丢图风险）；
+        // 带此参 → 中转 HTTP 200 直接回 b64、免二次下载。
+        response_format: "b64_json",
+      });
 
   let lastErr: unknown;
   for (let i = 0; i < bases.length; i++) {
