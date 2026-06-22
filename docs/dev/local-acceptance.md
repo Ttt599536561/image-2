@@ -80,10 +80,16 @@ npx netlify dev           # 自动探测 React Router → 跑 vite dev（CSS Mod
 
 ## 4. 后台验收（/admin，需管理员）
 
+两种建管理员方式（都双写 users.role + Better Auth user.role，即时生效）：
+
 ```bash
-# 先注册一个账号，再提权（双写 users.role + Better Auth user.role；无需重登即生效）
+# A) 写死管理员（推荐，幂等）：.env 设 SEED_ADMIN_EMAIL + SEED_ADMIN_PASSWORD（密码进 .env 不进 git），一条命令建号+提权
+node --env-file=.env --import tsx scripts/seed-admin.ts
+
+# B) 已有账号提权：先 /register 注册，再
 node --env-file=.env --import tsx scripts/promote-admin.ts <你的邮箱>
 ```
+> 🔑 凭据放 `.env`（已 gitignore），**绝不写进源码/提交**（密码进 git 历史=泄露）。新库流程：迁移 + seed → 跑 `seed-admin.ts`。
 - [ ] `/admin` 进得去（非 admin 访问应被 redirect，不暴露后台存在）
 - [ ] 兑换码（批量发码/CSV 导出/作废/对账）、用户（搜索/详情/封禁/改密/调积分/调并发）、套餐、全局参数、生成记录、灵感库 CRUD、数据看板、操作审计
 
