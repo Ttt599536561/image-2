@@ -9,7 +9,7 @@
 
 ## Wave A · 快赢（CSS/文案/小逻辑）✅ 完成（commit `59a09c7`）
 - [x] ~~#2 删「（站长维护，点卡片一键带回提示词）」副标题~~ → 欢迎态画廊 label 改「浏览灵感」
-- [x] ~~#10 后台标题贴浏览器边~~ → `.main` 顶部 padding space-6→space-8
+- [x] ~~#10 后台标题贴浏览器边~~ → `.main` 顶部 padding space-6→space-8→**space-12=48px**（站长复议：后台无 TopBar 横条，32px 仍贴边 → 再加大到 48px）
 - [x] ~~#13 兑换码查单搜索框/输入框重叠~~ → 新增 `.searchBox`/`.searchBoxInput`（外框+内无边框 input），消除框中框
 - [x] ~~#6 看不到生成用时~~ → 成功态 doneTag 显「· 用时 Ns」（turn.durationMs）
 - [x] ~~#7 重试还要回填输入框再点生成~~ → regenerate 改 `runGeneration(原参)` 直接发起

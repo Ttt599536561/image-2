@@ -64,8 +64,8 @@
 
 .main {
   overflow-y: auto;
-  /* #10：加大顶部留白，标题不贴浏览器边 */
-  padding: var(--space-8) var(--space-7) var(--space-10);
+  /* #10：加大顶部留白，标题不贴浏览器边（后台无 TopBar 横条，space-8=32px 仍显紧 → space-12=48px） */
+  padding: var(--space-12) var(--space-7) var(--space-10);
 }
 .pageHead {
   display: flex;
