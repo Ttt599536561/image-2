@@ -29,14 +29,15 @@
 
 ---
 
-## §1 资产库高级筛选/框选补全（P0 · M）
+## §1 资产库高级筛选/框选补全（P0 · M）✅ 已实现（按站长「自动进行下一步」先行）
 > 补齐阶段二资产库「未做半截」：后端 `loadImages` 已支持 `range=custom`+`from/to`，但前端只渲染 all/today/7d/30d、无自定义日历；批量选择有 Shift 连选/吸底条/zip/删除确认，但缺规格 §24-9 的桌面拖动框选与移动端长按进多选。**只补交互、不动后端查询/zip/删除链路。**
-- [ ] `AssetsPage.tsx`：RANGES 增「自定义」chip → 日历区间选择器（双月/范围高亮，选完即应用、无确认按钮），传 `from/to` 给已存在的 `useAssets({range:'custom',from,to})`
-- [ ] 自定义可选范围 = 注册日(`me.createdAt`) ~ 今天；清除回「全部」（§24-8）
-- [ ] 桌面框选：网格容器 pointer 拖拽矩形选区（mousedown→move 画框→up 求交集命中缩略图），仅 bulk 模式生效，复用既有 `selected` Set
-- [ ] 移动端：缩略图长按（pointerdown + 计时阈值，无右键）进 bulk 模式并选中起手项
-- [ ] 复用/新建轻量日历组件（`src/components/ui/`，贴 tokens.css、无重型第三方依赖；遵守 `prefers-reduced-motion`）
-- [ ] 可选：缩略图角标「N 天后过期」（≤3 天才显示，§24-5；`images.expiresAt` 已在 `ImagesResponse` 返回）
+> **状态**：实现并 tsc 0 · test:run 44(含 `assetsSelection.test.ts` 14 例 rectsIntersect/expiringInDays/dayStr) · build 0 · assert-no-secrets PASS。**日历用原生 `<input type=date>`（零依赖、可访问、移动端原生选择器）替代「双月/范围高亮」自定义组件**——双月日历列为后续视觉打磨（非阻塞）。手势（框选 drag / 长按）逻辑已 tsc/build 验证，几何/日期纯逻辑已单测；**鉴权态 dev 预览需 DB-env 注入，留合并前手动手势 QA**。
+- [x] `AssetsPage.tsx`：RANGES 增「自定义」chip → 起止 `<input type=date>`（选完即应用、无确认按钮），传 `from/to`(本地日界 ISO) 给 `useAssets({range:'custom',from,to})`；未选起始日 `enabled=false` 不发请求
+- [x] 自定义可选范围 = 注册日(`me.createdAt`) ~ 今天（input min/max）；清除回「全部」（§24-8）
+- [x] 桌面框选：网格区 pointer 拖拽矩形选区（仅鼠标·bulk；window move/up 追踪+5px 阈值+实时预览，叠加既有 `selected`，drag 后吞 click）
+- [x] 移动端：缩略图长按（仅 touch·450ms 计时+10px 移动取消）进 bulk 并选中起手项，吞松手 click
+- [x] ~~复用/新建轻量日历组件~~ → 原生 date input（零依赖）；双月日历后续打磨
+- [x] 缩略图角标「N 天后过期」（≤3 天才显示，§24-5；`images.expiresAt` 已在 `ImagesResponse` 返回）
 
 🔴 **红线**：纯前端读路径、不碰钱/扣费；删除仍走既有 owner-scoped `deleteImages`（DB 权威 + R2 尽力删）+ 二次确认范式不可绕过。
 **影响**：`src/components/assets/AssetsPage.tsx`/`Assets.module.css`、`src/hooks/queries.ts`(确认透传 from/to)、新增 `src/components/ui/DateRangePicker.*`。**spec**：§12/§24-8/§24-9/§24-5、wireframes §9。

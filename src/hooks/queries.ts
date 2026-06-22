@@ -62,11 +62,12 @@ function assetsUrl(q: AssetsQuery): string {
   return s ? `/api/images?${s}` : "/api/images";
 }
 
-export function useAssets(query: AssetsQuery, initialData?: ImagesResponse) {
+export function useAssets(query: AssetsQuery, initialData?: ImagesResponse, enabled = true) {
   return useQuery({
     queryKey: ["assets", query],
     queryFn: () => apiGet(assetsUrl(query), ImagesResponse),
     initialData,
+    enabled,
   });
 }
 

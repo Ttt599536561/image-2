@@ -2,7 +2,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, CheckSquare, Download, Trash2 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 import { DeleteResponse, type ImageItem, type ImageRange, type ImagesResponse } from "../../contracts/image";
-import { useAssets } from "../../hooks/queries";
+import { dayStr, expiringInDays, rectsIntersect } from "../../lib/assetsSelection";
+import { useAssets, useMe } from "../../hooks/queries";
 import { apiDelete } from "../../lib/api-client";
 import { downloadImage, imageFilename } from "../../lib/download";
 import { dateGroupLabel } from "../../lib/format";
@@ -19,23 +20,42 @@ const RANGES: { value: ImageRange; label: string }[] = [
   { value: "today", label: "今天" },
   { value: "7d", label: "近 7 天" },
   { value: "30d", label: "近 30 天" },
+  { value: "custom", label: "自定义" },
 ];
+
+const LONG_PRESS_MS = 450;
+const DRAG_THRESHOLD = 5;
 
 export function AssetsPage({ initialImages }: { initialImages?: ImagesResponse }) {
   const lightbox = useLightbox();
   const shell = useShell();
   const toast = useToast();
   const qc = useQueryClient();
+  const me = useMe();
   const [range, setRange] = useState<ImageRange>("all");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
   const [bulk, setBulk] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [zipping, setZipping] = useState(false);
+  const [dragRect, setDragRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const lastClicked = useRef<string | null>(null);
+  const suppressClick = useRef(false); // drag/long-press 结束后吞掉随之而来的 click
+  const gridAreaRef = useRef<HTMLDivElement>(null);
+  const longPress = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null);
 
-  // range="all" 用 loader initialData；切换其它档走客户端 fetch。
-  const assets = useAssets({ range }, range === "all" ? initialImages : undefined);
-  const items = assets.data?.items ?? [];
+  const isCustom = range === "custom";
+  const customReady = isCustom && !!customFrom;
+  const minDate = me.data?.user.createdAt ? me.data.user.createdAt.slice(0, 10) : undefined;
+  const maxDate = dayStr(new Date());
+  const fromISO = customFrom ? new Date(`${customFrom}T00:00:00`).toISOString() : undefined;
+  const toISO = customTo ? new Date(`${customTo}T23:59:59.999`).toISOString() : undefined;
+
+  const query = isCustom ? { range: "custom" as const, from: fromISO, to: toISO } : { range };
+  // range="all" 用 loader initialData；自定义未选起始日则不发请求（enabled=false）。
+  const assets = useAssets(query, range === "all" ? initialImages : undefined, !isCustom || customReady);
+  const items = useMemo(() => assets.data?.items ?? [], [assets.data]);
   const orderedIds = useMemo(() => items.map((i) => i.id), [items]);
 
   const groups = useMemo(() => {
@@ -70,16 +90,24 @@ export function AssetsPage({ initialImages }: { initialImages?: ImagesResponse }
     lastClicked.current = null;
   };
 
+  const clearCustom = () => {
+    setCustomFrom("");
+    setCustomTo("");
+  };
+
   const onThumbClick = (item: ImageItem, e: React.MouseEvent) => {
+    if (suppressClick.current) {
+      suppressClick.current = false; // 这次 click 来自 drag/长按，吞掉
+      return;
+    }
     if (!bulk) {
       lightbox.open(item.publicUrl, imageFilename(item.publicUrl, item.id));
       return;
     }
-    const shift = e.shiftKey; // 在 setState 更新器外读取（避免合成事件复用风险）
+    const shift = e.shiftKey;
     setSelected((prev) => {
       const next = new Set(prev);
       if (shift && lastClicked.current) {
-        // Shift 连选：选中上次点击与本次之间的区间（按显示顺序）。
         const a = orderedIds.indexOf(lastClicked.current);
         const b = orderedIds.indexOf(item.id);
         if (a >= 0 && b >= 0) {
@@ -96,6 +124,79 @@ export function AssetsPage({ initialImages }: { initialImages?: ImagesResponse }
     lastClicked.current = item.id;
   };
 
+  // —— 桌面：bulk 模式下网格区域拖拽框选（仅鼠标）——
+  const onAreaPointerDown = (e: React.PointerEvent) => {
+    suppressClick.current = false;
+    if (!bulk || e.pointerType !== "mouse" || e.button !== 0) return;
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const base = new Set(selected); // 本次框选叠加在已选之上
+    let moved = false;
+
+    const apply = (l: number, t: number, r: number, b: number) => {
+      const next = new Set(base);
+      const nodes = gridAreaRef.current?.querySelectorAll<HTMLElement>("[data-thumb-id]") ?? [];
+      for (const node of nodes) {
+        if (rectsIntersect(node.getBoundingClientRect(), { left: l, top: t, right: r, bottom: b })) {
+          const id = node.dataset.thumbId;
+          if (id) next.add(id);
+        }
+      }
+      setSelected(next);
+    };
+
+    const onMove = (ev: PointerEvent) => {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (!moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+      moved = true;
+      const x = Math.min(startX, ev.clientX);
+      const y = Math.min(startY, ev.clientY);
+      const w = Math.abs(dx);
+      const h = Math.abs(dy);
+      setDragRect({ x, y, w, h });
+      apply(x, y, x + w, y + h);
+      ev.preventDefault();
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      setDragRect(null);
+      if (moved) suppressClick.current = true; // 吞掉 pointerup 后的 click
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
+  // —— 移动端：缩略图长按进入多选 ——
+  const onThumbPointerDown = (item: ImageItem, e: React.PointerEvent) => {
+    suppressClick.current = false;
+    if (e.pointerType !== "touch") return;
+    const x = e.clientX;
+    const y = e.clientY;
+    const timer = setTimeout(() => {
+      if (!bulk) setBulk(true);
+      setSelected((prev) => new Set(prev).add(item.id));
+      lastClicked.current = item.id;
+      suppressClick.current = true; // 吞掉松手后的 click
+      longPress.current = null;
+    }, LONG_PRESS_MS);
+    longPress.current = { timer, x, y };
+  };
+  const onThumbPointerMove = (e: React.PointerEvent) => {
+    const lp = longPress.current;
+    if (lp && Math.hypot(e.clientX - lp.x, e.clientY - lp.y) > 10) {
+      clearTimeout(lp.timer);
+      longPress.current = null;
+    }
+  };
+  const onThumbPointerEnd = () => {
+    if (longPress.current) {
+      clearTimeout(longPress.current.timer);
+      longPress.current = null;
+    }
+  };
+
   const selectedItems = () => items.filter((i) => selected.has(i.id));
 
   const onZip = async () => {
@@ -108,7 +209,6 @@ export function AssetsPage({ initialImages }: { initialImages?: ImagesResponse }
         exportZipName(),
       );
     } catch {
-      // CORS/网络失败 → 退化为逐张单下（08 §9.6「亦可退化为逐张单下」）。
       toast.info("打包受限，已改为逐张下载");
       for (const i of list) downloadImage(i.publicUrl, imageFilename(i.publicUrl, i.id));
     } finally {
@@ -127,7 +227,7 @@ export function AssetsPage({ initialImages }: { initialImages?: ImagesResponse }
             <div className={styles.head}>
               <h1 className={styles.title}>资产库</h1>
               <p className={styles.sub}>
-                {bulk ? "点选图片，框选下方操作 · 仅本人生成" : "点任意图放大预览 · 仅本人生成、不支持上传"}
+                {bulk ? "点选 / 拖拽框选图片，下方批量操作 · 仅本人生成" : "点任意图放大预览 · 长按可多选 · 仅本人生成"}
               </p>
             </div>
             <button
@@ -153,37 +253,82 @@ export function AssetsPage({ initialImages }: { initialImages?: ImagesResponse }
             ))}
           </div>
 
-          {groups.length === 0 ? (
+          {isCustom ? (
+            <div className={styles.customRow}>
+              <label className={styles.dateLabel}>
+                从
+                <input
+                  type="date"
+                  className={styles.dateInput}
+                  value={customFrom}
+                  min={minDate}
+                  max={customTo || maxDate}
+                  onChange={(e) => setCustomFrom(e.target.value)}
+                />
+              </label>
+              <span className={styles.dateSep}>—</span>
+              <label className={styles.dateLabel}>
+                到
+                <input
+                  type="date"
+                  className={styles.dateInput}
+                  value={customTo}
+                  min={customFrom || minDate}
+                  max={maxDate}
+                  onChange={(e) => setCustomTo(e.target.value)}
+                />
+              </label>
+              {customFrom || customTo ? (
+                <button type="button" className={styles.clearBtn} onClick={clearCustom}>
+                  清除
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+
+          {isCustom && !customReady ? (
+            <div className={styles.empty}>选择起始日期以筛选</div>
+          ) : groups.length === 0 ? (
             <div className={styles.empty}>该时间段内还没有图片</div>
           ) : (
-            groups.map(([label, groupItems]) => (
-              <div className={styles.group} key={label}>
-                <div className={styles.groupHead}>{label}</div>
-                <div className={styles.grid}>
-                  {groupItems.map((it) => {
-                    const isSel = selected.has(it.id);
-                    return (
-                      <button
-                        key={it.id}
-                        type="button"
-                        className={`${styles.thumb} ${bulk ? styles.thumbSelectable : ""} ${
-                          isSel ? styles.thumbSelected : ""
-                        }`}
-                        onClick={(e) => onThumbClick(it, e)}
-                        aria-pressed={bulk ? isSel : undefined}
-                      >
-                        {bulk ? (
-                          <span className={`${styles.check} ${isSel ? styles.checkOn : ""}`}>
-                            <Check size={13} />
-                          </span>
-                        ) : null}
-                        <img src={it.publicUrl} alt={it.prompt} />
-                      </button>
-                    );
-                  })}
+            // biome-ignore lint/a11y/noStaticElementInteractions: 框选交互仅鼠标增强，不替代键盘可达的逐张选择
+            <div ref={gridAreaRef} className={styles.gridArea} onPointerDown={onAreaPointerDown}>
+              {groups.map(([label, groupItems]) => (
+                <div className={styles.group} key={label}>
+                  <div className={styles.groupHead}>{label}</div>
+                  <div className={styles.grid}>
+                    {groupItems.map((it) => {
+                      const isSel = selected.has(it.id);
+                      const expDays = expiringInDays(it.expiresAt);
+                      return (
+                        <button
+                          key={it.id}
+                          type="button"
+                          data-thumb-id={it.id}
+                          className={`${styles.thumb} ${bulk ? styles.thumbSelectable : ""} ${
+                            isSel ? styles.thumbSelected : ""
+                          }`}
+                          onClick={(e) => onThumbClick(it, e)}
+                          onPointerDown={(e) => onThumbPointerDown(it, e)}
+                          onPointerMove={onThumbPointerMove}
+                          onPointerUp={onThumbPointerEnd}
+                          onPointerCancel={onThumbPointerEnd}
+                          aria-pressed={bulk ? isSel : undefined}
+                        >
+                          {bulk ? (
+                            <span className={`${styles.check} ${isSel ? styles.checkOn : ""}`}>
+                              <Check size={13} />
+                            </span>
+                          ) : null}
+                          {expDays !== null ? <span className={styles.expBadge}>{expDays} 天后过期</span> : null}
+                          <img src={it.publicUrl} alt={it.prompt} draggable={false} />
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))
+              ))}
+            </div>
           )}
 
           {bulk && selectedCount > 0 ? (
@@ -206,6 +351,13 @@ export function AssetsPage({ initialImages }: { initialImages?: ImagesResponse }
           ) : null}
         </div>
       </div>
+
+      {dragRect ? (
+        <div
+          className={styles.selectionBox}
+          style={{ left: dragRect.x, top: dragRect.y, width: dragRect.w, height: dragRect.h }}
+        />
+      ) : null}
 
       <ConfirmDialog
         open={confirmOpen}
