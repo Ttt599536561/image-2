@@ -7,15 +7,15 @@
 > - **#14 后台分离**：**UX 彻底分离**（独立 `/admin/login` + 后台无回用户端入口 + 非 admin 重定向 + 登录直达后台；**共用同一 Better Auth 账号体系**，不另起鉴权）。
 > - **#12 删生成记录**：**硬删 + 清 R2**（级联 images + 删对象，二次确认，单删/批删；ledger 保留，对账走 credit_lots 不受影响）。
 
-## Wave A · 快赢（CSS/文案/小逻辑）
-- [ ] #2 删「（站长维护，点卡片一键带回提示词）」副标题（欢迎态画廊 label + /inspiration sub）
-- [ ] #10 后台「用户管理」顶栏顶到浏览器、缺间距 → 加 padding
-- [ ] #13 兑换码查单：搜索框与输入框重叠 → 修
-- [ ] #6 成功后在图旁显示生成时长（如 114s）
-- [ ] #7 点重试/重新生成 → 直接带原参发起，不回填输入框、不再让用户点生成
-- [ ] #5 rix 报错（size must use WIDTHxHEIGHT 等）→ 友好中文
-- [ ] #15 生图时底部 Composer/比例/分辨率 + 右侧「本次生成」面板固定，不随滚动
-- [ ] #16 顶部「当前对话」标题区固定
+## Wave A · 快赢（CSS/文案/小逻辑）✅ 完成（commit 见下）
+- [x] #2 删「（站长维护，点卡片一键带回提示词）」副标题 → 欢迎态画廊 label 改「浏览灵感」
+- [x] #10 后台 `.main` 顶部 padding space-6→space-8（标题不贴浏览器边）
+- [x] #13 兑换码查单：新增 `.searchBox`/`.searchBoxInput`（外框+内无边框 input），消除框中框重叠
+- [x] #6 成功态 doneTag 显「· 用时 Ns」（turn.durationMs）
+- [x] #7 regenerate 改 `runGeneration(原参)` 直接发起，不回填输入框
+- [x] #5 加 `invalid_request` error_code（text 列无 CHECK、免迁移）+ failure.ts 检测 400/size/format + 前端友好中文；**failureMessage 不再回退中转英文原文**（原文仍在「查看原始响应」/后台）
+- [x] #15 `Shell.module.css`：`.shell` height:100dvh+overflow:hidden、`.main` min-height:0 → 内部 .flow/面板各自滚动，Composer 坞 + 右侧面板固定
+- [x] #16 同上（TopBar 固定，随 shell 定高）
 
 ## Wave B · 图片操作
 - [ ] #17 本次面板「下载」实际只放大、没真下载 → 修为真下载

@@ -123,6 +123,11 @@
   color: var(--success-text);
   margin-bottom: var(--space-1);
 }
+/* #6 生成用时（如 · 用时 114s），弱化为次要色 */
+.doneDuration {
+  color: var(--text-tertiary);
+  font-weight: 400;
+}
 
 .actionBar {
   display: flex;

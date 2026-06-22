@@ -26,6 +26,11 @@ export function normalizeFailure(err: unknown): {
     code = "insufficient_quota"; // ★ 中转/上游配额不足，非用户积分不足（后者入队前 402 拦截）
   } else if (/moderation|safety|content_policy|rejected/i.test(raw) || status === 403) {
     code = "content_rejected";
+  } else if (
+    status === 400 ||
+    /invalid[\s_]?request|must use|must be|size must|width|height|dimension|format|unsupported|invalid (size|format|parameter)/i.test(raw)
+  ) {
+    code = "invalid_request"; // #5 参数错误（尺寸/格式/无效请求）→ 前端映射友好中文，不直显中转英文
   } else if ((status !== undefined && status >= 500) || status === 429) {
     code = "relay_5xx"; // 非 quota 的 429（上游限流）归 relay_5xx，不新增枚举
   }

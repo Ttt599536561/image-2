@@ -56,7 +56,8 @@
 
 .main {
   overflow-y: auto;
-  padding: var(--space-6) var(--space-7) var(--space-10);
+  /* #10：加大顶部留白，标题不贴浏览器边 */
+  padding: var(--space-8) var(--space-7) var(--space-10);
 }
 .pageHead {
   display: flex;
@@ -215,6 +216,35 @@
   background: var(--bg-surface);
   color: var(--text-primary);
   font-size: 14px;
+}
+
+/* #13：带图标的搜索框（外框 + 内部无边框 input，避免「框中框」重叠）。 */
+.searchBox {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 36px;
+  min-width: 240px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-full);
+  border: 0.5px solid var(--border-strong);
+  background: var(--bg-surface);
+  color: var(--text-tertiary);
+}
+.searchBox:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.searchBoxInput {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: none;
+  background: transparent;
+  outline: none;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: inherit;
 }
 
 .badge {

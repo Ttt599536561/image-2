@@ -235,10 +235,10 @@ export default function Page({ loaderData }: Route.ComponentProps) {
       <div className={styles.card}>
         <div className={styles.cardTitle}>查单</div>
         <div className={styles.toolbar}>
-          <div className={styles.search}>
+          <div className={styles.searchBox}>
             <Search size={15} />
             <input
-              className={styles.input}
+              className={styles.searchBoxInput}
               type="text"
               placeholder="输入兑换码"
               value={lookupCode}

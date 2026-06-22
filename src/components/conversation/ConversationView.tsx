@@ -43,10 +43,12 @@ const FAILURE_MESSAGES: Record<string, string> = {
   relay_unreachable: "暂时连不上生成服务，请稍后重试",
   insufficient_quota: "生成服务额度暂时不足，请稍后再试或联系站长",
   content_rejected: "提示词未通过内容审核，请调整后重试",
+  invalid_request: "生成参数有误（尺寸或格式暂不支持），请调整后重试",
   relay_5xx: "生成服务繁忙，请稍后重试",
 };
-function failureMessage(code: string | null | undefined, raw: string | null | undefined): string {
-  return (code ? FAILURE_MESSAGES[code] : undefined) ?? raw ?? "生成失败，请重试";
+// #5：用户卡片只显友好中文，绝不直显中转英文原文（原文仍可经「查看原始响应」/后台生成记录排查）。
+function failureMessage(code: string | null | undefined, _raw?: string | null): string {
+  return (code ? FAILURE_MESSAGES[code] : undefined) ?? "生成失败，请重试";
 }
 
 function rawResponseOf(turn: Turn): string {
@@ -211,18 +213,18 @@ export function ConversationView({
     focusComposer();
   };
 
+  // #7：重试 / 重新生成直接带原参发起，不回填输入框、不需用户再点「生成」。
   const regenerate = (turn: Turn) => {
     if (isGenerating) {
       toast.info("生成中，请稍候");
       return;
     }
-    setRequest({
+    runGeneration({
       prompt: turn.prompt,
       size: turn.size as Size,
       quality: (turn.quality as Quality | null) ?? "auto",
       background: (turn.background as Background | null) ?? "auto",
     });
-    focusComposer();
   };
 
   const copyPrompt = (prompt: string) => {
@@ -263,7 +265,7 @@ export function ConversationView({
             </div>
             {composer}
             <div className={styles.gallerySection}>
-              <p className={styles.galleryLabel}>浏览灵感（站长维护，点卡片一键带回提示词）</p>
+              <p className={styles.galleryLabel}>浏览灵感</p>
               <InspirationGallery items={initialInspirations ?? []} compact onUsePrompt={bringBackPrompt} />
             </div>
           </div>
@@ -345,6 +347,9 @@ export function ConversationView({
         <span className={styles.doneTag}>
           <Check size={13} />
           已完成
+          {turn.durationMs ? (
+            <span className={styles.doneDuration}>· 用时 {Math.round(turn.durationMs / 1000)}s</span>
+          ) : null}
         </span>
         {turn.image ? (
           <div className={styles.resultMedia}>

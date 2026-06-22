@@ -18,12 +18,13 @@ export type Quality = (typeof QUALITIES)[number];
 export const BACKGROUNDS = ["auto", "transparent", "opaque"] as const;
 export type Background = (typeof BACKGROUNDS)[number];
 
-// 归一化失败枚举（六值，唯一权威 04 §5.8；09 §10.5 直显）。
+// 归一化失败枚举（唯一权威 04 §5.8；09 §10.5 直显）。error_code 为 text 列（无 DB CHECK），可加值不需迁移。
 export const ERROR_CODES = [
   "insufficient_quota",
   "relay_5xx",
   "provider_timeout",
   "content_rejected",
+  "invalid_request", // 参数错误（尺寸/格式/无效请求，中转 400 类），#5 友好中文映射
   "relay_unreachable",
   "unknown",
 ] as const;
