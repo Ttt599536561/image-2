@@ -51,7 +51,7 @@
 - [ ] 封禁/改密 route（→ 归 ⑥ admin-users-*）：走 Better Auth API(自动吊销会话) + 同步 audit
 
 🔴 **红线**：`generateId:'uuid'` 必须字面量；**bcrypt 72 字节断言在 `password.hash` 内**；敏感/钱/封禁路径必须 disableCookieCache 每请求查 DB；会话存废只走 Better Auth API；signup grant 靠 `uq_grant_signup` 幂等、钩子失败→注册失败。
-> ⚠️ **待 ⑦**：`scripts/assert-no-secrets-in-bundle.ts` 尚未建（密钥进 bundle 的 CI 兜底）；`auth.ts`/`guard.ts` 用 `★server-only` 注释约定（非 `.server.ts` 后缀，依 PHASE2-PLAN 命名），当前 build 实测 0 泄露安全，CI 断言留 ⑦。
+> ✅ **⑦ 已补**：`scripts/assert-no-secrets-in-bundle.ts` 已建并 PASS（扫 build/client 密钥值+schema 结构标记 8 个、命中 exit 1，挂 `.github/workflows/ci.yml`）；`auth.ts`/`guard.ts` 用 `★server-only` 注释约定（非 `.server.ts` 后缀），build 实测 + 断言双重 0 泄露。
 
 ## §3 钱链路（命门 — 最不容错）
 > 全部走 `src/server/tx.server.ts`(Pool/WS+FOR UPDATE)；SQL 照 03-money 逐条落 TS。
