@@ -130,6 +130,10 @@ export async function setBanned(args: {
   reason?: string | null;
   ip?: string | null;
 }): Promise<void> {
+  // 🔴 管理员不能封禁自己（否则自锁后台、需后端 scripts/unban 才能恢复）。权威拦在此（覆盖路由/UI 所有调用方）。
+  if (args.banned && args.adminId === args.userId) {
+    throw new Response("不能封禁自己", { status: 400 });
+  }
   const sql = getSql();
   const rows = (await sql`SELECT is_banned FROM users WHERE id = ${args.userId} LIMIT 1`) as Row[];
   if (rows.length === 0) throw new Response("用户不存在", { status: 404 });

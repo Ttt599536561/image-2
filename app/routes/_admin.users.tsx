@@ -12,11 +12,11 @@ import type { Route } from "./+types/_admin.users";
 
 // 后台用户管理（09 §10.3）：搜索 + 封禁/解封/调积分/调并发/改密。敏感写一律走二次确认。
 export async function loader({ request }: Route.LoaderArgs) {
-  await requireAdminPage(request);
+  const admin = await requireAdminPage(request);
   const p = new URL(request.url).searchParams;
   const q = p.get("q") ?? undefined;
   const data = await searchUsers(q, Math.max(1, Number(p.get("page") ?? 1) || 1), 50);
-  return { data, q: q ?? "" };
+  return { data, q: q ?? "", selfId: admin.userId }; // selfId：禁止封禁自己（UI 守卫，后端 setBanned 亦拦）
 }
 
 type ModalKind = "credit" | "concurrency" | "password" | null;
@@ -33,7 +33,7 @@ const scrimStyle: React.CSSProperties = {
 const modalCardStyle: React.CSSProperties = { maxWidth: 360, width: "100%", margin: 0 };
 
 export default function Page({ loaderData }: Route.ComponentProps) {
-  const { data, q } = loaderData;
+  const { data, q, selfId } = loaderData;
   const revalidator = useRevalidator();
 
   // 当前操作的用户 + 弹窗类型
@@ -129,11 +129,15 @@ export default function Page({ loaderData }: Route.ComponentProps) {
                     <div className={styles.rowActions}>
                       <button
                         type="button"
-                        className={`${styles.btn} ${styles.btnSm} ${u.isBanned ? "" : styles.btnDanger}`}
-                        onClick={() => setBanConfirm(u)}
+                        className={`${styles.btn} ${styles.btnSm} ${u.id === selfId ? "" : u.isBanned ? "" : styles.btnDanger}`}
+                        onClick={() => {
+                          if (u.id !== selfId) setBanConfirm(u);
+                        }}
+                        disabled={u.id === selfId}
+                        title={u.id === selfId ? "不能封禁自己" : undefined}
                       >
                         {u.isBanned ? <Shield size={13} /> : <ShieldOff size={13} />}
-                        {u.isBanned ? "解封" : "封禁"}
+                        {u.id === selfId ? "本人" : u.isBanned ? "解封" : "封禁"}
                       </button>
                       <button
                         type="button"

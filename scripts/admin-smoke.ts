@@ -65,6 +65,14 @@ async function main() {
   checks.push(["searchUsers 命中 target", found.items.some((u) => u.id === target.id)]);
   await setConcurrency({ adminId: admin.id, userId: target.id, maxConcurrency: 5, ip: "1.1.1.1" });
   await setBanned({ adminId: admin.id, userId: target.id, banned: true, reason: "测试", ip: "1.1.1.1" });
+  // 自封禁必须被拒（admin 不能封禁自己，否则自锁后台）。
+  let selfBanRejected = false;
+  try {
+    await setBanned({ adminId: admin.id, userId: admin.id, banned: true, ip: "1.1.1.1" });
+  } catch (e) {
+    selfBanRejected = (e as { status?: number }).status === 400;
+  }
+  checks.push(["自封禁被拒 400（admin 不能封自己）", selfBanRejected]);
   const det = await getUserDetail(target.id);
   checks.push(["setConcurrency=5", det.user.maxConcurrency === 5]);
   checks.push(["setBanned 后 is_banned", det.user.isBanned === true]);

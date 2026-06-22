@@ -90,6 +90,7 @@ node --env-file=.env --import tsx scripts/seed-admin.ts
 node --env-file=.env --import tsx scripts/promote-admin.ts <你的邮箱>
 ```
 > 🔑 凭据放 `.env`（已 gitignore），**绝不写进源码/提交**（密码进 git 历史=泄露）。新库流程：迁移 + seed → 跑 `seed-admin.ts`。
+> 🆘 **后台自锁恢复**（如被封禁锁在外面）：`node --env-file=.env --import tsx scripts/unban.ts <email>`（清业务 `is_banned` + Better Auth `banned`）。注：管理员**不能封禁自己**（已加守卫，`setBanned` 400 + UI 本人行禁用），此脚本用于其它误封场景。
 - [ ] `/admin` 进得去（非 admin 访问应被 redirect，不暴露后台存在）
 - [ ] 兑换码（批量发码/CSV 导出/作废/对账）、用户（搜索/详情/封禁/改密/调积分/调并发）、套餐、全局参数、生成记录、灵感库 CRUD、数据看板、操作审计
 
