@@ -37,7 +37,7 @@
 - 深色模式 + 暖色点缀。
 
 ### 2.2 本期 Out of Scope / 后续
-- 图生图（参考图）实际能力：仅占位入口"敬请期待"。
+- 图生图（参考图）：**新需求 2026-06-22，方案已过审、待开发**（Composer 已有「参考图」占位入口）。**前置**——先探测中转 `/images/edits` 端点是否支持 `gpt-image-2`（同 S6/#9 范式），通过才进入实现：上传单张参考图 → `/api/uploads` 存储 → `GenerateRequest.inputImageKey` → `generations.input_image_key` 列 → 管线 `callRelay` 有图走 edits multipart，计费同 0.07，上传图纳入保留期清理。详见 PROGRESS「第二批待开发队列」。
 - 优化提示词：不实现，**按钮占位**。
 - 一次多图（`n`>1）：不做，每次一张。
 - 真实支付页 / 订阅：不做（走兑换码）。
@@ -156,8 +156,12 @@
 - **操作审计日志（本期做）**：管理员敏感操作（调积分、改密、封禁、生成/作废码、改配置/定价/文案/Key）留痕（管理员 ID、时间、对象、动作、变更前后值、IP、原因）；**只追加、管理员不可删改自己的记录**。
 - **站内通知配置 / 管理（新需求 2026-06-22）**：现状——站内通知**仅 `image_expiring`**（图片到期前 1 天 cron 自动产出）。本需求让管理员能在后台**创建并下发站内通知**，让前台铃铛不只有自动到期提醒。
   - ① **广播公告（✅ 已实现）**：通知类型 `announcement`（payload `{title, body, link?}`），后台撰写 → 选目标（全体 / 仅付费 `has_paid=true`）→ 下发；前台铃铛按类型渲染（Megaphone + 摘要，link 站内 navigate / 外链 window.open）。实现：`api.admin.notifications`(`requireAdmin`) + `notifications.server.broadcastAnnouncement`（per-user 批量插 `notifications`，`dedupe_key=announcement:<aid>:<uid>` 幂等、INSERT+审计同事务）+ `_admin.notifications.tsx` 撰写页 + `NotificationBell` 分支。link 安全分类器 `src/lib/announcementLink`（站内单层路径 / http(s) 外链）挡开放重定向。
-  - ② （可选）**通知开关 / 参数（待开发）**：如「图片到期提醒提前天数」、各类通知启停，落 `app_config`（与全局参数同机制）。本轮不做。
+    - **①增强：编辑 / 删除已发公告（新需求 2026-06-22，方案已过审、待开发）**：后台「已发公告」列表（按公告 id 聚合，显示目标 / 接收数 / 已读数 / 时间）+ 每条**编辑**（批量改同一 `announcement:<aid>:%` 的 payload）/ **删除**（批量删该波 `notifications` 行）→ **同步用户端**。审计 `edit_announcement` / `delete_announcement`、二次确认。
+  - ② **用户端公告体验（新需求 2026-06-22，方案已过审、待开发）**：点铃铛公告 → **弹出详情弹窗**（完整 title/body/link）；**看完仍保留**——铃铛列表改拉近 50 条全部（已读+未读）、未读高亮、红点只计未读、关闭弹窗不删通知（修正现状「打开即已读 + 只查 unread → 看完消失」）。
+  - ③ （可选）**通知开关 / 参数（待开发）**：如「图片到期提醒提前天数」、各类通知启停，落 `app_config`（与全局参数同机制）。本轮不做。
   - 红线（已落实）：后台写端点 `requireAdmin` + 二次确认 + 操作审计（`broadcast_notification`）；广播 = 给目标用户**批量插 `notifications`**；前台只读本人通知（owner-scoped），`notifications.type` 枚举与 `NotificationItem` 契约同步扩。
+
+- **后台 UX：顶部留白 / 页眉（新需求 2026-06-22，方案已过审、待开发）**：后台主区无 TopBar 横条、标题贴浏览器顶边（站长第 3 次反馈）；加**轻量 sticky 页眉**（含当前页标题）+ 顶部留白加大（`Admin.module.css .main` ~48→64px），与用户端观感对齐。
 
 > 运营进阶能力（客服 360 视图、配置中心+变更回滚、RBAC 权限分级、退款/争议）见 §23；合规与内容审核见 §21；工程一致性/幂等见 §22。
 

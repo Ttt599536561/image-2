@@ -29,7 +29,7 @@
 - **Wave C（4 项 #3/#12/#9/#4 新能力·后端）✅** `8aa24ec`：删会话（级联+R2+owner-scope）/ 后台删生成记录（硬删+审计+账本保留）/ #9 输出格式**探测否决跳过**（中转不透传 output_format，jpeg 仍返 PNG，同 S6）/ 资产日期控件重做（DateRangePicker）。deletes-smoke 18/18 真 Neon。
 - **Wave D（3 项 #8/#11/#14 大重构）✅** `af62860`：账号页重构（余额置顶+批次+流水类型筛+兑换记录，映射我们模型）/ 全局参数去毫积分（前端填积分、后端存 mp）/ 后台 UX 彻底分离（独立 /admin/login + 角色直达 + 无回用户端入口）。account-reads-smoke 17/17 真 Neon。
 - **新增 smoke**：`deletes-smoke`（删会话/删生成）、`account-reads-smoke`（账号页读）、`relay-format-probe`（#9 探测，已跑：中转不透传 output_format）。
-- **下一步**：站长本地 `netlify dev`(8888) 浏览器验收 20 条；若 OK 则本主线收官。
+- **下一步**：① 站长本地浏览器验收（20 条 + 本批 rename / 广播公告，`netlify dev` 8888）；② **第二批 4 项新需求方案已过审（2026-06-22）、待开发** → 见下「🆕 第二批待开发需求队列」（先确认待拍板决策点，再按建议顺序逐项做）。
 
 ### 🆕 待开发需求队列（✅ 两项均已完成 2026-06-22；通知开关/参数②留后续）
 - ✅ **站长后台通知配置 / 管理 —— 广播公告（①）已完成**（站长 2026-06-22 提，规格见 [redesign-requirements.md §9](redesign-requirements.md)）：后台可撰写公告并下发到铃铛。范围锁定为「广播公告」；**② 通知开关 / 参数（到期提醒提前天数等，落 `app_config`）本轮不做、留后续**。
@@ -41,6 +41,29 @@
   - **红线满足**：owner-scoped（B 改不动 A）、空标题前后端双拦、客户端 0 schema（只引 `src/contracts/*`）、敏感写 requireUserStrict。
   - ✅ **已核实「改名不被覆盖」无忧**：`enqueue.ts` 只在**创建会话**时 `INSERT ... title=prompt.slice(0,20)`（[enqueue.ts:74](../src/server/generation/enqueue.ts)），后续生成仅 `UPDATE ... updated_at`（[enqueue.ts:68](../src/server/generation/enqueue.ts)）、**从不重写 title**。
   - **验证**：tsc 0 · test:run 67 · build 0 · assert-no-secrets PASS · `scripts/rename-smoke.ts` **7/7**（对真 Neon：改名生效 + owner-scope 404 + 不存在 404 + 不动 updated_at）+ 多代理对抗审查（13 findings→3 confirmed minor/major 已修：isPending 守卫 + 保存中不被 blur 取消）。
+
+### 🆕 第二批待开发需求队列（4 项，方案已过审 2026-06-22；**待站长拍板下方决策点后开发**）
+> 站长本会话已过审 4 项需求的方案 + 原型（原型存 [docs/prototypes/new-features-2026-06-22.html](prototypes/new-features-2026-06-22.html)，浏览器打开看 3 屏）。**先不开发**；新会话接手先确认下方「待拍板决策点」，再按「建议顺序」逐项做（每项仍：实做 → tsc/test/build/assert + 对真 Neon smoke → 多代理对抗审查 → commit + checkpoint）。规格见 [§9](redesign-requirements.md)（①②③）/ [§2.2](redesign-requirements.md)（④图生图）。
+>
+> **建议开发顺序**：③后台留白（最快）→ ①+②（公告编辑删除 + 详情弹窗保留，一起做、共享通知改动）→ ④a 探测 →（通过则）④b 图生图。
+
+- ⬜ **③ 后台顶部留白 / 页眉**（最易，纯 CSS/布局、无后端无契约）：后台 `.main` 顶部留白已 48px（`Admin.module.css:68`）但**无 TopBar 横条**仍贴浏览器边（站长第 3 次反馈）。做：加**轻量 sticky 页眉**（含当前页标题）+ 留白加大 ~64px。
+- ⬜ **① 广播公告 编辑 / 删除（同步用户端）**：现状广播 per-user 散插、**无聚合实体**，公告 id 藏在 `dedupe_key=announcement:<aid>:<uid>`。做：
+  - **读**：新增「已发公告列表」server fn——按公告 id 聚合（`GROUP BY split_part(dedupe_key,':',2)`，出 title/body/link、目标、接收数、`COUNT(read_at)` 已读数、时间）。
+  - **写**：`AnnouncementAction` 扩 `edit`(aid,title,body,link)=`UPDATE notifications SET payload=新 WHERE type='announcement' AND dedupe_key LIKE 'announcement:<aid>:%'`；`delete`(aid)=`DELETE … LIKE …`（用户端立即同步）。审计 `edit_announcement`/`delete_announcement`、二次确认、同事务。
+  - **UI**：`_admin.notifications.tsx` 撰写区下方加「已发公告」列表（编辑回填表单 / 删除 ConfirmDialog）。免迁移（aid 从 dedupe_key 拆）。
+- ⬜ **② 用户端公告详情弹窗 + 看完保留**：现状 `NotificationBell` 打开即标全部已读 + 只查 `?unread=1` → **看完即消失**。做：
+  - 点公告 → 弹**详情 Modal**（完整 title/body/link 按钮/时间 + 知道了），不再直接跳转/消失。
+  - **看完保留**：铃铛列表改拉**近 50 条全部**（`loadNotifications` unreadOnly=false）、未读高亮、**红点只计未读**（前端从列表算或单独 unread count）；打开仍消红点但条目保留、可反复点开。`image_expiring` 一并保留、行为统一。owner-scoped 不变。
+- ⬜ **④ 图生图（最大、有前置）**：Composer 已有「参考图」disabled 占位（`Composer.tsx:99`）。中转现走文生图 `/images/generations`(JSON，`imageGeneration.ts:36`)。
+  - **④a 前置探测（先做）**：新增 `scripts/relay-edits-probe.ts` 实测中转 `gpt-image-2` 是否支持 `/images/edits`(multipart 图生图)，同 S6/#9 范式。**不通过 → 阻塞、保持占位**（等中转开通），不白做。
+  - **④b 实现（探测通过才做）**：前端激活「参考图」上传（单张 image/* + 校验大小/类型）→ 缩略图预览/移除 + 模式切换；`/api/uploads` 存 Supabase `uploads/` → `GenerateRequest.inputImageKey`；`generations` 加 `input_image_key` 列（免迁移）；`callRelay` 有图走 edits multipart（拉用户图→FormData）。计费同 0.07；上传图纳入保留期清理。
+  - 红线/风险：上传校验 + owner-scoped + 成功才扣不变；Background Function 内存/超时；内容审核站长自负；**中转能力是最大不确定项**。
+
+**待站长拍板决策点**（新会话开发前确认）：
+1. **①** 编辑公告后是否「重新通知」（重置 `read_at`、重弹红点）还是静默改内容？（建议：编辑时给「重新提醒」勾选）
+2. **②** 铃铛就用「保留近 50 条、已读灰显」还是另开「公告历史」页？（建议：铃铛保留近 50 条即可）
+3. **④** 图生图与文生图同价 0.07？先支持单张参考图？是否限付费用户？（建议：同价 / 单张 / 不限）——且先 ④a 探测通过再进 ④b。
 
 **本地怎么跑**（见 [local-acceptance.md](dev/local-acceptance.md)）：
 - **`netlify dev`（8888）**，**不是** `npm run dev`。起前先 **`rm -rf build .netlify`**、`[dev]` 不设 framework（否则无样式）。

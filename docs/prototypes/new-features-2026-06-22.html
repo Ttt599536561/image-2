@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>第二批新需求原型 · 2026-06-22</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/dist/tabler-icons.min.css">
+<style>
+:root{
+  --color-background-primary:#ffffff;
+  --color-background-secondary:#f4f1ea;
+  --color-background-tertiary:#ede9e1;
+  --color-text-primary:#211f1b;
+  --color-text-secondary:#6b6760;
+  --color-text-tertiary:#9a958c;
+  --color-text-danger:#bb3b2c;
+  --color-border-tertiary:rgba(0,0,0,.12);
+  --color-border-secondary:rgba(0,0,0,.22);
+  --color-border-danger:rgba(187,59,44,.4);
+  --border-radius-md:8px;
+  --border-radius-lg:12px;
+  --font-sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+}
+*{box-sizing:border-box}
+body{font-family:var(--font-sans);background:#faf8f3;color:var(--color-text-primary);margin:0;padding:28px 16px;line-height:1.5}
+.wrap{max-width:720px;margin:0 auto}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+h1{font-size:22px;font-weight:600;margin:0 0 8px}
+.intro{color:var(--color-text-secondary);font-size:14px;line-height:1.7;margin:0 0 8px}
+.intro code{background:var(--color-background-secondary);border-radius:4px;padding:1px 5px;font-size:13px}
+.note{color:var(--color-text-tertiary);font-size:12px;margin:0 0 22px}
+.mk{background:var(--color-background-secondary);border-radius:var(--border-radius-lg);padding:14px 16px;margin:0 0 18px}
+.tag{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#7a2f15;background:#FAECE7;border-radius:var(--border-radius-md);padding:3px 10px;margin:0 0 12px}
+.card{background:var(--color-background-primary);border:.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:14px 16px}
+.clay{background:#C26A3D;color:#fff;border:none;border-radius:999px;padding:7px 14px;font-size:13px;display:inline-flex;align-items:center;gap:6px;cursor:default}
+.g{background:transparent;border:.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);padding:5px 9px;font-size:12px;color:var(--color-text-secondary);display:inline-flex;align-items:center;gap:5px;cursor:default}
+.lbl{font-size:12px;color:var(--color-text-secondary);margin:0 0 5px}
+.inp{border:.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);padding:8px 10px;font-size:13px;color:var(--color-text-tertiary);background:var(--color-background-primary)}
+.pill{font-size:11px;padding:2px 8px;border-radius:999px;background:var(--color-background-secondary);color:var(--color-text-secondary)}
+.row{display:flex;align-items:center;gap:10px;border:.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:9px 11px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h2 class="sr-only">四项新需求界面原型：后台广播公告的已发列表与编辑删除、加大后台顶部留白、用户端公告详情弹窗、Composer 图生图上传</h2>
+<h1>第二批新需求原型 · 2026-06-22</h1>
+<p class="intro">站长 4 项新需求（方案已过审、待开发）。下面 3 屏低保真原型：① 后台广播公告管理（已发列表 + 编辑/删除 + 顶部留白加大）② 用户端公告详情弹窗（看完仍保留）③ Composer 图生图（上传参考图）。完整方案 / 待拍板决策点见 <code>docs/PROGRESS.md</code> 的「第二批待开发需求队列」。</p>
+<p class="note">低保真结构原型，配色/间距以 <code>docs/prototypes/design-system.html</code> 为准。</p>
+
+<div class="mk">
+  <span class="tag"><i class="ti ti-speakerphone" aria-hidden="true"></i> 需求 ① + ③ · 后台 · 广播公告管理</span>
+  <div class="card" style="padding:0;overflow:hidden">
+    <div style="border-bottom:.5px solid var(--color-border-tertiary);padding:24px 18px 14px;position:relative">
+      <span style="position:absolute;left:18px;top:7px;font-size:11px;color:var(--color-text-tertiary);display:inline-flex;align-items:center;gap:4px"><i class="ti ti-arrows-vertical" aria-hidden="true"></i> ③ 顶部留白加大 48→64px</span>
+      <div style="font-size:16px;font-weight:500;color:var(--color-text-primary)">广播公告</div>
+    </div>
+    <div style="padding:14px 18px">
+      <div style="display:flex;gap:8px;align-items:flex-end;margin-bottom:16px;flex-wrap:wrap">
+        <div style="flex:1;min-width:170px"><p class="lbl">标题</p><div class="inp">系统维护通知</div></div>
+        <div><p class="lbl">目标</p><div class="g" style="border-radius:999px">全体用户 (30)</div></div>
+        <button class="clay"><i class="ti ti-send" aria-hidden="true"></i> 下发</button>
+      </div>
+      <p style="font-size:13px;font-weight:500;margin:0 0 9px;color:var(--color-text-primary);display:flex;align-items:center;gap:6px">已发公告 <span class="pill" style="background:#FAECE7;color:#7a2f15">① 新增可编辑 / 删除</span></p>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div class="row">
+          <i class="ti ti-speakerphone" style="color:#C26A3D" aria-hidden="true"></i>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;color:var(--color-text-primary)">五一活动 · 充值双倍积分</div>
+            <div style="font-size:11px;color:var(--color-text-tertiary)">全体 · 5-01 10:20 · <i class="ti ti-eye" style="font-size:12px;vertical-align:-1px" aria-hidden="true"></i> 已读 18/30</div>
+          </div>
+          <button class="g" aria-label="编辑"><i class="ti ti-edit" aria-hidden="true"></i></button>
+          <button class="g" style="color:var(--color-text-danger);border-color:var(--color-border-danger)" aria-label="删除"><i class="ti ti-trash" aria-hidden="true"></i></button>
+        </div>
+        <div class="row">
+          <i class="ti ti-speakerphone" style="color:#C26A3D" aria-hidden="true"></i>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;color:var(--color-text-primary)">付费用户专属 · 新模型尝鲜</div>
+            <div style="font-size:11px;color:var(--color-text-tertiary)">仅付费 · 4-28 09:00 · <i class="ti ti-eye" style="font-size:12px;vertical-align:-1px" aria-hidden="true"></i> 已读 9/12</div>
+          </div>
+          <button class="g" aria-label="编辑"><i class="ti ti-edit" aria-hidden="true"></i></button>
+          <button class="g" style="color:var(--color-text-danger);border-color:var(--color-border-danger)" aria-label="删除"><i class="ti ti-trash" aria-hidden="true"></i></button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="mk">
+  <span class="tag"><i class="ti ti-bell" aria-hidden="true"></i> 需求 ② · 用户端 · 点公告弹详情（看完仍保留）</span>
+  <div style="position:relative;background:var(--color-background-tertiary);border-radius:var(--border-radius-lg);overflow:hidden;min-height:400px">
+    <div style="display:flex;justify-content:flex-end;align-items:center;gap:12px;padding:10px 16px;background:var(--color-background-primary);border-bottom:.5px solid var(--color-border-tertiary)">
+      <span class="pill" style="background:#C26A3D;color:#fff">120 积分</span>
+      <span style="position:relative;color:var(--color-text-secondary)"><i class="ti ti-bell" style="font-size:18px" aria-hidden="true"></i><span style="position:absolute;top:-2px;right:-2px;width:8px;height:8px;background:var(--color-text-danger);border-radius:50%"></span></span>
+    </div>
+    <div style="position:absolute;right:16px;top:48px;width:264px;background:var(--color-background-primary);border:.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-md);padding:6px;z-index:1">
+      <div style="font-size:12px;color:var(--color-text-secondary);padding:6px 8px">通知</div>
+      <div style="display:flex;gap:8px;padding:8px;border-radius:6px;background:var(--color-background-secondary)">
+        <i class="ti ti-speakerphone" style="color:#C26A3D;margin-top:1px" aria-hidden="true"></i>
+        <div><div style="font-size:13px;color:var(--color-text-primary)">五一活动 · 充值双倍积分</div><div style="font-size:11px;color:var(--color-text-tertiary)">5-01 · 点此查看</div></div>
+      </div>
+      <div style="display:flex;gap:8px;padding:8px;opacity:.55">
+        <i class="ti ti-clock" style="margin-top:1px" aria-hidden="true"></i>
+        <div><div style="font-size:13px;color:var(--color-text-primary)">有图片将于 5-03 过期</div><div style="font-size:11px;color:var(--color-text-tertiary)">已读 · 仍保留可见</div></div>
+      </div>
+    </div>
+    <div style="position:absolute;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;padding:16px">
+      <div style="width:336px;background:var(--color-background-primary);border-radius:var(--border-radius-lg);padding:18px">
+        <div style="display:flex;align-items:center;gap:9px;margin-bottom:10px">
+          <span style="width:30px;height:30px;border-radius:50%;background:#FAECE7;color:#C26A3D;display:flex;align-items:center;justify-content:center;flex:none"><i class="ti ti-speakerphone" aria-hidden="true"></i></span>
+          <div style="font-size:16px;font-weight:500;color:var(--color-text-primary)">五一活动 · 充值双倍积分</div>
+        </div>
+        <p style="font-size:14px;color:var(--color-text-secondary);line-height:1.6;margin:0 0 14px">五一期间充值任意套餐双倍积分到账，活动限 5 月 1 日 — 5 月 3 日。点击下方查看充值套餐。</p>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <a class="g" style="border-radius:999px"><i class="ti ti-external-link" aria-hidden="true"></i> 查看充值</a>
+          <button class="clay">知道了</button>
+        </div>
+        <p style="font-size:11px;color:var(--color-text-tertiary);margin:12px 0 0;text-align:center">关闭后公告仍保留在铃铛中，可重复查看</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="mk">
+  <span class="tag"><i class="ti ti-photo" aria-hidden="true"></i> 需求 ④ · 用户端 · Composer 图生图（上传参考图）</span>
+  <div class="card">
+    <div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:12px">
+      <div style="position:relative;width:56px;height:56px;border-radius:var(--border-radius-md);background:var(--color-background-secondary);border:.5px solid var(--color-border-tertiary);display:flex;align-items:center;justify-content:center;color:var(--color-text-tertiary);flex:none">
+        <i class="ti ti-photo" style="font-size:22px" aria-hidden="true"></i>
+        <span style="position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:var(--color-text-primary);color:var(--color-background-primary);display:flex;align-items:center;justify-content:center;font-size:11px"><i class="ti ti-x" aria-hidden="true"></i></span>
+      </div>
+      <span class="pill" style="background:#FAECE7;color:#7a2f15;margin-top:4px"><i class="ti ti-wand" style="font-size:12px;vertical-align:-1px" aria-hidden="true"></i> 图生图模式 · 基于参考图生成</span>
+    </div>
+    <div style="border:.5px solid var(--color-border-secondary);border-radius:var(--border-radius-lg);padding:12px">
+      <div style="font-size:14px;color:var(--color-text-tertiary);margin-bottom:14px">描述你想如何修改这张图…（如：换成赛博朋克风格、把背景改成海边）</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <span class="g" style="border-radius:999px;border-color:#C26A3D;color:#C26A3D"><i class="ti ti-photo" aria-hidden="true"></i> 参考图 1</span>
+          <span class="g" style="border-radius:999px"><i class="ti ti-crop" aria-hidden="true"></i> 比例</span>
+          <span class="g" style="border-radius:999px"><i class="ti ti-adjustments" aria-hidden="true"></i> 高级</span>
+        </div>
+        <button class="clay" style="width:34px;height:34px;padding:0;justify-content:center;border-radius:50%" aria-label="生成"><i class="ti ti-arrow-up" aria-hidden="true"></i></button>
+      </div>
+    </div>
+    <p style="font-size:11px;color:var(--color-text-tertiary);margin:10px 2px 0">前置：需先探测中转 <code style="font-size:11px">/images/edits</code> 是否支持，通过才进入实现</p>
+  </div>
+</div>
+</div>
+</body>
+</html>
