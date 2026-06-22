@@ -11,9 +11,9 @@
 - **阶段一**=对话式三栏壳 + Composer 五态（**RR8** framework/SSR，非 RR7；docs/dev 文中「RR7」即指此 framework 模式）。
 - **阶段二**=Neon + Drizzle / Better Auth / Supabase Storage(S3) / **钱链路**（毫积分整数·成功才扣·`generation_id` 幂等·批次 FIFO·兑换原子核销·单日预算熔断）/ 生图管线（DB-as-queue + 抢占式状态机）/ 前端接真 / 后台 `/admin/*` / cron·可观测·CI。
 - **阶段三**=资产框选(S1) + 搜索(S2) + 灵感库运营化(S4)。**S6 优化提示词跳过**——中转 `api.tangguo.xin` 只配 `gpt-image-2`、无任何 chat/文本模型（`scripts/relay-chat-probe.ts` 探测全 503），药丸保持 disabled 占位，中转开 chat 渠道后再做。**S3 RBAC / S5 客服 360 不做**（站长定·维持单管理员）。
-- **🚧 当前在做：站长本地验收提的 20 条改进** → 追踪表 [docs/dev/PHASE3-FEEDBACK.md](docs/dev/PHASE3-FEEDBACK.md)（含 4 项已确认决策：#9 输出格式只 png/jpeg、#8 账号页映射我们模型、#14 后台 UX 彻底分离、#12 删生成记录硬删+清 R2）。**Wave A(8 项 #2/#5/#6/#7/#10/#13/#15/#16) 已完成提交**；余 12 项 = Wave B（图片操作 #17/#18/#19/#20/#1）+ C（新能力/后端 #3/#12/#9/#4）+ D（大重构 #8/#11/#14）。
-- **本地运行**：`netlify dev`(8888，= `BETTER_AUTH_URL`)，**起前先 `rm -rf build .netlify`**、`[dev]` 不设 `framework`（否则无样式）；管理员 `599536561@qq.com` / `fefc8389`（凭据在 `.env`，`scripts/seed-admin.ts`）。⚠️ 本机 **Bash coreutils 偶发缺失（sleep/seq/tail 报 command not found）→ 跑 npm/长命令改用 PowerShell**。
-- **测试基线**：tsc 0 · test:run 53 · build 0 · `assert-no-secrets` PASS · 对真 Neon smoke（reads/search/admin/cron/inspirations）全绿。
+- **✅ 站长本地验收 20 条改进——全部完成** → 追踪表 [docs/dev/PHASE3-FEEDBACK.md](docs/dev/PHASE3-FEEDBACK.md)。Wave A(8)`59a09c7` + B(图片操作 5)`5c1e5b8` + C(新能力/后端 4)`8aa24ec` + D(大重构 3)`af62860`。19 项实做 + **#9 输出格式探测否决跳过**（`scripts/relay-format-probe.ts` 实测中转不透传 `output_format`、jpeg 仍返 PNG，同 S6 范式，保持只 png）。4 决策已落（#9 实为探测后跳过、#8 账号页映射我们模型、#14 后台 UX 彻底分离、#12 删生成记录硬删+清 R2）。**下一步=站长本地 `netlify dev`(8888) 浏览器验收。**
+- **本地运行**：`netlify dev`(8888，= `BETTER_AUTH_URL`)，**起前先 `rm -rf build .netlify`**、`[dev]` 不设 `framework`（否则无样式）；管理员 `599536561@qq.com` / `fefc8389`（凭据在 `.env`，`scripts/seed-admin.ts`）。**后台登录走独立 `/admin/login`（#14）**。⚠️ 本机 **Bash coreutils 偶发缺失（sleep/seq/tail 报 command not found）→ 跑 npm/长命令改用 PowerShell**。
+- **测试基线**：tsc 0 · test:run 67 · build 0 · `assert-no-secrets` PASS · 对真 Neon smoke（reads/search/admin/cron/inspirations/**deletes/account-reads**）全绿。
 - **分支**：`main`=最新；`phase1-frontend`/`phase2`/`phase3` 保留作里程碑；本地仓**无 remote、未 push**。
 - **新会话接手顺序**：本文件 → [PROGRESS.md](docs/PROGRESS.md) 顶「🆕 新会话从这接手」→ [PHASE3-FEEDBACK.md](docs/dev/PHASE3-FEEDBACK.md)（当前主线）。**进度勾选只在 PROGRESS + PHASE3-FEEDBACK + PHASE2/3-PLAN**；规格/设计文档(00–11) 只写「做什么」不写「做没做」。
 

@@ -33,7 +33,7 @@
 ### Wave C 验证
 tsc 0 · test:run 67(+14) · build 0 · assert-no-secrets PASS · **`scripts/deletes-smoke.ts` 18/18（对真 Neon：会话删级联+owner-scope、admin 删生成硬删+审计+账本保留、批删）** · reads-smoke 回归 PASS
 
-## Wave D · 大重构 ✅ 完成（commit 待填）
+## Wave D · 大重构 ✅ 完成（commit `af62860`）
 - [x] ~~#8 账号页重构~~ → 积分余额置顶卡（+ 过期提示 + 去充值）+ 积分批次（来源/发放/剩余/到期，映射 credit_lots）+ 积分流水（7 类型 Tab 筛选，adjust 方向读 reason 前缀）+ 兑换记录（脱敏码/到账/面值/有效期）；新增 `loadLots`/`loadRedemptions` + `loadLedger(type?)` + 契约 `LotItem`/`RedemptionItem` + 路由 `api.account.lots`/`.redemptions` + 客户端 `useLots`/`useLedger`/`useRedemptions`；去竞品订阅/月额度
 - [x] ~~#11 全局参数去毫积分~~ → `creditsToMp`（Math.round 防浮点）；后台全局参数 `price_per_image_mp`/`signup_grant_mp` 标签改「积分」+ 录入框 step 0.001 + 展示 mp/1000、提交 ×1000（其余键仍整数）；调积分弹窗改填积分（−0.07 等）。**后端仍存 mp，换算只在前端边界**
 - [x] ~~#14 后台 UX 彻底分离~~ → 独立 `/admin/login`（`_auth.admin-login` + AuthForm `admin` 变体：无注册 Tab、登录后校验 `role=admin` 直达 `/admin`，非 admin 登出报错）；`requireAdminPage` 未登录改跳 `/admin/login`（已登录非 admin 仍跳 `/` 不泄露）；后台移除「返回工作台」改「退出登录」→ 回 `/admin/login`；共用同一 Better Auth
