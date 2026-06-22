@@ -1,4 +1,4 @@
-// GET /api/notifications?unread=1（07 §8.3）。站内通知（目前仅 image_expiring）。顶栏铃铛走 TanStack Query。
+// GET /api/notifications?unread=1（07 §8.3）。站内通知（image_expiring | announcement，owner-scoped）。顶栏铃铛走 TanStack Query。
 import { httpError } from "../../src/contracts/error";
 import { requireUser } from "../../src/lib/guard";
 import { loadNotifications } from "../../src/server/reads.server";

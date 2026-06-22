@@ -1,16 +1,17 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bell, Clock } from "lucide-react";
+import { Bell, Clock, Megaphone } from "lucide-react";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import type { NotificationItem } from "../../contracts/notification";
 import { useNotifications } from "../../hooks/queries";
+import { type AnnouncementLinkKind, classifyAnnouncementLink } from "../../lib/announcementLink";
 import { apiPost } from "../../lib/api-client";
 import { formatMonthDay } from "../../lib/format";
 import { usePopover } from "../../lib/usePopover";
 import styles from "./NotificationBell.module.css";
 
 // 顶栏通知铃铛（08 §9.6）。未读红点 + 下拉未读列表；打开即标记全部已读 → invalidate 消红点。
-// 目前唯一类型 image_expiring（payload {imageId, expiresAt}），点条目跳资产库。
+// 两类：image_expiring（payload {imageId, expiresAt}，点跳资产库）+ announcement（后台广播，payload {title, body, link?}）。
 export function NotificationBell({ buttonClassName }: { buttonClassName?: string }) {
   const pop = usePopover();
   const qc = useQueryClient();
@@ -43,6 +44,26 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
     return typeof v === "string" ? v : null;
   };
 
+  const str = (v: unknown): string => (typeof v === "string" ? v : "");
+  const announcementOf = (payload: Record<string, unknown> | null) => {
+    const raw = str(payload?.link);
+    // 与后端 announcementLink 同一分类器二次校验（挡 javascript:/协议相对 //evil/反斜杠 /\evil）。
+    const linkKind = raw ? classifyAnnouncementLink(raw) : null;
+    return {
+      title: str(payload?.title),
+      body: str(payload?.body),
+      link: linkKind ? raw : null,
+      linkKind,
+    };
+  };
+
+  const goAnnouncement = (link: string | null, kind: AnnouncementLinkKind | null) => {
+    pop.setOpen(false);
+    if (!link || !kind) return;
+    if (kind === "internal") navigate(link); // 站内路径
+    else window.open(link, "_blank", "noopener,noreferrer"); // http(s) 外链新开
+  };
+
   return (
     <div className={styles.wrap} ref={pop.ref}>
       <button type="button" className={buttonClassName} onClick={toggle} aria-label="通知" title="通知">
@@ -58,6 +79,28 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
             <div className={styles.empty}>暂无新通知</div>
           ) : (
             display.map((n) => {
+              if (n.type === "announcement") {
+                const a = announcementOf(n.payload);
+                return (
+                  <button
+                    key={n.id}
+                    type="button"
+                    className={styles.item}
+                    onClick={() => goAnnouncement(a.link, a.linkKind)}
+                  >
+                    <Megaphone size={14} className={styles.itemIconAnnounce} />
+                    <span className={styles.itemBody}>
+                      <span className={styles.itemTitle}>{a.title || "站长公告"}</span>
+                      {a.body ? <span className={styles.itemSummary}>{a.body}</span> : null}
+                      <span className={styles.itemTime}>
+                        {formatMonthDay(n.createdAt)}
+                        {a.link ? " · 点此查看" : ""}
+                      </span>
+                    </span>
+                  </button>
+                );
+              }
+              // image_expiring
               const exp = expiresOf(n.payload);
               return (
                 <button

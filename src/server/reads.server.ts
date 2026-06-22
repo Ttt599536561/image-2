@@ -389,7 +389,7 @@ export async function loadRedemptions(
   };
 }
 
-// ===================== /api/notifications（站内通知；目前仅 image_expiring） =====================
+// ===================== /api/notifications（站内通知；image_expiring | announcement，owner-scoped） =====================
 export async function loadNotifications(userId: string, unreadOnly: boolean): Promise<NotificationListResponse> {
   const sql = getSql();
   const rows = unreadOnly
@@ -404,7 +404,7 @@ export async function loadNotifications(userId: string, unreadOnly: boolean): Pr
   return {
     items: rows.map((r) => ({
       id: r.id as string,
-      type: r.type as "image_expiring",
+      type: r.type as NotificationListResponse["items"][number]["type"], // image_expiring | announcement
       payload: (r.payload as Record<string, unknown> | null) ?? null,
       readAt: isoOrNull(r.read_at),
       createdAt: iso(r.created_at),

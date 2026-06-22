@@ -75,6 +75,13 @@
   color: var(--warning-text, var(--accent));
 }
 
+/* §9 广播公告图标（区别于到期提醒的告警色） */
+.itemIconAnnounce {
+  flex: none;
+  margin-top: 1px;
+  color: var(--accent, var(--primary-bg));
+}
+
 .itemBody {
   display: flex;
   flex-direction: column;
@@ -85,6 +92,17 @@
 .itemTitle {
   font-size: 13px;
   font-weight: 500;
+}
+
+/* §9 公告正文摘要：2 行截断 */
+.itemSummary {
+  font-size: 12px;
+  color: var(--text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .itemTime {

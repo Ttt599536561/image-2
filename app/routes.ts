@@ -30,6 +30,7 @@ export default [
   route("api/admin/config", "routes/api.admin.config.ts"),
   route("api/admin/inspirations", "routes/api.admin.inspirations.ts"),
   route("api/admin/generations", "routes/api.admin.generations.ts"),
+  route("api/admin/notifications", "routes/api.admin.notifications.ts"),
   route("api/admin/audit", "routes/api.admin.audit.ts"),
   route("api/admin/dashboard", "routes/api.admin.dashboard.ts"),
   layout("routes/_app.tsx", [
@@ -55,5 +56,6 @@ export default [
     route("admin/generations", "routes/_admin.generations.tsx"),
     route("admin/inspiration", "routes/_admin.inspiration.tsx"),
     route("admin/packages", "routes/_admin.packages.tsx"),
+    route("admin/notifications", "routes/_admin.notifications.tsx"), // §9 广播公告
   ]),
 ] satisfies RouteConfig;

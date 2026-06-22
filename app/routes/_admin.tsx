@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   Lightbulb,
   LogOut,
+  Megaphone,
   Package,
   Ticket,
   Users,
@@ -27,6 +28,7 @@ const NAV = [
   { to: "/admin/generations", label: "生成记录", icon: ImageIcon, end: false },
   { to: "/admin/inspiration", label: "灵感库", icon: Lightbulb, end: false },
   { to: "/admin/packages", label: "套餐 / 参数", icon: Package, end: false },
+  { to: "/admin/notifications", label: "广播公告", icon: Megaphone, end: false },
 ];
 
 export default function AdminLayout() {

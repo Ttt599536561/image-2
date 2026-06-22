@@ -1,6 +1,7 @@
 // 后台契约（09 §10.1）。前后端单一真相源；🔴 客户端可达 → 手写 Zod，绝不 value-import db/schema（⑤ 教训）。
 // 写端点用 op 判别联合（一个资源一个 action 端点，减面）；响应形状由 server 模块的 TS 接口给（loader 直出类型）。
 import { z } from "zod";
+import { classifyAnnouncementLink } from "../lib/announcementLink";
 import { passwordField } from "./account";
 import { REDEEM_ALPHABET } from "./redeem";
 
@@ -107,6 +108,23 @@ export const InspirationAction = z.discriminatedUnion("op", [
   ReorderInspAction,
 ]);
 export type InspirationAction = z.infer<typeof InspirationAction>;
+
+// ===================== 站内通知：广播公告（§9）=====================
+// link 可空：站内路径（/assets…）前台走 navigate，外链（http(s)://…）走 window.open。
+// 🔴 link 安全分类（站内单层路径 / http(s) 外链 / 拒绝）抽到 src/lib/announcementLink 前后端单一真相源，
+//    挡 `javascript:`/协议相对 `//evil`/反斜杠 `/\evil`（浏览器规整为 `//` 的开放重定向）。
+export const announcementLink = z
+  .string()
+  .max(1000)
+  .refine((s) => classifyAnnouncementLink(s) !== null, "链接须为站内路径(/…)或 http(s) 外链");
+export const AnnouncementAction = z.object({
+  op: z.literal("broadcast"),
+  title: z.string().min(1, "标题必填").max(120),
+  body: z.string().min(1, "内容必填").max(2000),
+  link: announcementLink.nullable().optional(),
+  target: z.enum(["all", "paid"]), // 全体 / 仅付费用户(has_paid=true)
+});
+export type AnnouncementAction = z.infer<typeof AnnouncementAction>;
 
 // ===================== 生成记录删除（#12 硬删 + 清 R2，单删/批删）=====================
 // 账本（credit_ledger）保留：对账走 credit_lots，不受删除影响。

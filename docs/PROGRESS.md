@@ -31,11 +31,11 @@
 - **新增 smoke**：`deletes-smoke`（删会话/删生成）、`account-reads-smoke`（账号页读）、`relay-format-probe`（#9 探测，已跑：中转不透传 output_format）。
 - **下一步**：站长本地 `netlify dev`(8888) 浏览器验收 20 条；若 OK 则本主线收官。
 
-### 🆕 待开发需求队列（已记文档、暂不动手）
-- ⬜ **站长后台通知配置 / 管理**（站长 2026-06-22 提，规格见 [redesign-requirements.md §9](redesign-requirements.md)）：用户端铃铛已有通知，但**后台无法配置/下发**——现状只有 cron 自动的 `image_expiring`。
-  - **现有脚手架**：`notifications` 表 + `/api/notifications`(列) + `/api/notifications/read` + `NotificationBell.tsx`（铃铛）+ 契约 `NotificationItem`(type 枚举当前仅 `image_expiring`) + cron 预扫产出（`maintenance.server` prescan）均已就绪；缺**后台撰写/下发入口 + 新通知类型**。
-  - **范围待确认**（动手前问站长）：① 广播公告（新 type `announcement`，全体/按条件下发）为主诉求；② 可选通知开关/参数（到期提醒提前天数等，落 `app_config`）。
-  - **实现范围（待做，按①）**：契约扩 `NotificationItem.type` + 新建 `AnnouncementAction`；后台新页（撰写+目标选择，复用 ConfirmDialog 二次确认）+ `app/routes/api.admin.notifications.ts`(`requireAdmin`) + `src/server/admin/notifications.server.ts`（广播=批量插 `notifications` 或全局通知+已读，二选一定）+ 写审计；前台 `NotificationBell` 渲染新 type（带 link 跳转）。红线：owner-scoped 读、admin 写、审计留痕。
+### 🆕 待开发需求队列（✅ 两项均已完成 2026-06-22；通知开关/参数②留后续）
+- ✅ **站长后台通知配置 / 管理 —— 广播公告（①）已完成**（站长 2026-06-22 提，规格见 [redesign-requirements.md §9](redesign-requirements.md)）：后台可撰写公告并下发到铃铛。范围锁定为「广播公告」；**② 通知开关 / 参数（到期提醒提前天数等，落 `app_config`）本轮不做、留后续**。
+  - **已落地**：① 契约 `NotificationItem.type` 加 `announcement` + 新建 `AnnouncementAction`（admin.ts，op broadcast / title 1..120 / body 1..2000 / link 可空 / target all|paid）；② 后端 `app/routes/api.admin.notifications.ts`(`requireAdmin`) + `src/server/admin/notifications.server.ts`（广播 = 单语句 `INSERT INTO notifications SELECT … FROM users [WHERE has_paid] ON CONFLICT(dedupe_key) DO NOTHING RETURNING`，`dedupe_key=announcement:<aid>:<uid>` 保幂等；**INSERT+审计同事务**，审计失败回滚不重复下发）+ `notificationTargetCounts`；③ 后台撰写页 `_admin.notifications.tsx`（title/body/link + 目标单选 + ConfirmDialog「将给 N 个用户下发」+ 审计）挂左栏导航(Megaphone)；④ 前台 `NotificationBell.tsx` 按 type 分支（announcement = Megaphone + 摘要，link 站内 navigate / 外链 window.open）。
+  - **红线满足**：admin 写双守卫（`_admin` requireAdminPage + api requireAdmin）+ 二次确认 + 审计；前台 `loadNotifications` owner-scoped；type 枚举与契约同步；客户端 0 schema（仅引 `src/contracts/*` + `src/lib/announcementLink`）；**link 跳转安全**——站内单层路径 / http(s) 外链分类器（`src/lib/announcementLink`，前后端 + 铃铛三处统一），挡 `javascript:`/协议相对 `//evil`/反斜杠 `/\evil`（开放重定向）。
+  - **验证**：tsc 0 · test:run 72（+5 `announcementLink.test.ts` 绕过用例）· build 0 · assert-no-secrets PASS · `scripts/notifications-smoke.ts` **13/13**（对真 Neon：目标命中/非目标不命中/owner-scoped/同 aid 复发幂等 0 重复/payload 正确）+ 多代理对抗审查（13 findings→5 confirmed：2 major〔开放重定向反斜杠绕过 + 审计失败重试重复下发〕+ 3 minor，**全部已修**）。
 - ✅ **重命名会话**（站长 2026-06-22 提，规格见 [redesign-requirements.md §10](redesign-requirements.md)）：左栏「最近」里用户可给会话改名 —— **已完成**。
   - **已落地**：① 后端 `PATCH /api/conversations/:id`（与 DELETE 并列；`requireUserStrict` owner-scoped + 后端 trim 兜底空标题→400）+ `renameConversation(userId,id,title)`（`UPDATE conversations SET title WHERE id AND user_id RETURNING`，0 行→404，只改 title 不动 updated_at）+ 契约 `ConversationRenameResponse`；② `api-client.ts` 加 `apiPatch`（镜像 apiDelete）；③ 前端 `Sidebar.tsx` 每条会话加铅笔「重命名」入口 + 行内编辑（Enter 提交 / Esc·失焦取消 + isPending 守卫防连击重发/失败留存可重试）+ invalidate `["conversations"]`/`["conversation",id]`（TopBar 标题取自详情、同步刷新）。
   - **红线满足**：owner-scoped（B 改不动 A）、空标题前后端双拦、客户端 0 schema（只引 `src/contracts/*`）、敏感写 requireUserStrict。
@@ -47,7 +47,7 @@
 - 管理员 **`599536561@qq.com` / `fefc8389`**（凭据在 `.env`，`scripts/seed-admin.ts`）。
 - ⚠️ **本机 Bash coreutils 偶发缺失（sleep/seq/tail）→ 跑 npm/长命令用 PowerShell**。会话 cookie 可经 `auth.api.signInEmail({asResponse:true})` 服务端铸造做 HTTP QA（绕路由层限流）。
 
-**测试基线**：tsc 0·test:run 67·test:money 33·build 0·assert-no-secrets PASS·cron/reads/admin/search/inspirations/deletes/account-reads/**rename** smoke 全绿（对真 Neon）。
+**测试基线**：tsc 0·test:run 72·test:money 33·build 0·assert-no-secrets PASS·cron/reads/admin/search/inspirations/deletes/account-reads/**rename/notifications** smoke 全绿（对真 Neon）。
 
 **待上线（非编码）**：成本对账真·毛利数（站长已确认 OK）、可选配 `SENTRY_DSN`/`ADMIN_ALERT_WEBHOOK`（缺则 no-op）；P3-S6 待中转开 chat 渠道（复跑 `scripts/relay-chat-probe.ts`）。本地仓无 remote、未 push。
 

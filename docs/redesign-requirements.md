@@ -154,10 +154,10 @@
 - **全局参数（后台可改、不写死）**：单张扣费价（0.07）、新用户赠送额（0.14）、**新用户赠送有效期（天，默认 30）**、保留期天数（免费 7 / 付费 60）。
 - **数据看板（本期最小 7 卡）**：①今日注册数 ②今日成功/失败次数 + **失败原因 Top**（归一化枚举：额度不足/relay_5xx/超时/未知）③累计总图数 ④今日/累计**收入**（兑换成功按**面值现金** ¥9.9/¥29.9 记账）⑤**积分发放 vs 消耗 + 账面负债**（赠送与充值分列）⑥**队列健康**（待处理/运行中）⑦**平均生图时长**。再加：付费转化率/ARPU、DAU、尺寸占比。
 - **操作审计日志（本期做）**：管理员敏感操作（调积分、改密、封禁、生成/作废码、改配置/定价/文案/Key）留痕（管理员 ID、时间、对象、动作、变更前后值、IP、原因）；**只追加、管理员不可删改自己的记录**。
-- **站内通知配置 / 管理（新需求 2026-06-22，待开发）**：现状——站内通知**仅 `image_expiring`**（图片到期前 1 天 cron 自动产出），后台无任何配置/下发入口。本需求让管理员能在后台**创建并下发站内通知**，让前台铃铛不只有自动到期提醒。**范围待与站长确认**（先记需求、不开发）：
-  - ① **广播公告**（主诉求）：新增通知类型 `announcement`（payload `{title, body, link?}`），后台撰写 → 选目标（全体 / 按条件如付费用户）→ 下发；前台铃铛渲染新类型（样式区别于过期提醒，可带跳转链接）。
-  - ② （可选）**通知开关 / 参数**：如「图片到期提醒提前天数」、各类通知启停，落 `app_config`（与全局参数同机制）。
-  - 红线（沿用现有）：后台写端点 `requireAdmin` + 二次确认 + 操作审计；广播实现二选一（给目标用户**批量插 `notifications`** ／ 一条全局通知 + per-user 已读追踪）待定；前台只读本人通知（owner-scoped），`notifications.type` 枚举与 `NotificationItem` 契约同步扩。
+- **站内通知配置 / 管理（新需求 2026-06-22）**：现状——站内通知**仅 `image_expiring`**（图片到期前 1 天 cron 自动产出）。本需求让管理员能在后台**创建并下发站内通知**，让前台铃铛不只有自动到期提醒。
+  - ① **广播公告（✅ 已实现）**：通知类型 `announcement`（payload `{title, body, link?}`），后台撰写 → 选目标（全体 / 仅付费 `has_paid=true`）→ 下发；前台铃铛按类型渲染（Megaphone + 摘要，link 站内 navigate / 外链 window.open）。实现：`api.admin.notifications`(`requireAdmin`) + `notifications.server.broadcastAnnouncement`（per-user 批量插 `notifications`，`dedupe_key=announcement:<aid>:<uid>` 幂等、INSERT+审计同事务）+ `_admin.notifications.tsx` 撰写页 + `NotificationBell` 分支。link 安全分类器 `src/lib/announcementLink`（站内单层路径 / http(s) 外链）挡开放重定向。
+  - ② （可选）**通知开关 / 参数（待开发）**：如「图片到期提醒提前天数」、各类通知启停，落 `app_config`（与全局参数同机制）。本轮不做。
+  - 红线（已落实）：后台写端点 `requireAdmin` + 二次确认 + 操作审计（`broadcast_notification`）；广播 = 给目标用户**批量插 `notifications`**；前台只读本人通知（owner-scoped），`notifications.type` 枚举与 `NotificationItem` 契约同步扩。
 
 > 运营进阶能力（客服 360 视图、配置中心+变更回滚、RBAC 权限分级、退款/争议）见 §23；合规与内容审核见 §21；工程一致性/幂等见 §22。
 

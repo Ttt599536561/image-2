@@ -277,7 +277,7 @@ export const auditLog = pgTable("audit_log", {
   createdAt: timestamp("created_at", tz).notNull().defaultNow(),
 });
 
-// ========== notifications（站内通知；仅「图片到期前 1 天」入表，06 §7.4 / 07 §8.3） ==========
+// ========== notifications（站内通知：image_expiring cron 自动 + announcement 后台广播，06 §7.4 / 07 §8.3 / §9） ==========
 export const notifications = pgTable(
   "notifications",
   {
@@ -285,9 +285,9 @@ export const notifications = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    type: text("type").notNull(), // image_expiring（目前唯一）
-    payload: jsonb("payload"), // {imageId, expiresAt}
-    dedupeKey: text("dedupe_key").notNull(), // image_expiring:<图id>；cron 每日重跑靠它幂等
+    type: text("type").notNull(), // image_expiring | announcement（纯 text 无 CHECK，新增类型免迁移）
+    payload: jsonb("payload"), // image_expiring:{imageId,expiresAt} | announcement:{title,body,link?}
+    dedupeKey: text("dedupe_key").notNull(), // image_expiring:<图id> | announcement:<公告id>:<用户id>；靠它幂等
     readAt: timestamp("read_at", tz),
     createdAt: timestamp("created_at", tz).notNull().defaultNow(),
   },
