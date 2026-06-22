@@ -45,9 +45,14 @@
 ### 🆕 第二批待开发需求队列（4 项，方案已过审 2026-06-22；**待站长拍板下方决策点后开发**）
 > 站长本会话已过审 4 项需求的方案 + 原型（原型存 [docs/prototypes/new-features-2026-06-22.html](prototypes/new-features-2026-06-22.html)，浏览器打开看 3 屏）。**先不开发**；新会话接手先确认下方「待拍板决策点」，再按「建议顺序」逐项做（每项仍：实做 → tsc/test/build/assert + 对真 Neon smoke → 多代理对抗审查 → commit + checkpoint）。规格见 [§9](redesign-requirements.md)（①②③）/ [§2.2](redesign-requirements.md)（④图生图）。
 >
-> **建议开发顺序**：③后台留白（最快）→ ①+②（公告编辑删除 + 详情弹窗保留，一起做、共享通知改动）→ ④a 探测 →（通过则）④b 图生图。
+> **建议开发顺序**：~~③后台留白（最快）~~ ✅ → ①+②（公告编辑删除 + 详情弹窗保留，一起做、共享通知改动）→ ④a 探测 →（通过则）④b 图生图。
+>
+> **站长 3 决策点已答（2026-06-22）**：① 编辑公告 → 表单加「重新提醒」勾选（勾上=重置已读+重弹红点，默认不勾=静默改内容）；② 铃铛 → 保留近 50 条·已读灰显·红点只计未读·点公告弹详情 Modal 不删（不另开历史页）；④ 图生图 → 同价 0.07 / 先支持单张参考图 / 不限付费用户（且先 ④a 探测通过再进 ④b）。
 
-- ⬜ **③ 后台顶部留白 / 页眉**（最易，纯 CSS/布局、无后端无契约）：后台 `.main` 顶部留白已 48px（`Admin.module.css:68`）但**无 TopBar 横条**仍贴浏览器边（站长第 3 次反馈）。做：加**轻量 sticky 页眉**（含当前页标题）+ 留白加大 ~64px。
+- ✅ **③ 后台顶部留白 / 页眉**（最易，纯 CSS/布局、无后端无契约）—— **已完成 `0ea89ae`**。
+  - **真因订正**：`.main` 的 `padding: var(--space-12) var(--space-7) var(--space-10)` 引用了「刻意缺省」的未定义令牌 `var(--space-7)`（tokens.css 注：7/9/11 缺省）→ 整条 padding 简写在 computed-value 阶段 substitution failure → 退回初始值 = **四边 0 内边距**（不是留白 48 不够、是根本没生效，这才是「标题贴浏览器边」真因）。
+  - **已落地**（纯 CSS，`src/components/admin/Admin.module.css`）：① `.main` 改用已定义令牌（两侧 32 / 底 40）；② `.pageHead` 升级为轻量 **sticky 页眉**（`position:sticky;top:0;z-index:20`〔低于 modal 80/popover 40，不挡行内操作/弹窗〕+ 满铺负边距〔左右 -32px 抵消 `.main` 内边距，分隔线通栏〕+ 底色 + `border-bottom`；初始标题距顶 ≈64px=48+16）；③ 7 个后台页 `.pageHead` 内已含当前页标题 → **零页面改动**即获含标题吸顶页眉。
+  - **验证**：tsc 0 · build 0 · assert-no-secrets PASS · test:run 72 · 多代理对抗审查（13 agents / 10 findings → 1 confirmed=达成确认 nit，0 缺陷）。纯前端无 Neon smoke。
 - ⬜ **① 广播公告 编辑 / 删除（同步用户端）**：现状广播 per-user 散插、**无聚合实体**，公告 id 藏在 `dedupe_key=announcement:<aid>:<uid>`。做：
   - **读**：新增「已发公告列表」server fn——按公告 id 聚合（`GROUP BY split_part(dedupe_key,':',2)`，出 title/body/link、目标、接收数、`COUNT(read_at)` 已读数、时间）。
   - **写**：`AnnouncementAction` 扩 `edit`(aid,title,body,link)=`UPDATE notifications SET payload=新 WHERE type='announcement' AND dedupe_key LIKE 'announcement:<aid>:%'`；`delete`(aid)=`DELETE … LIKE …`（用户端立即同步）。审计 `edit_announcement`/`delete_announcement`、二次确认、同事务。

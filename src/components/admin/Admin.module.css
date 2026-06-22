@@ -64,16 +64,26 @@
 
 .main {
   overflow-y: auto;
-  /* #10：加大顶部留白，标题不贴浏览器边（后台无 TopBar 横条，space-8=32px 仍显紧 → space-12=48px） */
-  padding: var(--space-12) var(--space-7) var(--space-10);
+  /* ③（2026-06-22）：原 `var(--space-7)` 是「刻意缺省」的未定义令牌（tokens.css 注：7/9/11 缺省）→ 整条
+     padding 在 computed-value 时失效=四边 0 内边距，这才是「标题贴浏览器边」的真因（不是留白不够）。
+     改用已定义令牌：两侧 32 / 底 40；顶部由下方 sticky 页眉 .pageHead 提供（48 + 页眉 16 ≈ 64px 到标题）。 */
+  padding: var(--space-12) var(--space-8) var(--space-10);
 }
+/* ③ 轻量 sticky 页眉：含当前页标题(.pageTitle)+工具栏，随内容吸顶；满铺通栏分隔线 + 底色，
+   与浏览器边之间留白，向用户端 TopBar 观感对齐。z 低于 modal(80)/popover(40)，不挡行内操作/弹窗。 */
 .pageHead {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  margin-bottom: var(--space-5);
   flex-wrap: wrap;
+  margin: 0 calc(-1 * var(--space-8)) var(--space-6);
+  padding: var(--space-4) var(--space-8);
+  background: var(--bg-canvas);
+  border-bottom: 0.5px solid var(--border-subtle);
 }
 .pageTitle {
   font-size: 20px;

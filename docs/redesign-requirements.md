@@ -161,7 +161,7 @@
   - ③ （可选）**通知开关 / 参数（待开发）**：如「图片到期提醒提前天数」、各类通知启停，落 `app_config`（与全局参数同机制）。本轮不做。
   - 红线（已落实）：后台写端点 `requireAdmin` + 二次确认 + 操作审计（`broadcast_notification`）；广播 = 给目标用户**批量插 `notifications`**；前台只读本人通知（owner-scoped），`notifications.type` 枚举与 `NotificationItem` 契约同步扩。
 
-- **后台 UX：顶部留白 / 页眉（新需求 2026-06-22，方案已过审、待开发）**：后台主区无 TopBar 横条、标题贴浏览器顶边（站长第 3 次反馈）；加**轻量 sticky 页眉**（含当前页标题）+ 顶部留白加大（`Admin.module.css .main` ~48→64px），与用户端观感对齐。
+- **后台 UX：顶部留白 / 页眉（新需求 2026-06-22，✅ 已实现）**：后台主区无 TopBar 横条、标题贴浏览器顶边（站长第 3 次反馈）；加**轻量 sticky 页眉**（含当前页标题，`.pageHead` 升级为 `position:sticky`）+ 顶部留白加大，与用户端观感对齐。**真因订正**：原 `Admin.module.css .main` 的 `padding` 引用了**未定义令牌** `var(--space-7)`（tokens.css 刻意缺省 7/9/11）→ 整条简写 substitution failure 失效=四边 0 内边距（不是留白不够），改用已定义令牌即修复。
 
 > 运营进阶能力（客服 360 视图、配置中心+变更回滚、RBAC 权限分级、退款/争议）见 §23；合规与内容审核见 §21；工程一致性/幂等见 §22。
 
