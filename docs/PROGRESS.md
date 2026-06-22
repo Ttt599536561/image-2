@@ -31,6 +31,12 @@
 - **新增 smoke**：`deletes-smoke`（删会话/删生成）、`account-reads-smoke`（账号页读）、`relay-format-probe`（#9 探测，已跑：中转不透传 output_format）。
 - **下一步**：站长本地 `netlify dev`(8888) 浏览器验收 20 条；若 OK 则本主线收官。
 
+### 🆕 待开发需求队列（已记文档、暂不动手）
+- ⬜ **重命名会话**（站长 2026-06-22 提，规格见 [redesign-requirements.md §10](redesign-requirements.md)）：左栏「最近」里用户可给会话改名。
+  - **现有脚手架**：契约 `RenameRequest`（`src/contracts/conversation.ts`，`title 1..200`）已存在，缺端点 + server fn + UI。
+  - **实现范围（待做）**：① 后端 `PATCH /api/conversations/:id`（扩 `app/routes/api.conversations.$id.ts` 现有 action，与 DELETE 并列；`requireUserStrict` owner-scoped）+ `renameConversation(userId,id,title)`（`UPDATE conversations SET title WHERE id AND user_id RETURNING`，0 行→404）；② 前端 `Sidebar.tsx` 加重命名入口（行内编辑或「⋯」菜单，与 #3 删除键并列）+ `apiPost/Patch` + invalidate `["conversations"]`/`["conversation",id]`；③ 红线：owner-scoped、空标题前端拦截。
+  - ✅ **已核实「改名不被覆盖」无忧**：`enqueue.ts` 只在**创建会话**时 `INSERT ... title=prompt.slice(0,20)`，后续生成仅 `UPDATE ... updated_at`、**从不重写 title**——故用户改名后不会被新生成覆盖，无需额外加锁标记。
+
 **本地怎么跑**（见 [local-acceptance.md](dev/local-acceptance.md)）：
 - **`netlify dev`（8888）**，**不是** `npm run dev`。起前先 **`rm -rf build .netlify`**、`[dev]` 不设 framework（否则无样式）。
 - 管理员 **`599536561@qq.com` / `fefc8389`**（凭据在 `.env`，`scripts/seed-admin.ts`）。
