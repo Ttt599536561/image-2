@@ -32,6 +32,10 @@
 - **下一步**：站长本地 `netlify dev`(8888) 浏览器验收 20 条；若 OK 则本主线收官。
 
 ### 🆕 待开发需求队列（已记文档、暂不动手）
+- ⬜ **站长后台通知配置 / 管理**（站长 2026-06-22 提，规格见 [redesign-requirements.md §9](redesign-requirements.md)）：用户端铃铛已有通知，但**后台无法配置/下发**——现状只有 cron 自动的 `image_expiring`。
+  - **现有脚手架**：`notifications` 表 + `/api/notifications`(列) + `/api/notifications/read` + `NotificationBell.tsx`（铃铛）+ 契约 `NotificationItem`(type 枚举当前仅 `image_expiring`) + cron 预扫产出（`maintenance.server` prescan）均已就绪；缺**后台撰写/下发入口 + 新通知类型**。
+  - **范围待确认**（动手前问站长）：① 广播公告（新 type `announcement`，全体/按条件下发）为主诉求；② 可选通知开关/参数（到期提醒提前天数等，落 `app_config`）。
+  - **实现范围（待做，按①）**：契约扩 `NotificationItem.type` + 新建 `AnnouncementAction`；后台新页（撰写+目标选择，复用 ConfirmDialog 二次确认）+ `app/routes/api.admin.notifications.ts`(`requireAdmin`) + `src/server/admin/notifications.server.ts`（广播=批量插 `notifications` 或全局通知+已读，二选一定）+ 写审计；前台 `NotificationBell` 渲染新 type（带 link 跳转）。红线：owner-scoped 读、admin 写、审计留痕。
 - ⬜ **重命名会话**（站长 2026-06-22 提，规格见 [redesign-requirements.md §10](redesign-requirements.md)）：左栏「最近」里用户可给会话改名。
   - **现有脚手架**：契约 `RenameRequest`（`src/contracts/conversation.ts`，`title 1..200`）已存在，缺端点 + server fn + UI。
   - **实现范围（待做）**：① 后端 `PATCH /api/conversations/:id`（扩 `app/routes/api.conversations.$id.ts` 现有 action，与 DELETE 并列；`requireUserStrict` owner-scoped）+ `renameConversation(userId,id,title)`（`UPDATE conversations SET title WHERE id AND user_id RETURNING`，0 行→404）；② 前端 `Sidebar.tsx` 加重命名入口（行内编辑或「⋯」菜单，与 #3 删除键并列）+ `apiPost/Patch` + invalidate `["conversations"]`/`["conversation",id]`；③ 红线：owner-scoped、空标题前端拦截。
