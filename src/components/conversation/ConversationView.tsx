@@ -36,6 +36,19 @@ const EMPTY_REQUEST: GenerateRequest = {
   background: "auto",
 };
 
+// 失败原因（error_code 五值枚举）→ 用户友好中文（卡片显示）。原始报错仍留 DB，供后台「生成记录」排查。
+// unknown / 缺 code 时回退原始报错（再回退通用语）。
+const FAILURE_MESSAGES: Record<string, string> = {
+  provider_timeout: "生成超时（服务响应过慢），未扣积分，请重试",
+  relay_unreachable: "暂时连不上生成服务，请稍后重试",
+  insufficient_quota: "生成服务额度暂时不足，请稍后再试或联系站长",
+  content_rejected: "提示词未通过内容审核，请调整后重试",
+  relay_5xx: "生成服务繁忙，请稍后重试",
+};
+function failureMessage(code: string | null | undefined, raw: string | null | undefined): string {
+  return (code ? FAILURE_MESSAGES[code] : undefined) ?? raw ?? "生成失败，请重试";
+}
+
 function rawResponseOf(turn: Turn): string {
   const obj =
     turn.status === "failed"
@@ -315,7 +328,7 @@ export function ConversationView({
         <div className={styles.errorCard}>
           <div className={styles.errorHead}>
             <AlertTriangle size={16} />
-            {turn.error ?? "生成失败，请重试"}
+            {failureMessage(turn.errorCode, turn.error)}
           </div>
           <p className={styles.errorNote}>本次未扣 / 已退积分。</p>
           <button type="button" className={styles.retryBtn} onClick={() => regenerate(turn)}>
