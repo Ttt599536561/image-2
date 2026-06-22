@@ -102,7 +102,7 @@ export async function handler(event) {
   // ① 抢占（铁律③）：单语句 UPDATE…WHERE status='queued' RETURNING（HTTP 即原子）
   const claimed = await httpSql/*sql*/`
     UPDATE generations SET status='claimed', job_id=${workerTag()}, updated_at=now()
-    WHERE id=${generationId} AND status='queued' RETURNING id, user_id, prompt, size, quality, background`;
+    WHERE id=${generationId} AND status='queued' RETURNING id, user_id, prompt, size, quality, background, input_image_key`;
   if (claimed.length === 0) return;                       // 抢不到（重试/重扫/已终态）→ 立即退，不调中转、不扣费
 
   const g = claimed[0];
@@ -122,7 +122,14 @@ export async function handler(event) {
   const t0 = Date.now();
   try {
     // ④ 调中转（Bearer 从 process.env.RELAY_API_KEY；n=1；moderation=low）
-    const { images, raw } = await callRelay({ prompt: g.prompt, size: g.size, quality: g.quality, background: g.background });
+    //    ★ 图生图(i2i)分支：有 input_image_key → 先回读参考图字节（getUploadObject），失败即友好 invalid_request（不扣费，§5.9）；
+    //      callRelay 见到 inputImage 即走 /images/edits multipart（buildEditsForm），否则走 /images/generations JSON。
+    let inputImage: { bytes: Uint8Array; contentType: string } | undefined;
+    if (g.input_image_key) {
+      try { inputImage = await getUploadObject(g.input_image_key); }   // 06 §7.x；回读字节 + content-type
+      catch (e: any) { const err: any = new Error('参考图读取失败，请重试'); err.httpStatus = 400; err.code = 'invalid_request'; throw err; }
+    }
+    const { images, raw } = await callRelay({ prompt: g.prompt, size: g.size, quality: g.quality, background: g.background, inputImage });
 
     // ⑤ 落 R2（事务外，结果存临时变量）→ 06 §7.3
     //    putToR2 内部自取字节（url→下载 或 b64_json→decode，复用 imageGeneration.ts 解析，§5.7），返回 {storageKey,publicUrl,contentType,width,height,sizeBytes}
@@ -146,6 +153,8 @@ export async function handler(event) {
     // ⑧ 调中转后 HTTP upsert 累计墙钟 ms（仅监控/告警、不硬挡）；被平台杀导致少计
     //    → 由 §11.8 cron 用当日 generations.duration_ms 之和重算覆盖 ms 键（§5.6）。
     await budget.incMs(Date.now() - t0);
+    // ★ [gen-timing] 拆分耗时日志（fetchInput/relay/putToR2/total，单位 ms）便于定位 i2i 跨境慢点（commit f6842c1）。
+    console.log('[gen-timing]', { generationId, fetchInputMs, relayMs, putR2Ms, totalMs: Date.now() - t0 });
   }
 }
 ```
@@ -168,13 +177,20 @@ async function relayBases(): Promise<string[]> {
   return backup && backup !== primary ? [primary, backup] : [primary];
 }
 
-export async function callRelay(req: { prompt: string; size: string; quality: string; background: string }) {
+export async function callRelay(req: { prompt: string; size: string; quality: string; background: string; inputImage?: { bytes: Uint8Array; contentType: string } }) {
   const key   = process.env.RELAY_API_KEY!;             // ★ 只在 Background Function 注入
   const bases = await relayBases();
-  const body  = JSON.stringify(buildImageGenerationPayload({
-    model: 'gpt-image-2', prompt: req.prompt, size: req.size, quality: req.quality,
-    background: req.background, moderation: 'low', n: 1,                  // ★ 固定 n=1 / moderation=low
-  }));
+  // ★ 端点二分：有 inputImage → /images/edits（multipart，buildEditsForm，图生图 i2i）；否则 → /images/generations（JSON，文生图）。
+  const isEdit = !!req.inputImage;
+  const { path, body, headers } = isEdit
+    // edits multipart：buildEditsForm 塞 image（参考图字节 + contentType）/prompt/size/n=1；返回 {path:'edits', body:FormData, headers:{}}。
+    // ★★ 强制 response_format='b64_json'（关键性能项，见下「i2i 关键性能项」）让中转「内联回 b64」、不回临时 url。
+    ? buildEditsForm({ model: 'gpt-image-2', prompt: req.prompt, size: req.size, n: 1, response_format: 'b64_json', image: req.inputImage })
+    : { path: 'generations', body: JSON.stringify(buildImageGenerationPayload({
+        model: 'gpt-image-2', prompt: req.prompt, size: req.size, quality: req.quality,
+        background: req.background, moderation: 'low', n: 1,             // ★ 固定 n=1 / moderation=low
+      })), headers: { 'Content-Type': 'application/json' } };
+  // edits 走 multipart：FormData 自带 boundary，不手设 Content-Type；endpoint = images/edits vs images/generations。
 
   let lastErr: any;
   for (let i = 0; i < bases.length; i++) {
@@ -182,9 +198,9 @@ export async function callRelay(req: { prompt: string; size: string; quality: st
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), RELAY_SOFT_TIMEOUT_MS);   // 软超时 → AbortError → provider_timeout
     try {
-      const resp = await fetch(buildImageGenerationUrl(base), {
+      const resp = await fetch(`${base}/v1/images/${path}`, {            // edits=multipart / generations=JSON，端点由上 path 决定
         method: 'POST', signal: ctrl.signal,
-        headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
+        headers: { Authorization: `Bearer ${key}`, ...headers },         // multipart 时不带 Content-Type，由 FormData 自带 boundary
         body,
       });
       if (!resp.ok) {
@@ -221,6 +237,16 @@ export async function callRelay(req: { prompt: string; size: string; quality: st
 - 抢占用 **HTTP 单语句**（`UPDATE…RETURNING` 即原子，不需事务），扣费用 **Pool/WS 事务**（[03-money.md §4.3](03-money.md)）——两种 DB 调用模式各司其职（[00-overview.md §1.3](00-overview.md)）。
 - **失败/超时路径从不进扣费事务**，所以天然"未扣"；前端失败卡注明"未扣积分"（§5.4）。
 - 落 R2 在扣费事务**外**：先传图存临时变量，再开单事务扣费；ROLLBACK 留下的孤儿 R2 对象由清理 cron 扫（[06-storage.md §7.5](06-storage.md)）。
+
+### 5.3.1 图生图（i2i）管线分支
+
+文生图与图生图共用同一 `generate-background` 主流程，**唯一分叉在调中转前**：`claimed` 回读到 `input_image_key` 非空 → 进入 i2i 分支（步骤④ 上半）。
+
+- **参考图回读**：i2i 先 `getUploadObject(input_image_key)`（[06-storage.md §7.x](06-storage.md)）从 R2 取参考图字节 + content-type。**回读失败即归一化为友好 `invalid_request`（HTTP 400「参考图读取失败，请重试」）→ 不调中转、不扣费**（走 §5.3 步骤⑦失败路径，天然未扣）。参考图本身「用后即弃」、靠孤儿 cron 回收（入队链路 = `POST /api/uploads` → `uploads/<userId>/…` → `GenerateRequest.inputImageKey` → `generations.input_image_key`，迁移 0003）。
+- **端点与编码**：`callRelay` 见 `inputImage` 即走 `/v1/images/edits` **multipart**（`buildEditsForm` 塞 image/prompt/size/n=1）；文生图仍走 `/v1/images/generations` JSON。multipart 由 `FormData` 自带 boundary、不手设 `Content-Type`。
+- **★★ 关键性能项：`response_format='b64_json'`**（commit `0378d67`）。中转 `/images/edits` **默认回美西 aliyuncs 临时 url**，`putToR2` 拿到 url 还要**二次跨境下载**该临时图，慢到数分钟（曾超 5min 前端轮询窗 → 图其实已成功入库、但 UI 看不到、被软超时误判失败）。强制 `b64_json` 让中转**内联回 base64**，`putToR2` 直接 decode 落库、免去这趟跨境下载，是把 i2i 拉回 5min 窗内的**性能必需项、非可选优化**。
+- **耗时可观测**：管线加 `[gen-timing]` 拆分日志（`fetchInput / relay / putToR2 / total` 毫秒，commit `f6842c1`），专为定位 i2i 跨境慢点。
+- **不变项**：抢占式状态机（铁律③）、成功才扣（铁律②口径）、双守卫（[03-money.md §4.3⓪](03-money.md)）、5min 双层超时（§5.5）i2i 与文生图**完全一致**，无特例。
 
 ---
 
@@ -419,7 +445,8 @@ async function triggerBackground(generationId: string) {
 
 | 文件 | 复用点 |
 |---|---|
-| `src/api/imageGeneration.ts` | `buildImageGenerationUrl` / `buildImageGenerationPayload` / **`parseImageGenerationResponse`**（兼容 `data[]`/`output[]`、url/b64_json，照旧解析中转响应） |
+| `src/api/imageGeneration.ts` | `buildImageGenerationUrl` / `buildImageGenerationPayload` / **`parseImageGenerationResponse`**（兼容 `data[]`/`output[]`、url/b64_json，照旧解析中转响应；图生图回 b64_json 即走此处 b64 分支） |
+| `buildEditsForm`（i2i） | 图生图组装 `/images/edits` multipart `FormData`（image 字节 + prompt/size/n=1 + **`response_format='b64_json'`**，§5.3.1）；返回 `{path:'edits', body, headers}` 供 `callRelay` 复用 |
 | `src/lib/redaction.ts` | `redactText` / `redactSecrets`——回前端/落库前脱敏 Key（§5.8、§5.3 的 `callRelay`） |
 
 ### 可删除的 v1 资产
@@ -479,6 +506,7 @@ export function normalizeFailure(err: any): { code: FailureCode; message: string
 - [ ] 后台函数文件名带 **`-background` 后缀**；入口第一件事是**抢占 `UPDATE…WHERE status='queued' RETURNING`**，抢不到立即退（铁律③）。
 - [ ] 中转 Key **只在 Background Function** 从 `process.env.RELAY_API_KEY` 注入；全链路删 `apiKey`、不经请求体/前端/localStorage（铁律④）。
 - [ ] 中转调用固定 `model='gpt-image-2'` / `n=1` / `moderation='low'`。
+- [ ] 图生图(i2i)：有 `input_image_key` → 先 `getUploadObject` 回读参考图字节（失败→友好 `invalid_request`、不扣费）→ `callRelay` 走 `/images/edits` multipart；**multipart 必带 `response_format='b64_json'`**（中转默认回美西临时 url、`putToR2` 二次跨境下载超 5min 窗，commit `0378d67`）；管线带 `[gen-timing]` 日志（commit `f6842c1`）。抢占/成功才扣/双守卫/超时与文生图一致（§5.3.1）。
 - [ ] 落 R2 在扣费事务**外**（先传图、再开单事务扣费）；扣费走 [03-money.md §4.3](03-money.md)、抢占走 [03-money.md §4.5](03-money.md)。
 - [ ] 失败/超时**从不进扣费事务**（天然未扣）；前端失败卡注明"未扣积分"。
 - [ ] 5min 超时双层：前端软释放 UI + **服务端 cron 权威置 `provider_timeout`**（[10-ops-test.md §11.6](10-ops-test.md)，覆盖超龄 `queued` + `claimed/running`，用 `COALESCE(started_at,updated_at)`）；释放并发 = 状态进终态。

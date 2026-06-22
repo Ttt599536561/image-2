@@ -17,6 +17,8 @@
 | 7 | 阶段二 · 账号+积分+存储 | ✅ **完成（①–⑦ 全做完并对真 Neon 验证）**：schema/迁移/seed + Better Auth + 预算熔断/入队三闸/抢占/⓪双守卫扣费/兑换/过期/调账/对账 + 3 生图端点 + ⑤前端接真(11 资源路由读+REST 写/auth/生成轮询/loader 换 mock/资产库批量/铃铛/限流) + ⑥后台(`/admin/*` 12 资源路由+8 server+`_admin` 6 页) + **⑦ 上线闸**(5 Scheduled cron+netlify.toml 错峰/可观测 sentry+alert/密钥断言+CI/Playwright @smoke/成本对账方法论)；**测试**：tsc 0·test:run 30·test:money 33·build 0·cron-smoke 27 + reads-smoke 25 + admin-smoke 27 全绿(对真 Neon)·assert-no-secrets PASS·客户端 0 密钥+0 schema 泄露·多代理对抗审查(cron 链路 6 维 14 agents，1 major 已修)。**成本对账真·毛利数待上线灰度 ≥200 张跑量后填（毛利>0 才放量）** |
 | 8 | 阶段三 · 增强 | ✅ 收官并合并 `main`（`51f2b0b`）：P3-S1 框选 + P3-S2 搜索 + P3-S4 灵感运营化；S6 跳过(中转无 chat 模型)、S3/S5 不做(单管理员) |
 | 9 | 阶段三+ · 验收反馈打磨（站长 20 条） | ✅ **全部完成** → [PHASE3-FEEDBACK.md](dev/PHASE3-FEEDBACK.md)：A(8)`59a09c7` + B(5)`5c1e5b8` + C(4)`8aa24ec` + D(3)`af62860`（19 实做 + #9 探测否决跳过）|
+| 10 | 第二批需求（4 项）+ 验收反馈修复 | ✅ **全部完成**：③`c568008` + ①②`4cdf905` + ④a`a715b8f` + ④b`5f2bf6e`；兑换码复制`ac1c310` + 图生图提速 b64`0378d67` + 耗时日志`f6842c1` |
+| 11 | 🌐 生产上线（Netlify） | ✅ **已上线** → https://ai-image-workshop-612.netlify.app（runbook [dev/deploy.md](dev/deploy.md)）|
 
 ## 🆕 新会话从这接手（2026-06-22）
 > 顺序：[CLAUDE.md](../CLAUDE.md) → 本段 → **当前主线 [docs/dev/PHASE3-FEEDBACK.md](dev/PHASE3-FEEDBACK.md)**。代码在 **`main`**（v2 主体全部已合并）。
@@ -29,7 +31,9 @@
 - **Wave C（4 项 #3/#12/#9/#4 新能力·后端）✅** `8aa24ec`：删会话（级联+R2+owner-scope）/ 后台删生成记录（硬删+审计+账本保留）/ #9 输出格式**探测否决跳过**（中转不透传 output_format，jpeg 仍返 PNG，同 S6）/ 资产日期控件重做（DateRangePicker）。deletes-smoke 18/18 真 Neon。
 - **Wave D（3 项 #8/#11/#14 大重构）✅** `af62860`：账号页重构（余额置顶+批次+流水类型筛+兑换记录，映射我们模型）/ 全局参数去毫积分（前端填积分、后端存 mp）/ 后台 UX 彻底分离（独立 /admin/login + 角色直达 + 无回用户端入口）。account-reads-smoke 17/17 真 Neon。
 - **新增 smoke**：`deletes-smoke`（删会话/删生成）、`account-reads-smoke`（账号页读）、`relay-format-probe`（#9 探测，已跑：中转不透传 output_format）。
-- **下一步**：① 站长本地浏览器验收（20 条 + 本批 rename / 广播公告 + **第二批 4 项**，`netlify dev` 8888）；② **第二批 4 项新需求 ✅ 全部完成（2026-06-22）** → 见下「🆕 第二批待开发需求队列」（③ `c568008` / ①② `4cdf905` / ④a `a715b8f` / ④b 见队列）。
+- **🌐 已上线生产（2026-06-22）→ https://ai-image-workshop-612.netlify.app**（Netlify CLI 部署；同一 Neon 库；12 个生产 env 已配；cron 自动跑；验证通过）。运维/重新部署看 **[dev/deploy.md](dev/deploy.md)**。**下一步 = 生产浏览器验收 / 运营**（按需加注册门槛、绑自定义域、补 Neon 池化串）。
+- **🔧 验收反馈修复（2026-06-22）**：① 兑换码生成后**一键复制**（「复制全部」+ 批次「复制码」，不强制下 CSV）`ac1c310`；② **图生图慢/不出图**真因=中转 `/images/edits` 默认回美西 aliyuncs 临时 url、`putToR2` 跨境二次下载从国内慢到数分钟（超 5min 前端轮询窗→图已入库但 UI 看不到，刷新即见）→ 修 `buildEditsForm` 加 `response_format=b64_json` 内联回 b64、免二次下载 `0378d67`（轮询本就 2s 非瓶颈；线上美西机房快）；③ 管线加 `[gen-timing]` 耗时拆分日志 `f6842c1`。
+- **第二批 4 项 ✅ 全部完成（2026-06-22）** → 见下「🆕 第二批待开发需求队列」（③ `c568008` / ①② `4cdf905` / ④a `a715b8f` / ④b `5f2bf6e`）。
 
 ### 🆕 待开发需求队列（✅ 两项均已完成 2026-06-22；通知开关/参数②留后续）
 - ✅ **站长后台通知配置 / 管理 —— 广播公告（①）已完成**（站长 2026-06-22 提，规格见 [redesign-requirements.md §9](redesign-requirements.md)）：后台可撰写公告并下发到铃铛。范围锁定为「广播公告」；**② 通知开关 / 参数（到期提醒提前天数等，落 `app_config`）本轮不做、留后续**。

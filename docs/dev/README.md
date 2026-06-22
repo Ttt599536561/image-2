@@ -20,12 +20,14 @@
 10. [09-admin.md](09-admin.md) — 后台管理
 11. [10-ops-test.md](10-ops-test.md) — cron / 可观测 / 测试
 12. [11-structure-roadmap.md](11-structure-roadmap.md) — 目录结构 + 分期任务清单（可勾选）+ v1 迁移清单
+13. [deploy.md](deploy.md) — **生产部署 Netlify runbook**（怎么上线 / 部署步骤 + 生产现状〔已上线 https://ai-image-workshop-612.netlify.app，生产=本地同一 Neon 库〕+ 运维待办）
 
 > 📌 **施工计划（落地顺序/任务/外部依赖；00–11 是设计真相源）**：
 > - **[PHASE2-PLAN.md](PHASE2-PLAN.md) — 阶段二「账号+积分+存储」✅ 已完成并合并 `main`**（①–⑦ 全勾，对真 Neon 验证）。
 > - **[PHASE3-PLAN.md](PHASE3-PLAN.md) — 阶段三「增强」✅ 收官并合并 `main`**（`51f2b0b` 快进）：P3-S1 框选 + P3-S2 搜索 + P3-S4 灵感运营化 已做；**P3-S6 优化提示词跳过**（中转无 chat 模型，§6）；S3 RBAC/S5 客服 360 不做（站长：维持单管理员）。
 > - **[cost-reconciliation.md](cost-reconciliation.md) — 成本对账上线闸（铁律②）**：方法论 + 对账表占位（真·毛利数待上线灰度跑量后填，毛利>0 才放量）。
 > - **[local-acceptance.md](local-acceptance.md) — 本地验收/运行指南**：`netlify dev`(8888) 跑通注册→登录→生图→兑换→后台的人工验收手册 + 无界面 smoke 清单。
+> - **[deploy.md](deploy.md) — 生产部署 Netlify runbook（怎么上线）**：Netlify CLI 部署步骤 + 生产现状（已上线 https://ai-image-workshop-612.netlify.app，生产=本地同一 Neon 库）+ 运维待办。
 
 ## 全文档共享约定（任何章节都默认遵守，不再重复声明）
 

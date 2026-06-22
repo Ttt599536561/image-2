@@ -169,7 +169,9 @@ sequenceDiagram
   end
 ```
 
-提交前显示「本次消耗 0.07 积分 / 剩余 Y 积分」（固定 0.07、不写「约」，[§5.1](../redesign-requirements.md)）。Composer 药丸：比例（唯一尺寸入口，§9.6）、高级设置（质量/背景）、参考图 + 与优化提示词为占位「敬请期待」、发送黑色圆形；**模型固定 `gpt-image-2`、审核固定 low**，不出现在 UI（[§5.1](../redesign-requirements.md)）。
+提交前显示「本次消耗 0.07 积分 / 剩余 Y 积分」（固定 0.07、不写「约」，[§5.1](../redesign-requirements.md)）。Composer 药丸：比例（唯一尺寸入口，§9.6）、高级设置（质量/背景）、参考图（**图生图，已激活**，见下）、优化提示词为占位「敬请期待」、发送黑色圆形；**模型固定 `gpt-image-2`、审核固定 low**，不出现在 UI（[§5.1](../redesign-requirements.md)）。
+
+**参考图药丸 → 图生图（i2i，④b 已实现）**：参考图药丸从占位改为**可上传**——点击选图（魔数嗅探校验、≤4MB）→ 出**缩略图预览** + 移除按钮，进入「图生图模式」；生成中**锁定**（不可换图/移除，与提交按钮同步禁用）。上传走 `POST /api/uploads`（`requireUserStrict` + `sniffImageMime` 魔数嗅探 + ≤4MB + 每用户 40/10min 限流，[07-api.md §8](07-api.md)），返回 `inputImageKey`（`uploads/<userId>/…`，owner-scope）。提交时由 `useGeneration` 串「先传图换 key、再入队」（见 §9.7）。**参考图用后即弃**：成功才清空，孤儿（未入队的上传）靠 cron 回收。
 
 **每轮结果操作**（仅作用于该轮，[§5.2](../redesign-requirements.md)）：
 
@@ -248,16 +250,30 @@ sequenceDiagram
 
 **余额展示**（顶部常驻、点击进 `/billing`，[§3](../redesign-requirements.md)）：loader 给首屏初值 → `["me","balance"]` query 持有 → 兑换/生成成功 mutation `invalidate` 后自动刷新（§9.3）。过期临近（≤3 天）药丸标黄点（`--warning-*`，[§24.5](../redesign-requirements.md)）：黄点显示与否取 `MeResponse.expiringSoon.mp`（string codec，`> 0` 才显），tooltip 取 `expiringSoon.nearestExpiresAt`（`string|null`）渲染「X 积分将于 MM-DD 过期」（X = `mp`/1000、X 与日期均消费该字段、不再悬空；字段来源见 [07-api.md §8.3 / §8.5](07-api.md)）。
 
-**生成 hook 串联**（一个 `useGeneration` 包住提交→轮询→结果）：
+**生成 hook 串联**（一个 `useGeneration` 包住提交→轮询→结果；④b 起 `submit(req, file?)` 支持图生图）：
 
 ```ts
 function useGeneration(conversationId: string) {
   const qc = useQueryClient();
   const [activeId, setActiveId] = useState<string | null>(null);
-  const submit = useMutation({
-    mutationFn: (req: GenReq) => api.generate(conversationId, req), // → 202 {generationId}
-    onSuccess: (r) => setActiveId(r.generationId),                  // 切入轮询
-  });
+  const submittingRef = useRef(false);                              // 防双发双扣（同步闸，先于 React 重渲）
+
+  // submit(req, file?)：有 file 先 POST /api/uploads 换 inputImageKey 再入队；
+  // 成功才清空 prompt/参考图，失败保留可重试。
+  async function submit(req: GenReq, file?: File | null) {
+    if (submittingRef.current) return;                              // 双发拦截
+    submittingRef.current = true;
+    try {
+      let inputImageKey: string | undefined;
+      if (file) inputImageKey = (await api.upload(file)).inputImageKey; // → uploads/<userId>/…
+      const r = await api.generate(conversationId, { ...req, inputImageKey }); // → 202 {generationId}
+      setActiveId(r.generationId);                                  // 切入轮询
+      return r;                                                     // 调用方拿到成功才清空输入框/参考图
+    } finally {
+      submittingRef.current = false;
+    }
+  }
+
   const status = useGenerationStatus(activeId);                     // §9.3 轮询
   useEffect(() => {
     if (status.data?.status === "succeeded") {
@@ -269,6 +285,8 @@ function useGeneration(conversationId: string) {
   return { submit, status };
 }
 ```
+
+> 图生图链路全貌（上传 → `inputImageKey` 入队 owner-scope 校验 → claim 回读 → 取字节 → `callRelay /images/edits`）见 [04-generation-pipeline.md §5](04-generation-pipeline.md) / [07-api.md §8](07-api.md)。前端只负责「先传后发、成功才清、`submittingRef` 防双发」。
 
 **响应式断点**（[§11](../redesign-requirements.md)/[§24.7](../redesign-requirements.md)）：
 

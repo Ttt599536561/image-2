@@ -120,6 +120,8 @@ ai-image-workshop/
 ## 12.3 分期任务清单（可勾选）
 
 > 与规格 [§20](../redesign-requirements.md) 对齐。每项链到对应 dev 章节。**勾选状态在 [PROGRESS.md](../PROGRESS.md) 维护，此处仅作任务分解蓝图。**
+>
+> **路线收尾状态**：v2 已上线生产（Netlify，<https://ai-image-workshop-612.netlify.app>，2026-06-22；生产=本地同一 Neon 库），部署 runbook 见 [deploy.md](deploy.md)。
 
 ### 阶段一 · 前端形态 + 修现存隐患（mock 账号/积分跑通体验）
 

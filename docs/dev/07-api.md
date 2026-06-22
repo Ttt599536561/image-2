@@ -88,16 +88,19 @@ export function httpError(status: number, code: string, message: string, details
 
 | 方法 | 路径 | 入参 | 响应 | 码 | 通道 |
 |---|---|---|---|---|---|
+| POST | `/api/uploads` | **multipart** `file`（图生图参考图） | `{ inputImageKey }` | 200/400/401/413/429 | REST |
 | POST | `/api/generate` | `GenerateRequest` | `{ generationId, status:'queued' }` | **202**/400/401/402/403/409/429 | REST |
 | GET | `/api/generate-status?id=` | `?id=uuid` | `GenerateStatusResponse` | 200/400/401/404 | REST（短轮询） |
 
-`GenerateRequest`（[§5.1](../redesign-requirements.md)）：`{ prompt, size, quality?, background?, conversationId? }`。`model` 不收（**固定 `gpt-image-2`**）、`n` 不收（固定 1）、`moderation` 不收（固定 `low`）、**任何 Key 字段不收**（删 v1 `apiKey`，[00-overview.md §1.4](00-overview.md)）。`conversationId` 缺省 → 服务端新建会话（标题取 prompt 前 20 字，[§10](../redesign-requirements.md)）。
+`GenerateRequest`（[§5.1](../redesign-requirements.md)）：`{ prompt, size, quality?, background?, conversationId?, inputImageKey? }`。`model` 不收（**固定 `gpt-image-2`**）、`n` 不收（固定 1）、`moderation` 不收（固定 `low`）、**任何 Key 字段不收**（删 v1 `apiKey`，[00-overview.md §1.4](00-overview.md)）。`conversationId` 缺省 → 服务端新建会话（标题取 prompt 前 20 字，[§10](../redesign-requirements.md)）。`inputImageKey?`=**图生图参考图**（来自 `POST /api/uploads` 返回，见下）；入队时**owner-scope 校验前缀** `uploads/<me>/`（非本人前缀 → 拒），落 `generations.input_image_key`（迁移 `0003`），有则管线走中转 `/images/edits`、无则常规 `/images/generations`（[04-generation-pipeline.md](04-generation-pipeline.md)）。
 
 `POST /api/generate` 在**入队前三重闸**（并发 / 余额 / 预算，[03-money.md §4.9](03-money.md)）：
 - 并发满 → **409 `CONCURRENCY_LIMIT`**，`details:{limit,current}`，文案"超出并发数量"。
 - 余额 < 70mp → **402 `INSUFFICIENT_CREDITS`**，文案"积分不足，去充值"。
 - 当日预算熔断 → **429 `BUDGET_EXHAUSTED`**，文案"今日额度已满，请稍后"。
 - 通过 → **202** + `generationId`，前端起短轮询（[08-frontend.md §9.4](08-frontend.md)）。
+
+`POST /api/uploads`（**图生图参考图上传**，`requireUserStrict`）：收 **multipart** 单 `file`，**不信声明 `Content-Type`**——读字节后**魔数嗅探** `sniffImageMime`（仅放行真图片 magic bytes），非图 → **400**；超 **4MB**（留 Netlify SSR ~6MB body 余量）→ **413**；**每用户 40 次 / 10 分钟**限流（[§8.6](#86-限流)）→ **429 `RATE_LIMITED`**。通过则存对象键 `uploads/<userId>/…`（owner-scope 前缀），返回 `{ inputImageKey }` 供 `GenerateRequest.inputImageKey` 携带入队。参考图**用后即弃**——不入资产库、不绑 60 天保留，由孤儿 cron 回收未被引用的 `uploads/*`（[06-storage.md](06-storage.md) / [10-ops-test.md](10-ops-test.md)）。
 
 `GenerateStatusResponse`（**始终 200**，业务态在体内，按 `status` 的**判别联合**，三态字段各不相同，与 [04-generation-pipeline.md §5.4](04-generation-pipeline.md) 逐字段一致，[§5](../redesign-requirements.md) 五态）：
 
@@ -226,6 +229,7 @@ export const GenerateRequest = z.object({
   quality: z.string().optional(),
   background: z.string().optional(),
   conversationId: z.uuid().optional(),
+  inputImageKey: z.string().optional(),  // 图生图参考图键（来自 POST /api/uploads）；入队 owner-scope 校验前缀 uploads/<me>/
   // 显式禁收：model / n / moderation / apiKey —— 服务端固定，前端传了也忽略
 });
 export type GenerateRequest = z.infer<typeof GenerateRequest>;
@@ -317,6 +321,7 @@ export type NotificationItem = z.infer<typeof NotificationItem>;
 | `POST /api/redeem` | **5 次失败 / 10 分钟**（[§24-4](../redesign-requirements.md)） | IP + 账号，仅计**失败** | 429 `RATE_LIMITED` |
 | `POST /api/auth/sign-in` | 10 次失败 / 10 分钟 | IP + 邮箱，仅计失败 | 429 `RATE_LIMITED` |
 | `POST /api/auth/sign-up` | 5 次 / 小时 / IP | IP | 429 `RATE_LIMITED` |
+| `POST /api/uploads` | **40 次 / 10 分钟**（图生图参考图上传） | 账号（每用户） | 429 `RATE_LIMITED` |
 | `POST /api/generate` | 并发闸即主闸（[§14](../redesign-requirements.md)）；另**单日预算熔断** | 全站当日 | 429 `BUDGET_EXHAUSTED` |
 
 **实现**：阶段一用 **DB 计数窗口**（轻量、无需 Redis）——`rate_limits(key, window_start, count)` 或直接 `COUNT events/audit_log WHERE … AND created_at > now()-interval`；阶段三规模化再迁 Upstash/KV（与队列演进同步，[01-architecture.md §2.5](01-architecture.md)）。

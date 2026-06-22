@@ -69,13 +69,16 @@ const rows = Array.from({ length: count }, () => ({
 }));
 // 3) INSERT … ON CONFLICT(code) DO NOTHING；rowCount<count 则补生成缺口直至齐
 // 4) 写 audit_log(action='gen_codes', target_type='package', after={batchId,count,packageId})
+// 5) 返回 { batchId, count, codes: string[] }——把本批明文码一并回前端供「一键复制」（commit ac1c310）
 ```
 
 唯一性靠 `redeem_codes.code UNIQUE`（[02 §3.2](02-database.md)）；`count` 上限做软限（如 ≤ 5000）防超大事务。
 
+> **一键复制（站长诉求·不强制下 CSV，commit `ac1c310`）**：`generateCodes` 响应携 `codes[]`（本批明文码）。撰写区生成后即出**「复制全部(N 个)」按钮 + 只读 `<textarea>`**（一行一码、可框选手动复制，写 `clipboard` 失败时兜底）；明文只在生成那一刻随响应回前端，不另开按码反查明文的端点（查单码 §10.2 末仍只返状态/账目，不回明文）。
+
 ### CSV 导出（GET `/api/admin/codes/export?batchId=`）
 
-给店铺导入用，逐行 `code,面额(元),积分,有效期`，金额展示层换算（`cash_value/100`、`credits_value_mp/1000`）：
+**保留**（站长可直接复制、也可下 CSV 二选一）：批次列表每行的「复制码」即拉该批 `export` CSV、取**首列 `code`** 拼成纯码文本复制到剪贴板（commit `ac1c310`）；下载 CSV 仍供店铺批量导入。给店铺导入用，逐行 `code,面额(元),积分,有效期`，金额展示层换算（`cash_value/100`、`credits_value_mp/1000`）：
 
 ```ts
 // Content-Type: text/csv; charset=utf-8；BOM 前缀防 Excel 中文乱码
@@ -397,6 +400,7 @@ async function writeAudit(c, e: {
 - [ ] `/admin/*` 双重守卫：布局 loader + 每个 admin API 各自 `requireAdmin`（每请求查 DB，[05 §6.7](05-auth.md)）。
 - [ ] 码用 CSPRNG（`crypto.randomInt`）+ `src/contracts` 的 `REDEEM_ALPHABET`（31 字符去混表，与 [07 §8.5](07-api.md) 共用），靠 `code UNIQUE` 兜唯一；生成时**落套餐快照**到 `redeem_codes`。
 - [ ] 作废只动 `status='active'` 的码；对账/收入只认已兑换 `cash_value`（面值现金）。
+- [ ] 生成响应回 `codes[]` 明文供撰写区「复制全部(N 个)」+ 只读 textarea；批次列表行「复制码」拉该批 export CSV 取首列；CSV 导出保留（站长不强制下 CSV、可直接复制，commit `ac1c310`）。
 - [ ] 调积分走 `adjust` 流水 + 必填原因 + FIFO 锁扣 **不出负**（`balance_mp CHECK≥0` 兜底）；改密/封禁**吊销会话**（[05 §6.5](05-auth.md)）。
 - [ ] **所有敏感写**：二次确认 + 同事务写 `audit_log`(before/after/ip/reason)；改密类不落明文。
 - [ ] `audit_log` 只追加，**无删改端点**（管理员不可改自己的记录）。
