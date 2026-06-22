@@ -59,6 +59,19 @@ async function apiSend<T>(url: string, method: string, body?: unknown, schema?: 
 
 export const apiPost = <T>(url: string, body?: unknown, schema?: z.ZodType<T>) =>
   apiSend<T>(url, "POST", body, schema);
+
+/** multipart POST（④b 参考图上传）。不设 Content-Type，浏览器按 FormData 自动加 boundary。 */
+export async function apiPostForm<T>(url: string, form: FormData, schema?: z.ZodType<T>): Promise<T> {
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { Accept: "application/json" },
+    credentials: "same-origin",
+    body: form,
+  });
+  if (!res.ok) return throwFromResponse(res);
+  const data = await res.json().catch(() => ({}));
+  return schema ? schema.parse(data) : (data as T);
+}
 export const apiPatch = <T>(url: string, body?: unknown, schema?: z.ZodType<T>) =>
   apiSend<T>(url, "PATCH", body, schema);
 export const apiDelete = <T>(url: string, body?: unknown, schema?: z.ZodType<T>) =>

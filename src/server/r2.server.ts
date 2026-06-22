@@ -7,10 +7,11 @@
 // 🔴 红线：存储凭据全在服务端 env，构建期断言不进 bundle（00 §1.4）；storage_key 末尾随机段是唯一软隔离；
 //    落图在「扣费事务外」先做、结果存临时变量，再开扣费事务（03 §4.3 / 06 §7.3）。
 
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import {
   DeleteObjectCommand,
   DeleteObjectsCommand,
+  GetObjectCommand,
   ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
@@ -131,6 +132,46 @@ export function retentionExpiry(
 ): Date {
   const days = user.has_paid ? cfg.paidDays : cfg.freeDays;
   return new Date(Date.now() + days * 86_400_000);
+}
+
+// ===================== ④b 图生图：参考图上传 + 回读 =====================
+// 上传图存 `uploads/<userId>/…` 前缀（区别于成品图 `<userId>/…`）；userId 段供入队 owner-scope 校验。
+// 「用后即弃」：不进 7/60 天保留期，靠孤儿清理 cron 回收（sweepOrphanR2Objects 的 known-set 保护「在途」未跑完的）。
+
+/** 参考图上传 key：uploads/{userId}/{yyyy}/{mm}/{uuid}.{ext}。 */
+export function buildUploadKey(userId: string, ext: string): string {
+  const d = new Date();
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `uploads/${userId}/${yyyy}/${mm}/${randomUUID()}.${ext}`;
+}
+
+/** 落用户上传的参考图（④b）。返回 {storageKey, publicUrl}。 */
+export async function putUserUpload(args: {
+  userId: string;
+  bytes: Uint8Array;
+  contentType: string;
+  ext: string;
+}): Promise<{ storageKey: string; publicUrl: string }> {
+  const storageKey = buildUploadKey(args.userId, args.ext);
+  await putObject(storageKey, args.bytes, args.contentType);
+  return { storageKey, publicUrl: publicUrl(storageKey) };
+}
+
+/** 回读上传对象字节（管线 callRelay 走 /images/edits 前取参考图字节，经 S3 GetObject、不依赖公链可达）。 */
+export async function getUploadObject(
+  storageKey: string,
+): Promise<{ bytes: Uint8Array; contentType: string; filename: string }> {
+  const res = await getR2Client().send(
+    new GetObjectCommand({ Bucket: env("STORAGE_BUCKET"), Key: storageKey }),
+  );
+  if (!res.Body) throw new Error(`[storage] 上传对象为空：${storageKey}`);
+  const bytes = new Uint8Array(await res.Body.transformToByteArray());
+  return {
+    bytes,
+    contentType: res.ContentType ?? "image/png",
+    filename: storageKey.split("/").pop() || "input.png",
+  };
 }
 
 /** 删单个对象（清理 cron 单 key 失败兜底，§7.5）。 */

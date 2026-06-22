@@ -1,4 +1,5 @@
 // 入队三闸真库用例（03 §4.9 / 04 §5.2 / 07 §8.3 / 10 §11.10）：并发 409 / 余额 402 / 软预算 429（只判不扣、不入队）。
+import { randomUUID } from "node:crypto";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { budgetTodayKey } from "../../src/server/budget.server";
 import { enqueueGeneration } from "../../src/server/generation/enqueue";
@@ -60,6 +61,32 @@ describe("入队三闸（enqueue）", () => {
                   ON CONFLICT (key) DO UPDATE SET value_json='{"calls":99999999,"ms":0}'::jsonb`;
     const s = await status(enqueueGeneration({ user: { id: uid, maxConcurrency: 2 }, input: { prompt: "p", size: "auto" } }));
     expect(s).toBe(429);
+    expect((await ctx.sql`SELECT 1 FROM generations WHERE user_id=${uid}`).length).toBe(0);
+  });
+
+  it("④b 图生图：input_image_key 属本人 → 入队、落库", async () => {
+    const uid = await ctx.createUser({ balanceMp: 70 });
+    await ctx.addLot(uid, 70, { source: "signup" });
+    const key = `uploads/${uid}/2026/06/ref.png`;
+    const res = await enqueueGeneration({
+      user: { id: uid, maxConcurrency: 2 },
+      input: { prompt: "把背景换成海边", size: "auto", inputImageKey: key },
+    });
+    const g = await ctx.gen(res.generationId);
+    expect(g?.input_image_key).toBe(key);
+  });
+
+  it("④b owner-scope：input_image_key 属他人 → 400、不入队（越权防线）", async () => {
+    const uid = await ctx.createUser({ balanceMp: 70 });
+    await ctx.addLot(uid, 70, { source: "signup" });
+    const othersKey = `uploads/${randomUUID()}/2026/06/ref.png`;
+    const s = await status(
+      enqueueGeneration({
+        user: { id: uid, maxConcurrency: 2 },
+        input: { prompt: "p", size: "auto", inputImageKey: othersKey },
+      }),
+    );
+    expect(s).toBe(400);
     expect((await ctx.sql`SELECT 1 FROM generations WHERE user_id=${uid}`).length).toBe(0);
   });
 });

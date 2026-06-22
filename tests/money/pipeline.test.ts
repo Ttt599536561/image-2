@@ -94,6 +94,74 @@ describe("后台生图编排（runGenerationJob）", () => {
     expect((await ctx.images(generationId)).length).toBe(0);
   });
 
+  it("④b 图生图：input_image_key → 回读字节 + callRelay 收到 inputImage、成功同价扣 70", async () => {
+    const uid = await ctx.createUser({ balanceMp: 140 });
+    await ctx.addLot(uid, 140, { source: "signup" });
+    const { generationId } = await ctx.createGeneration(uid, { status: "queued" });
+    const key = `uploads/${uid}/2026/06/ref.png`;
+    await ctx.sql`UPDATE generations SET input_image_key=${key} WHERE id=${generationId}`;
+
+    let getCalledWith: string | null = null;
+    let sawInput: { contentType: string; filename: string } | null = null;
+    const deps: ProcessDeps = {
+      getUploadObject: async (k: string) => {
+        getCalledWith = k;
+        return { bytes: new Uint8Array([1, 2, 3, 4]), contentType: "image/png", filename: "ref.png" };
+      },
+      callRelay: async (req) => {
+        sawInput = req.inputImage
+          ? { contentType: req.inputImage.contentType, filename: req.inputImage.filename }
+          : null;
+        return { images: [{ b64_json: TINY_PNG_B64 }], raw: {} };
+      },
+      putToR2: async (_uid: string, gid: string): Promise<PutResult> => ({
+        storageKey: `mtest/${gid}.png`,
+        publicUrl: `https://img.test/${gid}.png`,
+        contentType: "image/png",
+        width: 1,
+        height: 1,
+        sizeBytes: 70,
+      }),
+    };
+    const outcome = await runGenerationJob(generationId, deps);
+    expect(outcome).toBe("succeeded");
+    expect(getCalledWith).toBe(key); // 用对了 owner 的 key
+    expect(sawInput).toEqual({ contentType: "image/png", filename: "ref.png" }); // 走 edits 分支
+    expect(await ctx.balanceMp(uid)).toBe(70); // 同价 0.07
+  });
+
+  it("④b 图生图：参考图回读失败 → failed/invalid_request、未扣费、不调中转", async () => {
+    const uid = await ctx.createUser({ balanceMp: 140 });
+    await ctx.addLot(uid, 140, { source: "signup" });
+    const { generationId } = await ctx.createGeneration(uid, { status: "queued" });
+    await ctx.sql`UPDATE generations SET input_image_key=${`uploads/${uid}/2026/06/gone.png`} WHERE id=${generationId}`;
+
+    let relayCalled = false;
+    const deps: ProcessDeps = {
+      getUploadObject: async () => {
+        throw new Error("NoSuchKey");
+      },
+      callRelay: async () => {
+        relayCalled = true;
+        return { images: [{ b64_json: TINY_PNG_B64 }], raw: {} };
+      },
+      putToR2: async (_uid: string, gid: string): Promise<PutResult> => ({
+        storageKey: `mtest/${gid}.png`,
+        publicUrl: `https://img.test/${gid}.png`,
+        contentType: "image/png",
+        width: 1,
+        height: 1,
+        sizeBytes: 70,
+      }),
+    };
+    const outcome = await runGenerationJob(generationId, deps);
+    expect(outcome).toBe("failed");
+    expect(relayCalled).toBe(false); // 参考图丢失 → 不调中转
+    const g = await ctx.gen(generationId);
+    expect(g?.error_code).toBe("invalid_request");
+    expect(await ctx.balanceMp(uid)).toBe(140); // 未扣
+  });
+
   it("中转失败：归一化 failed、未扣费、无 image", async () => {
     const uid = await ctx.createUser({ balanceMp: 140 });
     await ctx.addLot(uid, 140, { source: "signup" });

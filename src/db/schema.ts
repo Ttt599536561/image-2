@@ -207,6 +207,8 @@ export const generations = pgTable(
     quality: text("quality"),
     background: text("background"),
     moderation: text("moderation").notNull().default("low"),
+    // ④b 图生图：参考图上传 key（uploads/<userId>/…）；NULL = 文生图。管线有图走 /images/edits multipart。
+    inputImageKey: text("input_image_key"),
     status: text("status").notNull().default("queued"),
     jobId: text("job_id"), // 抢占者标识/中转 task id（可选）
     errorCode: text("error_code"), // 归一化失败枚举（04 §5.8），NULL 除非 failed

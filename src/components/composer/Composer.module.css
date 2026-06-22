@@ -9,6 +9,50 @@
   gap: var(--space-2);
 }
 
+/* ④b 图生图：参考图预览行（缩略图 + 移除 + 模式标识） */
+.refRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+.refThumbWrap {
+  position: relative;
+  flex: none;
+}
+.refThumb {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-md);
+  object-fit: cover;
+  border: 0.5px solid var(--border-subtle);
+  display: block;
+}
+.refRemove {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-full);
+  border: none;
+  background: var(--text-primary);
+  color: var(--bg-surface);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  padding: 0;
+}
+.refChip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: 12px;
+  padding: 3px var(--space-3);
+  border-radius: var(--radius-full);
+  background: var(--accent-surface);
+  color: var(--accent-on-surface, var(--accent));
+}
+
 .textarea {
   width: 100%;
   border: none;
@@ -74,6 +118,10 @@
   border-color: var(--border-strong);
   background: var(--bg-subtle);
   color: var(--text-primary);
+}
+.pill:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 .pillDisabled {
   opacity: 0.5;

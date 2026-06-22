@@ -1,8 +1,9 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import { useNavigate } from "react-router";
 import { GenerateAcceptedResponse, type GenerateRequest } from "../contracts/generate";
-import { ApiError, apiPost } from "../lib/api-client";
+import { UploadResponse } from "../contracts/upload";
+import { ApiError, apiPost, apiPostForm } from "../lib/api-client";
 
 // 提交一轮生成（08 §9.7）。⑤ 接真：
 //  - submit → POST /api/generate（202 {generationId,conversationId}）→ invalidate 会话详情/侧栏；
@@ -16,14 +17,25 @@ export interface UseGenerationOptions {
 export function useGeneration(conversationId: string | null, opts: UseGenerationOptions = {}) {
   const qc = useQueryClient();
   const navigate = useNavigate();
+  // ④b：不依赖渲染时序的同步硬锁，挡「同帧双击/连发」→ 两次上传 + 两次入队 + 两次扣费（审查 #6）。
+  const submittingRef = useRef(false);
 
   const mutation = useMutation({
-    mutationFn: (req: GenerateRequest) =>
-      apiPost(
+    // ④b 图生图：有参考图 File → 先 multipart 上传换 inputImageKey，再带 key 入队（isSubmitting 覆盖整段）。
+    mutationFn: async ({ req, file }: { req: GenerateRequest; file: File | null }) => {
+      let inputImageKey: string | undefined;
+      if (file) {
+        const fd = new FormData();
+        fd.append("file", file);
+        const up = await apiPostForm("/api/uploads", fd, UploadResponse);
+        inputImageKey = up.inputImageKey;
+      }
+      return apiPost(
         "/api/generate",
-        { ...req, conversationId: conversationId ?? undefined },
+        { ...req, conversationId: conversationId ?? undefined, inputImageKey },
         GenerateAcceptedResponse,
-      ),
+      );
+    },
     onSuccess: (accepted) => {
       // 新轮已 queued 入库 → 刷新会话详情(显示骨架) + 侧栏(新会话/续聊 bump)。
       qc.invalidateQueries({ queryKey: ["conversation", accepted.conversationId] });
@@ -34,11 +46,18 @@ export function useGeneration(conversationId: string | null, opts: UseGeneration
     onError: (e) => {
       opts.onError?.(e instanceof ApiError ? e : new ApiError(500, "INTERNAL", "服务异常，请重试"));
     },
+    onSettled: () => {
+      submittingRef.current = false; // 结算（成功/失败）即解锁
+    },
   });
 
+  // onAccepted：仅本次提交「入队成功(202)」后调 —— 用于清空 prompt/参考图（失败则不调，保留可重试，审查 #1）。
+  // 走 mutate 的 per-call onSuccess（而非全局），故 regenerate/retry 不传它 → 不会误清 Composer 草稿。
   const submit = useCallback(
-    (req: GenerateRequest) => {
-      if (!mutation.isPending) mutation.mutate(req);
+    (req: GenerateRequest, file: File | null = null, onAccepted?: () => void) => {
+      if (submittingRef.current || mutation.isPending) return; // 双闸：同步 ref + isPending 兜底
+      submittingRef.current = true;
+      mutation.mutate({ req, file }, { onSuccess: () => onAccepted?.() });
     },
     [mutation],
   );

@@ -19,6 +19,7 @@ export interface EnqueueRequest {
   quality?: string | null;
   background?: string | null;
   conversationId?: string;
+  inputImageKey?: string | null; // ④b 图生图：参考图 key（owner-scope 在 run() 内校验）
 }
 
 export interface EnqueueResult {
@@ -27,6 +28,13 @@ export interface EnqueueResult {
 }
 
 async function run(c: TxClient, user: EnqueueUser, input: EnqueueRequest): Promise<EnqueueResult> {
+  // ④b owner-scope：参考图 key 必须属本人（uploads/<me>/…），杜绝拿别人/伪造 key 进图生图。
+  // 入队前就拒（不入队、不调中转），是越权防线；通过则原样落 generations.input_image_key。
+  const inputImageKey = input.inputImageKey?.trim() || null;
+  if (inputImageKey && !inputImageKey.startsWith(`uploads/${user.id}/`)) {
+    throw httpError(400, "INVALID_PARAM", "参考图无效");
+  }
+
   // 串行化点：锁该用户账户行。两个并发入队对同一用户在此排队，使下方 COUNT/SUM 读到一致快照。
   const acct = await c.query("SELECT balance_mp FROM credit_accounts WHERE user_id=$1 FOR UPDATE", [user.id]);
   if (acct.rowCount === 0) {
@@ -76,9 +84,9 @@ async function run(c: TxClient, user: EnqueueUser, input: EnqueueRequest): Promi
   }
 
   const gen = await c.query(
-    `INSERT INTO generations(conversation_id, user_id, prompt, model, size, quality, background, moderation, status)
-     VALUES ($1,$2,$3,'gpt-image-2',$4,$5,$6,'low','queued') RETURNING id`,
-    [conversationId, user.id, input.prompt, input.size, input.quality ?? null, input.background ?? null],
+    `INSERT INTO generations(conversation_id, user_id, prompt, model, size, quality, background, moderation, input_image_key, status)
+     VALUES ($1,$2,$3,'gpt-image-2',$4,$5,$6,'low',$7,'queued') RETURNING id`,
+    [conversationId, user.id, input.prompt, input.size, input.quality ?? null, input.background ?? null, inputImageKey],
   );
   return { generationId: gen.rows[0].id as string, conversationId };
 }

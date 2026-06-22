@@ -19,6 +19,7 @@ export default [
   route("api/account/lots", "routes/api.account.lots.ts"),
   route("api/account/redemptions", "routes/api.account.redemptions.ts"),
   route("api/redeem", "routes/api.redeem.ts"),
+  route("api/uploads", "routes/api.uploads.ts"), // ④b 图生图：参考图上传（multipart）
   // 阶段二 ⑥：后台 API（资源路由，server-only；每个各自 requireAdmin = 双守卫之一）。
   route("api/admin/users", "routes/api.admin.users.ts"),
   route("api/admin/users/:id", "routes/api.admin.users.$id.ts"),

@@ -195,6 +195,35 @@ async function main(): Promise<void> {
     checks.push(["清图③孤儿: 已知图不删 + 在途(<1h)不删", !deleted.includes(known.storageKey) && !deleted.includes(freshOrphan) && res.orphansDeleted === 1]);
   }
 
+  // ===== 7b) ④b 参考图上传清理：在途(未终态)受保护、已终态/废弃按孤儿回收（用后即弃）=====
+  {
+    const uid = await mkUser();
+    const convId = randomUUID();
+    await sql`INSERT INTO conversations(id,user_id,title) VALUES (${convId},${uid},'i2i')`;
+    const inflightKey = `uploads/${uid}/2026/06/${randomUUID()}-inflight.png`;
+    const doneKey = `uploads/${uid}/2026/06/${randomUUID()}-done.png`;
+    const abandonedKey = `uploads/${uid}/2026/06/${randomUUID()}-abandoned.png`;
+    await sql`INSERT INTO generations(conversation_id,user_id,prompt,size,status,input_image_key) VALUES
+      (${convId},${uid},'p','auto','queued',${inflightKey}),
+      (${convId},${uid},'p','auto','succeeded',${doneKey})`;
+    const oldMs = Date.now() - 7200_000; // 都过 1h 保护窗口
+    const deleted: string[] = [];
+    await sweepOrphanR2Objects({
+      listObjects: async () => [
+        { key: inflightKey, lastModified: oldMs },
+        { key: doneKey, lastModified: oldMs },
+        { key: abandonedKey, lastModified: oldMs },
+      ],
+      deleteMany: async (keys) => {
+        deleted.push(...keys);
+        return [];
+      },
+    });
+    checks.push(["④b 上传清理: 在途(queued)参考图受保护不删", !deleted.includes(inflightKey)]);
+    checks.push(["④b 上传清理: 已终态(succeeded)参考图按孤儿回收", deleted.includes(doneKey)]);
+    checks.push(["④b 上传清理: 废弃(无生成)上传按孤儿回收", deleted.includes(abandonedKey)]);
+  }
+
   // ===== 8) 旧预算键清理 + 昨日 ms 重算（评估「已结束的前一天」）=====
   {
     const oldKey = "relay_budget:2000-01-01";

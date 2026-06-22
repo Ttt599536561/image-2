@@ -70,26 +70,60 @@ function isRetriable(err: unknown): boolean {
   );
 }
 
+/** 参考图（④b 图生图）：管线回读的字节 + content-type + 文件名（multipart `image` 字段用）。 */
+export type RelayInputImage = { bytes: Uint8Array; contentType: string; filename: string };
+
+// 图生图 multipart body（gpt-image-2 /images/edits）。字段集 model/prompt/size/n/image + 非「auto」的
+// quality/background 均经 ④a 探测实测中转 200 接受（relay-edits-probe.ts 含 quality=high+background=opaque 一组）。
+// 不设 Content-Type（fetch 按 FormData 自动加 boundary）。每次发送新建（避免流复用问题）。
+function buildEditsForm(req: {
+  prompt: string;
+  size: string;
+  quality?: string | null;
+  background?: string | null;
+  inputImage: RelayInputImage;
+}): FormData {
+  const fd = new FormData();
+  fd.append("model", "gpt-image-2");
+  fd.append("prompt", req.prompt);
+  fd.append("size", toRelaySize(req.size));
+  fd.append("n", "1");
+  if (req.quality && req.quality !== "auto") fd.append("quality", req.quality);
+  if (req.background && req.background !== "auto") fd.append("background", req.background);
+  fd.append(
+    "image",
+    new Blob([new Uint8Array(req.inputImage.bytes)], { type: req.inputImage.contentType }),
+    req.inputImage.filename,
+  );
+  return fd;
+}
+
 export async function callRelay(req: {
   prompt: string;
   size: string;
   quality?: string | null;
   background?: string | null;
+  inputImage?: RelayInputImage | null; // ④b：有值 → 走 /images/edits multipart（图生图），无 → JSON 文生图
 }): Promise<{ images: RelayImage[]; raw: unknown }> {
   const key = process.env.RELAY_API_KEY; // ★ 只在 Background Function 注入
   if (!key) throw new Error("[relay] 缺少 RELAY_API_KEY（见 PHASE2-PLAN §0）");
   const bases = await relayBases();
-  const body = JSON.stringify(
-    buildImageGenerationPayload({
-      model: "gpt-image-2",
-      prompt: req.prompt,
-      size: toRelaySize(req.size), // 「auto」→ 1024x1024（中转不接受 auto，见 toRelaySize）
-      quality: req.quality ?? "auto",
-      background: req.background ?? "auto",
-      moderation: "low",
-      n: 1, // ★ 固定 n=1 / moderation=low
-    }),
-  );
+  const isEdit = !!req.inputImage;
+  const endpoint = isEdit ? "/images/edits" : undefined; // undefined → 默认 /images/generations
+  // JSON 文生图 body 不变（一次构造可复用）；图生图 multipart 每次新建（见 buildEditsForm）。
+  const jsonBody = isEdit
+    ? null
+    : JSON.stringify(
+        buildImageGenerationPayload({
+          model: "gpt-image-2",
+          prompt: req.prompt,
+          size: toRelaySize(req.size), // 「auto」→ 1024x1024（中转不接受 auto，见 toRelaySize）
+          quality: req.quality ?? "auto",
+          background: req.background ?? "auto",
+          moderation: "low",
+          n: 1, // ★ 固定 n=1 / moderation=low
+        }),
+      );
 
   let lastErr: unknown;
   for (let i = 0; i < bases.length; i++) {
@@ -97,11 +131,23 @@ export async function callRelay(req: {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), RELAY_SOFT_TIMEOUT_MS); // 软超时 → AbortError → provider_timeout
     try {
-      const resp = await fetch(buildImageGenerationUrl(base), {
+      const resp = await fetch(buildImageGenerationUrl(base, endpoint), {
         method: "POST",
         signal: ctrl.signal,
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-        body,
+        // 图生图：仅 Authorization，Content-Type 由 FormData 自动设（含 boundary）；文生图：JSON。
+        headers: isEdit
+          ? { Authorization: `Bearer ${key}` }
+          : { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+        body: isEdit
+          ? buildEditsForm({
+              prompt: req.prompt,
+              size: req.size,
+              quality: req.quality,
+              background: req.background,
+              // biome-ignore lint/style/noNonNullAssertion: isEdit 蕴含 inputImage 非空
+              inputImage: req.inputImage!,
+            })
+          : (jsonBody as string),
       });
       if (!resp.ok) {
         const detail = redactText(await resp.text(), [key]); // ★ 脱敏后才外传

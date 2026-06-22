@@ -13,6 +13,7 @@ export interface ClaimedGeneration {
   size: string;
   quality: string | null;
   background: string | null;
+  inputImageKey: string | null; // ④b 图生图：有值 → callRelay 走 /images/edits
 }
 
 /** 后台 worker 标识（写入 generations.job_id，便于追踪是哪个实例抢到）。 */
@@ -29,7 +30,7 @@ export async function claim(generationId: string, tag: string = workerTag()): Pr
   const rows = await sql`
     UPDATE generations SET status='claimed', job_id=${tag}, updated_at=now()
     WHERE id=${generationId} AND status='queued'
-    RETURNING id, user_id, prompt, size, quality, background`;
+    RETURNING id, user_id, prompt, size, quality, background, input_image_key`;
   if (rows.length === 0) return null;
   const r = rows[0];
   return {
@@ -39,6 +40,7 @@ export async function claim(generationId: string, tag: string = workerTag()): Pr
     size: r.size as string,
     quality: (r.quality as string | null) ?? null,
     background: (r.background as string | null) ?? null,
+    inputImageKey: (r.input_image_key as string | null) ?? null,
   };
 }
 

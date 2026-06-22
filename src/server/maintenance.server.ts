@@ -133,12 +133,18 @@ export async function sweepOrphanR2Objects(deps: CleanupDeps = {}): Promise<{ or
   let orphansDeleted = 0;
   for (let i = 0; i < aged.length; i += 1000) {
     const keys = aged.slice(i, i + 1000);
+    // known = 成品图 storage_key ∪ 「在途」(未终态)生成的参考图 input_image_key（④b）。
+    // 后者保护：上传后生成还没跑完时，参考图 key 虽不在 images 里，也不能被当孤儿误删。
+    // 已终态(succeeded/failed)生成的参考图 + 从没关联生成的废弃上传 → 不在 known → 按孤儿(>1h)回收（用后即弃）。
     const known = new Set(
       (
-        (await sql`SELECT storage_key FROM images WHERE storage_key = ANY(${keys}::text[])`) as Array<{
-          storage_key: string;
-        }>
-      ).map((r) => r.storage_key),
+        (await sql`
+          SELECT storage_key AS k FROM images WHERE storage_key = ANY(${keys}::text[])
+          UNION
+          SELECT input_image_key AS k FROM generations
+            WHERE input_image_key = ANY(${keys}::text[])
+              AND status IN ('queued','claimed','running')`) as Array<{ k: string }>
+      ).map((r) => r.k),
     );
     const orphans = keys.filter((k) => !known.has(k));
     if (orphans.length === 0) continue;

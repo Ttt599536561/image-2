@@ -7,10 +7,12 @@ import {
   SlidersHorizontal,
   Sparkles,
   Wand2,
+  X,
 } from "lucide-react";
-import { type Ref, useCallback, useEffect, useRef } from "react";
+import { type Ref, useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import type { Background, GenerateRequest, Quality } from "../../contracts/generate";
+import { UPLOAD_ACCEPT } from "../../contracts/upload";
 import { PRICE_PER_IMAGE_MP } from "../../lib/credits";
 import { formatCredits } from "../../lib/format";
 import { usePopover } from "../../lib/usePopover";
@@ -31,6 +33,9 @@ export interface ComposerProps {
   balanceMp: number;
   variant?: "full" | "compact";
   textareaRef?: Ref<HTMLTextAreaElement>;
+  // ④b 图生图：参考图（受控于父级；父级负责校验类型/大小并 toast）。null = 文生图。
+  inputImageFile?: File | null;
+  onPickInputImage?: (file: File | null) => void;
 }
 
 export function Composer({
@@ -42,11 +47,36 @@ export function Composer({
   balanceMp,
   variant = "full",
   textareaRef,
+  inputImageFile = null,
+  onPickInputImage,
 }: ComposerProps) {
   const sizePop = usePopover();
   const advPop = usePopover();
   const navigate = useNavigate();
   const popoverDir = variant === "compact" ? styles.popoverUp : "";
+
+  // ④b：参考图启用与否取决于父级是否接了回调（接了=图生图可用）。
+  const i2iEnabled = typeof onPickInputImage === "function";
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  // 缩略图预览：为 File 造 object URL，换图/卸载时回收。
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!inputImageFile) {
+      setPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(inputImageFile);
+    setPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [inputImageFile]);
+
+  const openPicker = () => fileInputRef.current?.click();
+  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] ?? null;
+    e.target.value = ""; // 允许重选同一文件再次触发 change
+    if (f) onPickInputImage?.(f);
+  };
+  const removeImage = () => onPickInputImage?.(null);
 
   // 合并 ref：本地 ref 做自适应高度，同时把 node 透传给父级（聚焦/滚动）。
   const localRef = useRef<HTMLTextAreaElement>(null);
@@ -82,12 +112,50 @@ export function Composer({
     }
   };
 
+  const placeholder = inputImageFile
+    ? "描述你想如何修改这张图…（如：换成赛博朋克风格、把背景改成海边）"
+    : variant === "full"
+      ? "描述你想生成的画面…"
+      : "继续在当前对话生图…";
+
   return (
     <div className={styles.composer}>
+      {i2iEnabled ? (
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept={UPLOAD_ACCEPT.join(",")}
+          hidden
+          onChange={onFileChange}
+        />
+      ) : null}
+
+      {inputImageFile && previewUrl ? (
+        <div className={styles.refRow}>
+          <div className={styles.refThumbWrap}>
+            <img className={styles.refThumb} src={previewUrl} alt="参考图" />
+            <button
+              type="button"
+              className={styles.refRemove}
+              onClick={removeImage}
+              disabled={disabled}
+              aria-label="移除参考图"
+              title="移除参考图"
+            >
+              <X size={12} />
+            </button>
+          </div>
+          <span className={styles.refChip}>
+            <ImagePlus size={13} />
+            图生图模式 · 基于参考图生成
+          </span>
+        </div>
+      ) : null}
+
       <textarea
         ref={setRefs}
         className={`${styles.textarea} ${variant === "full" ? styles.textareaFull : ""}`}
-        placeholder={variant === "full" ? "描述你想生成的画面…" : "继续在当前对话生图…"}
+        placeholder={placeholder}
         value={request.prompt}
         onChange={(e) => set("prompt", e.target.value)}
         onKeyDown={handleKeyDown}
@@ -96,9 +164,22 @@ export function Composer({
 
       <div className={styles.controls}>
         <div className={styles.left}>
-          <span className={`${styles.pill} ${styles.pillDisabled}`} title="参考图（敬请期待）">
-            <ImagePlus size={15} />
-          </span>
+          {i2iEnabled ? (
+            <button
+              type="button"
+              className={`${styles.pill} ${inputImageFile ? styles.pillActive : ""}`}
+              onClick={openPicker}
+              disabled={disabled}
+              title={inputImageFile ? "更换参考图" : "上传参考图（图生图）"}
+            >
+              <ImagePlus size={15} />
+              {inputImageFile ? "已选参考图" : "参考图"}
+            </button>
+          ) : (
+            <span className={`${styles.pill} ${styles.pillDisabled}`} title="参考图（敬请期待）">
+              <ImagePlus size={15} />
+            </span>
+          )}
 
           <div className={styles.pillWrap} ref={sizePop.ref}>
             <button

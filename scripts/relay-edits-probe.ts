@@ -63,6 +63,7 @@ async function probeEdits(
   key: string,
   png: Buffer,
   imageField: "image" | "image[]",
+  extras?: { quality?: string; background?: string }, // 验证 edits 是否接受 quality/background（审查 #2）
 ): Promise<Outcome> {
   const url = buildImageGenerationUrl(base, "/images/edits");
   const fd = new FormData();
@@ -70,6 +71,8 @@ async function probeEdits(
   fd.append("prompt", "change the background to a starry night sky, keep the composition");
   fd.append("size", "1024x1024");
   fd.append("n", "1");
+  if (extras?.quality) fd.append("quality", extras.quality);
+  if (extras?.background) fd.append("background", extras.background);
   // 不手动设 Content-Type：fetch 会按 FormData 自动加 multipart boundary。
   fd.append(imageField, new Blob([new Uint8Array(png)], { type: "image/png" }), "input.png");
 
@@ -143,6 +146,23 @@ async function main() {
     const alt = await probeEdits(base, key, png, "image[]");
     if (alt === "supported") outcome = "supported";
     else if (outcome === "unsupported" && alt === "ambiguous") outcome = "ambiguous";
+  }
+
+  // 审查 #2：验证 edits 是否接受 quality/background 字段（buildEditsForm 非 auto 档会发）。
+  if (outcome === "supported") {
+    console.log("\n附加：探 quality=high + background=opaque（审查 #2 验证 edits 接受非 auto 档）：");
+    const withParams = await probeEdits(base, key, png, "image", {
+      quality: "high",
+      background: "opaque",
+    });
+    console.log(`quality/background on edits → ${withParams}`);
+    if (withParams !== "supported") {
+      console.log(
+        "⚠️ edits 对 quality/background 不接受/含糊 → callRelay 图生图分支应不传这两字段（与本结果对齐）。",
+      );
+    } else {
+      console.log("✅ edits 接受 quality/background → callRelay 可继续透传非 auto 档。");
+    }
   }
 
   console.log(`\n结论：/images/edits（gpt-image-2 图生图）→ ${outcome}`);

@@ -43,6 +43,9 @@ export const GenerateRequest = z.object({
   quality: z.enum(QUALITIES).optional(),
   background: z.enum(BACKGROUNDS).optional(),
   conversationId: z.uuid().optional(),
+  // ④b 图生图：参考图上传 key（来自 /api/uploads）。有值 → 管线走 /images/edits multipart。
+  // 仅长度/形态校验；owner-scope（key 必须属本人 uploads/<me>/）由入队事务权威校验。
+  inputImageKey: z.string().min(1).max(300).optional(),
 });
 export type GenerateRequest = z.infer<typeof GenerateRequest>;
 

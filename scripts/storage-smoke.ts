@@ -2,7 +2,12 @@
 // 跑：node --env-file=.env --import tsx scripts/storage-smoke.ts
 // 验证 ① 地基里唯一挂着的「putToR2 往返」+ 公有桶公开 URL 是否打通。
 import { randomUUID } from "node:crypto";
-import { deleteFromR2, putToR2 } from "../src/server/r2.server";
+import {
+  deleteFromR2,
+  getUploadObject,
+  putToR2,
+  putUserUpload,
+} from "../src/server/r2.server";
 
 // 1x1 透明 PNG（含 IHDR，readPngDims 可解出 1x1）。
 const PNG_1x1_B64 =
@@ -39,8 +44,23 @@ async function main() {
   const resp2 = await fetch(put.publicUrl);
   console.log(`re-fetch after delete → ${resp2.status}（404/400 即已删；200 可能 CDN 缓存）`);
 
-  console.log(`\n[storage-smoke] ${okFetch ? "PASS" : "FAIL"}`);
-  process.exit(okFetch ? 0 : 1);
+  // 5) ④b 参考图上传往返：putUserUpload → getUploadObject 字节一致 + key owner-scope 前缀 → 清理。
+  const refBytes = new Uint8Array(Buffer.from(PNG_1x1_B64, "base64"));
+  const up = await putUserUpload({ userId, bytes: refBytes, contentType: "image/png", ext: "png" });
+  console.log(`\nputUserUpload → ${up.storageKey}`);
+  const got = await getUploadObject(up.storageKey);
+  const bytesMatch =
+    got.bytes.length === refBytes.length && got.bytes.every((b, i) => b === refBytes[i]);
+  const keyScoped = up.storageKey.startsWith(`uploads/${userId}/`);
+  console.log(
+    `getUploadObject → ${got.bytes.length}B ct=${got.contentType} 字节一致=${bytesMatch} owner前缀=${keyScoped}`,
+  );
+  await deleteFromR2(up.storageKey);
+  console.log("upload 清理 ok");
+
+  const pass = okFetch && bytesMatch && keyScoped;
+  console.log(`\n[storage-smoke] ${pass ? "PASS" : "FAIL"}`);
+  process.exit(pass ? 0 : 1);
 }
 
 main().catch((e) => {

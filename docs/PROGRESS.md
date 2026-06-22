@@ -29,7 +29,7 @@
 - **Wave C（4 项 #3/#12/#9/#4 新能力·后端）✅** `8aa24ec`：删会话（级联+R2+owner-scope）/ 后台删生成记录（硬删+审计+账本保留）/ #9 输出格式**探测否决跳过**（中转不透传 output_format，jpeg 仍返 PNG，同 S6）/ 资产日期控件重做（DateRangePicker）。deletes-smoke 18/18 真 Neon。
 - **Wave D（3 项 #8/#11/#14 大重构）✅** `af62860`：账号页重构（余额置顶+批次+流水类型筛+兑换记录，映射我们模型）/ 全局参数去毫积分（前端填积分、后端存 mp）/ 后台 UX 彻底分离（独立 /admin/login + 角色直达 + 无回用户端入口）。account-reads-smoke 17/17 真 Neon。
 - **新增 smoke**：`deletes-smoke`（删会话/删生成）、`account-reads-smoke`（账号页读）、`relay-format-probe`（#9 探测，已跑：中转不透传 output_format）。
-- **下一步**：① 站长本地浏览器验收（20 条 + 本批 rename / 广播公告，`netlify dev` 8888）；② **第二批 4 项新需求方案已过审（2026-06-22）、待开发** → 见下「🆕 第二批待开发需求队列」（先确认待拍板决策点，再按建议顺序逐项做）。
+- **下一步**：① 站长本地浏览器验收（20 条 + 本批 rename / 广播公告 + **第二批 4 项**，`netlify dev` 8888）；② **第二批 4 项新需求 ✅ 全部完成（2026-06-22）** → 见下「🆕 第二批待开发需求队列」（③ `c568008` / ①② `4cdf905` / ④a `a715b8f` / ④b 见队列）。
 
 ### 🆕 待开发需求队列（✅ 两项均已完成 2026-06-22；通知开关/参数②留后续）
 - ✅ **站长后台通知配置 / 管理 —— 广播公告（①）已完成**（站长 2026-06-22 提，规格见 [redesign-requirements.md §9](redesign-requirements.md)）：后台可撰写公告并下发到铃铛。范围锁定为「广播公告」；**② 通知开关 / 参数（到期提醒提前天数等，落 `app_config`）本轮不做、留后续**。
@@ -45,7 +45,7 @@
 ### 🆕 第二批待开发需求队列（4 项，方案已过审 2026-06-22；**待站长拍板下方决策点后开发**）
 > 站长本会话已过审 4 项需求的方案 + 原型（原型存 [docs/prototypes/new-features-2026-06-22.html](prototypes/new-features-2026-06-22.html)，浏览器打开看 3 屏）。**先不开发**；新会话接手先确认下方「待拍板决策点」，再按「建议顺序」逐项做（每项仍：实做 → tsc/test/build/assert + 对真 Neon smoke → 多代理对抗审查 → commit + checkpoint）。规格见 [§9](redesign-requirements.md)（①②③）/ [§2.2](redesign-requirements.md)（④图生图）。
 >
-> **建议开发顺序**：~~③后台留白~~ ✅ → ~~①+②（公告编辑删除 + 详情弹窗保留）~~ ✅ → ④a 探测 →（通过则）④b 图生图。**下一步 = ④a：写 `scripts/relay-edits-probe.ts` 探测中转 `/images/edits` 是否支持 gpt-image-2，结果给站长，通过才进 ④b。**
+> **建议开发顺序**：~~③后台留白~~ ✅ → ~~①+②（公告编辑删除 + 详情弹窗保留）~~ ✅ → ~~④a 探测~~ ✅ → ~~④b 图生图~~ ✅。**🎉 第二批 4 项全部完成。下一步 = 站长本地 `netlify dev`(8888) 浏览器验收（重点新链路：图生图上传→生成、广播编辑删除、铃铛详情弹窗）。**
 >
 > **站长 3 决策点已答（2026-06-22）**：① 编辑公告 → 表单加「重新提醒」勾选（勾上=重置已读+重弹红点，默认不勾=静默改内容）；② 铃铛 → 保留近 50 条·已读灰显·红点只计未读·点公告弹详情 Modal 不删（不另开历史页）；④ 图生图 → 同价 0.07 / 先支持单张参考图 / 不限付费用户（且先 ④a 探测通过再进 ④b）。
 
@@ -59,10 +59,11 @@
   - **审查抓到并已修**（多代理对抗审查 17 agents / 12 findings → 2 confirmed）：**major** = ② 拉全部后，`image_expiring` 到期提醒在 cron 删图时**未连带删除** → 会永久灰显铃铛、点跳已删图、挤占公告 50 名额（旧 `?unread=1` 语义掩盖了此潜伏 bug）→ 修 `deleteExpiredImages` 同批 `DELETE FROM notifications WHERE type='image_expiring' AND dedupe_key=ANY('image_expiring:'||id)`；**nit** = `api.notifications` 顶部注释/08-frontend.md 仍写 `?unread=1` → 已更正。
   - **红线满足**：admin 写双守卫（`requireAdminPage` + `requireAdmin`）+ 二次确认 + 审计同事务；aid `z.uuid()` → LIKE 无通配注入；前台 owner-scoped 不变；客户端 0 schema（页面仅 type-import `AnnouncementSummary`、值导入仅用于 loader，assert-no-secrets PASS）。
   - **验证**：tsc 0 · test:run 72 · build 0 · assert-no-secrets PASS · `notifications-smoke` **32/32**（对真 Neon：列表聚合/target 回捞/看完保留·readAt 非空/静默编辑不重置·重新提醒重置/删除同步/编辑·删除 404）+ `cron-smoke` **29/29**（+2：删图连带删提醒、删 R2 失败则提醒保留）。
-- 🚧 **④ 图生图（最大、有前置）**：Composer 已有「参考图」disabled 占位（`Composer.tsx:99`）。中转现走文生图 `/images/generations`(JSON，`imageGeneration.ts:36`)。
-  - ✅ **④a 前置探测 —— 已做且通过**：`scripts/relay-edits-probe.ts`（自带极简 PNG 编码器造 512×512 渐变测试图 + multipart `image` 字段 + `image[]` 兜底 + 3min 超时）实测 **`POST /v1/images/edits`（model=gpt-image-2）→ 200 in 79.5s，返回编辑后图片 URL = ✅ supported**（标准 `image` 字段一次通过，与文生图同量级耗时）。前置闸打开 → 进 ④b。
-  - ⬜ **④b 实现（探测已通过、开发中）**：前端激活「参考图」上传（单张 image/* + 校验大小/类型）→ 缩略图预览/移除 + 模式切换；`/api/uploads` 存 Supabase `uploads/` → `GenerateRequest.inputImageKey`；`generations` 加 `input_image_key` 列（免迁移）；`callRelay` 有图走 edits multipart（拉用户图→FormData）。**决策（站长）：计费同 0.07 / 单张参考图 / 不限付费用户。** 上传图纳入保留期清理。
-  - 红线/风险：上传校验 + owner-scoped + 成功才扣不变；Background Function 内存/超时；内容审核站长自负。**~~中转能力是最大不确定项~~ → ④a 已证实支持。**
+- ✅ **④ 图生图（最大、有前置）—— 全部完成 `af8c1f4`**（决策：同价 0.07 / 单张参考图 / 不限付费 / 参考图「用后即弃」）。
+  - ✅ **④a 前置探测 `a715b8f`**：`scripts/relay-edits-probe.ts` 实测 **`POST /v1/images/edits`（gpt-image-2）→ 200，返回编辑图 = supported**；扩展探测确认 **edits 也接受 `quality=high`+`background=opaque`**（审查 #2）。
+  - ✅ **④b 实现**：① schema `generations.input_image_key`（迁移 `0003`，已应用真 Neon）；② `POST /api/uploads`（requireUserStrict + **魔数嗅探权威类型**〔不信可伪造 Content-Type〕+ 大小双查 ≤4MB〔留 Netlify SSR 6MB body 余量〕+ **每用户 40/10min 限流**）→ `uploads/<userId>/…`；③ 契约 `GenerateRequest.inputImageKey` + `UploadResponse`（只回 key）；④ 管线：`enqueue` **owner-scope 校验 key 前缀**〔挡拿他人 key〕+ 落库、`claim` 回读、`process` 取字节传 `callRelay`、`callRelay` 有图走 `/images/edits` multipart（`buildEditsForm`，每迭代新建 FormData）、参考图回读失败→友好 `invalid_request` 不扣费；⑤ cron `sweepOrphanR2Objects` known-set += 非终态 `input_image_key`（保护在途、回收终态/废弃，用后即弃）；⑥ 前端：Composer 激活参考图上传（预览/移除/图生图模式/生成中锁定）、`useGeneration` 上传-再-入队 + **成功才清空**〔失败保留可重试〕+ **submittingRef 双发硬锁**。
+  - **对抗审查（15 agents / 9 findings → 全 confirmed，1 为「钱链路未破坏」正向备案）逐条已修**：major #1 失败丢图丢字→改成功才清空（per-call onAccepted，regenerate 不误清）；minor #2 quality/background 未探测→扩展探测证实 200；#3 类型只信声明头→加魔数嗅探；#4 上传无限流→加 40/10min；#5 闲置上传被清致失败→友好 invalid_request 不误扣；#6 双击双扣→submittingRef；nit #8 去 response.publicUrl；#9 生成中锁定 picker。
+  - **验证**：tsc 0 · test:run 78（+6 魔数嗅探）· build 0 · assert-no-secrets PASS · test:money（含 i2i 成功/参考图丢失→invalid_request 不扣/owner-scope 400/落库）· storage-smoke（putUserUpload↔getUploadObject 字节一致）· cron-smoke 32/32（在途上传受保护/终态/废弃回收）· **真 callRelay i2i 实打中转 → 1 图**（`scripts/relay-edits-call-smoke.ts`）。
 
 **待站长拍板决策点 —— ✅ 全部已答（2026-06-22）**：
 1. **①** 编辑公告 → **表单加「重新提醒」勾选**（勾上=重置 `read_at` 重弹红点、默认不勾=静默改内容）。✅ 已实现。

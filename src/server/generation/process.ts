@@ -9,13 +9,14 @@ import { alert } from "../alert.server";
 import { incCallIfUnderCap, incMs, markBudgetAlertedOnce } from "../budget.server";
 import { chargeOnSuccess } from "../money/debit.server";
 import { claim, markRunning } from "../money/preempt.server";
-import { putToR2 as realPutToR2 } from "../r2.server";
-import { callRelay as realCallRelay } from "../relay";
+import { getUploadObject as realGetUploadObject, putToR2 as realPutToR2 } from "../r2.server";
+import { RelayError, callRelay as realCallRelay } from "../relay";
 import { normalizeFailure } from "./failure";
 
 export interface ProcessDeps {
   callRelay?: typeof realCallRelay;
   putToR2?: typeof realPutToR2;
+  getUploadObject?: typeof realGetUploadObject; // ④b：回读参考图字节（测试可桩，免烧 Supabase）
 }
 
 export type ProcessOutcome = "lost" | "budget_exhausted" | "succeeded" | "failed";
@@ -27,6 +28,7 @@ export type ProcessOutcome = "lost" | "budget_exhausted" | "succeeded" | "failed
 export async function runGenerationJob(generationId: string, deps: ProcessDeps = {}): Promise<ProcessOutcome> {
   const callRelay = deps.callRelay ?? realCallRelay;
   const putToR2 = deps.putToR2 ?? realPutToR2;
+  const getUploadObject = deps.getUploadObject ?? realGetUploadObject;
   const sql = getSql();
 
   // ① 抢占（铁律③）：queued→claimed。抢不到（重试/重扫/已终态）→ 立即退，不调中转、不扣费。
@@ -52,12 +54,24 @@ export async function runGenerationJob(generationId: string, deps: ProcessDeps =
 
   const t0 = Date.now();
   try {
+    // ④b 图生图：有参考图 key → 回读字节，传给 callRelay 走 /images/edits multipart（无则文生图）。
+    // 回读失败（参考图已被孤儿清理/存储故障，罕见）→ 友好归一为 invalid_request、不扣费（在扣费事务前）。
+    let inputImage: Awaited<ReturnType<typeof realGetUploadObject>> | null = null;
+    if (g.inputImageKey) {
+      try {
+        inputImage = await getUploadObject(g.inputImageKey);
+      } catch {
+        throw new RelayError("参考图已失效，请重新上传后再试", 400);
+      }
+    }
+
     // ④ 调中转（Key 只在此从 env 注入；固定 gpt-image-2/n=1/moderation=low）。
     const { images } = await callRelay({
       prompt: g.prompt,
       size: g.size,
       quality: g.quality,
       background: g.background,
+      inputImage,
     });
     if (!images.length) throw new Error("中转返回 0 张图");
 

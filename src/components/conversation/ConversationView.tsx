@@ -15,6 +15,7 @@ import { useLocation, useNavigate } from "react-router";
 import type { ConversationDetail, ConversationGeneration } from "../../contracts/conversation";
 import type { Background, GenerateRequest, Quality, Size } from "../../contracts/generate";
 import { SaveResponse } from "../../contracts/image";
+import { UPLOAD_ACCEPT, UPLOAD_MAX_BYTES, type UploadMime } from "../../contracts/upload";
 import type { InspirationItem } from "../../contracts/inspiration";
 import { useGeneration } from "../../hooks/useGeneration";
 import { useGenerationStatus } from "../../hooks/useGenerationStatus";
@@ -99,6 +100,7 @@ export function ConversationView({
   const isDesktop = useMediaQuery("(min-width: 1024px)");
 
   const [request, setRequest] = useState<GenerateRequest>(EMPTY_REQUEST);
+  const [inputImageFile, setInputImageFile] = useState<File | null>(null); // ④b 图生图参考图（用后即弃）
   const [panelOpen, setPanelOpen] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [rawTurn, setRawTurn] = useState<Turn | null>(null);
@@ -199,18 +201,38 @@ export function ConversationView({
     textareaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
-  const runGeneration = (req: GenerateRequest) => {
+  const runGeneration = (req: GenerateRequest, file: File | null = null, onAccepted?: () => void) => {
     if (!req.prompt.trim()) return;
     if (balanceMp < PRICE_PER_IMAGE_MP) {
       toast.error("积分不足，去充值");
       return;
     }
-    submit(req);
+    submit(req, file, onAccepted);
+  };
+
+  // ④b：参考图选取——父级权威校验类型/大小（与后端 contracts/upload 同值），不合法 toast 不入选。
+  const onPickInputImage = (file: File | null) => {
+    if (!file) {
+      setInputImageFile(null);
+      return;
+    }
+    if (!UPLOAD_ACCEPT.includes(file.type as UploadMime)) {
+      toast.error("仅支持 PNG / JPG / WEBP 图片");
+      return;
+    }
+    if (file.size > UPLOAD_MAX_BYTES) {
+      toast.error("参考图过大（上限 4MB）");
+      return;
+    }
+    setInputImageFile(file);
   };
 
   const onSubmit = () => {
-    runGeneration(request);
-    setRequest((r) => ({ ...r, prompt: "" }));
+    // 审查 #1：入队成功(202)后才清空 prompt/参考图（失败保留可重试，i2i 尤其避免「丢图须重选」）。
+    runGeneration(request, inputImageFile, () => {
+      setRequest((r) => ({ ...r, prompt: "" }));
+      setInputImageFile(null); // 用后即弃：一次提交一张参考图
+    });
   };
 
   const bringBackPrompt = (prompt: string) => {
@@ -267,6 +289,8 @@ export function ConversationView({
       balanceMp={balanceMp}
       variant={turns.length === 0 ? "full" : "compact"}
       textareaRef={textareaRef}
+      inputImageFile={inputImageFile}
+      onPickInputImage={onPickInputImage}
     />
   );
 
