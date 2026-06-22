@@ -49,11 +49,11 @@
 >
 > **站长 3 决策点已答（2026-06-22）**：① 编辑公告 → 表单加「重新提醒」勾选（勾上=重置已读+重弹红点，默认不勾=静默改内容）；② 铃铛 → 保留近 50 条·已读灰显·红点只计未读·点公告弹详情 Modal 不删（不另开历史页）；④ 图生图 → 同价 0.07 / 先支持单张参考图 / 不限付费用户（且先 ④a 探测通过再进 ④b）。
 
-- ✅ **③ 后台顶部留白 / 页眉**（最易，纯 CSS/布局、无后端无契约）—— **已完成 `0ea89ae`**。
+- ✅ **③ 后台顶部留白 / 页眉**（最易，纯 CSS/布局、无后端无契约）—— **已完成 `c568008`**。
   - **真因订正**：`.main` 的 `padding: var(--space-12) var(--space-7) var(--space-10)` 引用了「刻意缺省」的未定义令牌 `var(--space-7)`（tokens.css 注：7/9/11 缺省）→ 整条 padding 简写在 computed-value 阶段 substitution failure → 退回初始值 = **四边 0 内边距**（不是留白 48 不够、是根本没生效，这才是「标题贴浏览器边」真因）。
   - **已落地**（纯 CSS，`src/components/admin/Admin.module.css`）：① `.main` 改用已定义令牌（两侧 32 / 底 40）；② `.pageHead` 升级为轻量 **sticky 页眉**（`position:sticky;top:0;z-index:20`〔低于 modal 80/popover 40，不挡行内操作/弹窗〕+ 满铺负边距〔左右 -32px 抵消 `.main` 内边距，分隔线通栏〕+ 底色 + `border-bottom`；初始标题距顶 ≈64px=48+16）；③ 7 个后台页 `.pageHead` 内已含当前页标题 → **零页面改动**即获含标题吸顶页眉。
   - **验证**：tsc 0 · build 0 · assert-no-secrets PASS · test:run 72 · 多代理对抗审查（13 agents / 10 findings → 1 confirmed=达成确认 nit，0 缺陷）。纯前端无 Neon smoke。
-- ✅ **①+② 广播公告编辑/删除（同步用户端）+ 用户端公告详情弹窗·看完保留** —— **已完成 `e0c4543`**（共享通知改动、一起做）。
+- ✅ **①+② 广播公告编辑/删除（同步用户端）+ 用户端公告详情弹窗·看完保留** —— **已完成 `4cdf905`**（共享通知改动、一起做）。
   - **① 已落地**：① 契约 `AnnouncementAction` 由单 `broadcast` 改判别联合 `broadcast|edit|delete`（edit/delete 带 `aid:z.uuid()`、edit 带 `renotify:boolean.default(false)`）；② server `listAnnouncements`（按 `split_part(dedupe_key,':',2)=aid` 聚合：`array_agg(payload)[1]` 代表 payload + `COUNT(*)` 接收数 + `COUNT(read_at)` 已读数 + `LEFT JOIN LATERAL audit_log` 回捞 target）+ `editAnnouncement`（`UPDATE … WHERE dedupe_key LIKE 'announcement:'||aid||':%'`，renotify 时 `read_at=NULL` 重弹红点〔站长决策〕、0 行→404、同事务 `writeAudit`）+ `deleteAnnouncement`（`DELETE … LIKE …`、0 行→404、审计）；③ route `api.admin.notifications` 按 `op` switch；④ `_admin.notifications.tsx` 撰写区支持「编辑模式」（回填 + 重新提醒勾选 + target 隐藏 + 取消编辑）+「已发公告」列表（每条编辑回填 / 删除 ConfirmDialog）+ `useRevalidator` 刷新。免迁移（aid 从 dedupe_key 拆）。
   - **② 已落地**：① `useNotifications` 改拉**全部近 50 条**（去 `?unread=1`）；② `NotificationBell` 红点**只计未读**（`read_at===null` 计数）、打开冻结快照保高亮稳定 + 标记已读（红点消但**条目保留可反复点开**）、已读 `.itemRead` 灰显/未读 `.itemUnread` 淡陶土高亮；③ 点 `announcement` → 弹**详情 Modal**（新 `AnnouncementModal`：完整 title/body/link 按钮/时间 + 知道了 + 「关闭仍保留」脚注，link 内站 navigate/外链 window.open，lockBodyScroll+ESC+scrim 关闭）、`image_expiring` 点跳资产库且同样保留。
   - **审查抓到并已修**（多代理对抗审查 17 agents / 12 findings → 2 confirmed）：**major** = ② 拉全部后，`image_expiring` 到期提醒在 cron 删图时**未连带删除** → 会永久灰显铃铛、点跳已删图、挤占公告 50 名额（旧 `?unread=1` 语义掩盖了此潜伏 bug）→ 修 `deleteExpiredImages` 同批 `DELETE FROM notifications WHERE type='image_expiring' AND dedupe_key=ANY('image_expiring:'||id)`；**nit** = `api.notifications` 顶部注释/08-frontend.md 仍写 `?unread=1` → 已更正。
