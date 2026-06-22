@@ -17,7 +17,7 @@
 - [x] ~~#15 Composer/比例/分辨率 + 右面板随滚动跑掉~~ → `Shell.module.css` `.shell` height:100dvh+overflow:hidden、`.main` min-height:0 → 内部 .flow/面板各自滚动，四周固定
 - [x] ~~#16 顶部「当前对话」标题随滚动~~ → 同上（TopBar 随 shell 定高固定）
 
-## Wave B · 图片操作 ✅ 完成（commit 待填）
+## Wave B · 图片操作 ✅ 完成（commit `5c1e5b8`）
 - [x] ~~#17 本次面板「下载」实际只放大、没真下载~~ → **根因=跨域 Supabase 公链下 `<a download>` 被浏览器忽略只会开新标签**；`lib/download.ts downloadImage` 改 fetch→blob→objectURL 真下载（失败回退直链），lightbox 下载键同改（原 `<a download>` → 真下载按钮）
 - [x] ~~#18 本次面板每张图直接可下载~~ → 每图右下角悬浮下载键（点图仍可放大）
 - [x] ~~#19 所有生图加「复制到剪贴板」~~ → 新增 `copyImageToClipboard`（fetch blob→非 png 经 canvas 转码→`ClipboardItem(Promise<Blob>)` 保 Safari 手势激活）；成功态/本次面板/lightbox 均加「复制图片」+ toast
