@@ -6,13 +6,12 @@
   publish = "build/client"
   functions = "netlify/functions"
 
-# 本地 `netlify dev`：固定命令/端口避免框架自动探测的交互式提问（local-acceptance.md）。
-# 在 :8888 提供 SSR 应用 + netlify/functions（生图链路），代理内部 vite(:5173)；注入 .env。
+# 本地 `netlify dev`：让其自动探测 React Router（@netlify/vite-plugin-react-router 集成），
+# 跑真正的 vite dev（HMR + CSS Modules + tokens 正常注入）+ netlify/functions（生图链路）+ .env。
+# 只钉端口 8888（= BETTER_AUTH_URL）；不要设 framework=#custom（会改走「内置 SSR 函数 + 静态 publish」
+# 的混合模式，导致 CSS 链接指向构建产物且无 vite client → 页面无样式，local-acceptance.md 已记此坑）。
 [dev]
-  command = "react-router dev --port 5173"
-  targetPort = 5173
   port = 8888
-  framework = "#custom"
 
 # 生图 REST：同步入队 /api/generate + 短轮询 /api/generate-status → 经典 Functions（v2 Request 处理器）。
 # generate-background 由 generate 内部 fire-and-forget 触发（/.netlify/functions/generate-background，-background=15min 后台）。

@@ -33,11 +33,23 @@ node --env-file=.env --import tsx scripts/db-verify.ts     # 应列出 2 套餐 
 ## 2. 启动
 
 ```bash
-npx netlify dev          # 或 npm i -D netlify-cli 后：npx netlify dev
+# ⚠️ 起 dev 前清掉构建产物（否则 netlify dev 会优先服务 build/ 的「内置 SSR 函数 + 静态资源」，
+#    而非 vite dev → 页面无 CSS/无 HMR、登录注册页「裸 HTML」样子。若刚跑过 npm run build / assert-no-secrets 必清）：
+rm -rf build .netlify     # PowerShell：Remove-Item -Recurse -Force build, .netlify -ErrorAction SilentlyContinue
+
+npx netlify dev           # 自动探测 React Router → 跑 vite dev（CSS Modules + tokens 正常）+ 函数 + .env
 # → 打开 http://localhost:8888
 ```
 
 > ⚠️ 端口必须是 **8888**（与 `BETTER_AUTH_URL` 一致），否则 Better Auth 会话/回跳会错。netlify dev 默认即 8888。
+> ⚠️ **`netlify.toml [dev]` 只钉 `port = 8888`，不要设 `framework = "#custom"`**——后者会改走「内置 SSR 函数 + 静态 publish」混合模式，CSS 链接指向构建产物且无 vite client → **页面无样式**（本项目踩过，已记此坑）。
+
+### 故障排查：页面「没样式 / 很丑」
+是 `netlify dev` 在服务**构建产物**而非 vite dev。自查：浏览器 DevTools 看页面 `<head>` 的脚本——
+- ✅ 正常（vite dev）：含 `/@vite/client`、源码路径 `/app/entry.client.tsx`，`document.styleSheets` 有规则
+- ❌ 异常（服务 build）：是 `/assets/entry.client-<hash>.js` 这种哈希名、无 `/@vite/client`、CSS 文件 0 规则
+
+修：停 dev → `rm -rf build .netlify` → 重启 `npx netlify dev`。
 
 ## 3. 验收清单（注册 → 登录 → 生图）
 
