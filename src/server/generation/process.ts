@@ -57,15 +57,19 @@ export async function runGenerationJob(generationId: string, deps: ProcessDeps =
     // ④b 图生图：有参考图 key → 回读字节，传给 callRelay 走 /images/edits multipart（无则文生图）。
     // 回读失败（参考图已被孤儿清理/存储故障，罕见）→ 友好归一为 invalid_request、不扣费（在扣费事务前）。
     let inputImage: Awaited<ReturnType<typeof realGetUploadObject>> | null = null;
+    let fetchInputMs = 0;
     if (g.inputImageKey) {
+      const tf = Date.now();
       try {
         inputImage = await getUploadObject(g.inputImageKey);
       } catch {
         throw new RelayError("参考图已失效，请重新上传后再试", 400);
       }
+      fetchInputMs = Date.now() - tf;
     }
 
     // ④ 调中转（Key 只在此从 env 注入；固定 gpt-image-2/n=1/moderation=low）。
+    const tRelay = Date.now();
     const { images } = await callRelay({
       prompt: g.prompt,
       size: g.size,
@@ -73,10 +77,17 @@ export async function runGenerationJob(generationId: string, deps: ProcessDeps =
       background: g.background,
       inputImage,
     });
+    const relayMs = Date.now() - tRelay;
     if (!images.length) throw new Error("中转返回 0 张图");
 
     // ⑤ 落 R2（事务外，结果存临时变量）。
+    const tPut = Date.now();
     const obj = await putToR2(g.userId, generationId, images[0]);
+    const putMs = Date.now() - tPut;
+    // 可观测：每张图的耗时拆分（定位瓶颈在中转响应还是落图上传；本机跨境会偏大，线上美西机房快）。
+    console.log(
+      `[gen-timing] ${generationId} ${g.inputImageKey ? "i2i" : "t2i"} fetchInput=${fetchInputMs}ms relay=${relayMs}ms putToR2=${putMs}ms total=${Date.now() - t0}ms`,
+    );
 
     // ⑥ 扣费事务（成功才扣 + ⓪双守卫 + 幂等）→ 内部置 succeeded。
     await chargeOnSuccess({
