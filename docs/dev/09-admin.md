@@ -257,6 +257,20 @@ CREATE INDEX ix_insp_active_sort ON inspirations(active, sort);
 
 > 灵感库非钱/码、单语句即可，但 `create/update/reorder/delete` 均走 `tx()` 事务以与 `writeAudit` 同提交（增删改属内容运营，动作可审）。封面探测宽高（admin 表单「从封面探测」）为纯客户端 `Image` 加载回填，非端点。
 
+### 灵感投稿审核队列（UGC · `_admin.inspiration-submissions`）
+
+用户在前台灵感库点「投稿」→ 从自己作品选图 + 填字段 → 落 `inspiration_submissions(status='pending')` + 复制永久副本；管理员在此队列**通过**（建上架 `inspirations` 卡 + 署名）/ **驳回**（填原因），并给投稿人发站内通知。**不扣积分**。投稿表与上架表 `inspirations` 分离，保证前台 `loadInspirations(active=true)` 只读上架卡、不泄露 pending/rejected。详细设计/迁移/服务端/契约/存储/孤儿保护见 [INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)，规格 [§13.1](../redesign-requirements.md)。
+
+| 项 | 说明 |
+|---|---|
+| 后台页 | `_admin.inspiration-submissions.tsx`：loader `requireAdminPage` + `listSubmissions(status)`；**状态筛 Tab**（待审/已通过/已驳回/全部）+ 表格（图 / 提交人 email / 标题 / 提示词 / 分类 / 状态 / 操作）；审核后 `revalidator` 刷新 |
+| 端点 | `GET /api/admin/inspiration-submissions`（`listSubmissions` 按状态筛+分页+待审计数，`requireAdmin`）；`POST` 同址（`SubmissionReviewAction` `op` 判别联合 → `approve`\|`reject`，`requireAdmin`）。契约 `src/contracts/admin.ts` `ApproveSubmissionAction`/`RejectSubmissionAction`/`SubmissionReviewAction` |
+| 通过 | **可改字段编辑弹窗**（标题/提示词/分类/简介允许 admin 修订）+ `ConfirmDialog` 二次确认 → `approveSubmission`：`tx` + `FOR UPDATE` 锁 + 校 `status='pending'` → INSERT `inspirations` 卡（`cover_key`=投稿副本 key、`submitter_name`=`publicHandleFromEmail`、`submitted_by`）→ UPDATE 投稿 `approved` + `published_inspiration_id` → `writeAudit` + 通知 `inspiration_reviewed`（同事务） |
+| 驳回 | **填原因** + 二次确认 → `rejectSubmission`：同上置 `rejected` + `review_reason` + `writeAudit` + 通知 |
+| 导航红点 | `_admin.tsx` NAV 加「灵感投稿」（Inbox 图标）+ **待审数红点**（layout loader `countPendingSubmissions`） |
+
+> **双守卫不可缺**（[05 §6.7](05-auth.md) / `.claude/rules/admin.md`）：后台页 loader `requireAdminPage` + 两条 API 各自首行 `requireAdmin`，不依赖前端隐藏菜单。owner-scope：投稿落库时服务端按 `images.user_id=$me` 取**权威** key/url/宽高，绝不信客户端（见 [INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)）。`inspirations` 通过时 `cover_key` 直接复用投稿副本对象（前缀 `inspirations/` 被 `deriveCoverKey` 接受，无需再复制）；孤儿清理 cron 保护 pending 副本，见 [10-ops-test.md §11.7](10-ops-test.md) / PLAN。
+
 ---
 
 ## 10.5 生成记录列表
@@ -338,14 +352,14 @@ LIMIT $pageSize OFFSET $offset;
 
 **所有敏感写操作必须**：① 前端**二次确认弹窗**；② 服务端在**同事务内**写 `audit_log`（before/after/ip/reason）。覆盖范围：
 
-> 调积分 · 改密 · 封禁/解封 · 生成码/作废批次 · 改配置（定价/赠送/保留期/并发/预算/Base）· 改套餐文案与定价。
+> 调积分 · 改密 · 封禁/解封 · 生成码/作废批次 · 改配置（定价/赠送/保留期/并发/预算/Base）· 改套餐文案与定价 · 灵感投稿通过/驳回（`approve_inspiration_submission`/`reject_inspiration_submission`，[§10.4](#灵感投稿审核队列ugc--_admininspiration-submissions)）。
 
 `audit_log` 写入助手（[02 §3.2](02-database.md) 表）：
 
 ```ts
 async function writeAudit(c, e: {
-  adminId: string; action: string;       // adjust_credit|reset_pw|ban|unban|gen_codes|disable_batch|edit_config|edit_package|...
-  targetType?: string;                   // user|code|package|inspiration|config
+  adminId: string; action: string;       // adjust_credit|reset_pw|ban|unban|gen_codes|disable_batch|edit_config|edit_package|approve_inspiration_submission|reject_inspiration_submission|...
+  targetType?: string;                   // user|code|package|inspiration|inspiration_submission|config
   targetId?: string; before?: unknown; after?: unknown; ip?: string; reason?: string;
 }) {
   await c.query(
@@ -406,3 +420,4 @@ async function writeAudit(c, e: {
 - [ ] `audit_log` 只追加，**无删改端点**（管理员不可改自己的记录）。
 - [ ] 看板全从 `events` 聚合（队列健康例外查实时表）；**所有 `SUM` 走 string codec 换 BigInt**（[10-ops-test.md §11.4](10-ops-test.md)）。
 - [ ] 生成记录默认近 7 天/50 条、倒序、失败行直显三列 `error_code`/`error`/`http_status`（§24-3 / [04 §5.8](04-generation-pipeline.md) 六值枚举 / [02 §3.2](02-database.md)）；缩略图全局 lightbox。
+- [ ] 灵感投稿队列（`_admin.inspiration-submissions`）双守卫（页 `requireAdminPage` + 两条 API `requireAdmin`）；通过/驳回**二次确认 + 同事务 `writeAudit`（`approve_/reject_inspiration_submission`）+ 发通知 `inspiration_reviewed`**；通过 `approveSubmission` 走 `FOR UPDATE` + 校 `status='pending'` 防并发重复上架；NAV 待审红点 `countPendingSubmissions`；**不扣积分**、投稿表与上架表分离（前台只读 `active`）（[§10.4](#灵感投稿审核队列ugc--_admininspiration-submissions) / [INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)）。

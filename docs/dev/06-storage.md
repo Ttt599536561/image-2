@@ -92,6 +92,22 @@ function buildStorageKey(userId: string, generationId: string) {
 const publicUrl = (key: string) => `${process.env.R2_PUBLIC_BASE_URL}/${key}`;
 ```
 
+### 灵感投稿永久副本 key（UGC）
+
+灵感库用户投稿（[INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)；规格 [§13.1](../redesign-requirements.md)）需把投稿者选中的作品复制一份**永久副本**（脱离原图保留期/删除），独立前缀：
+
+```
+inspirations/submissions/{userId}/{yyyy}/{mm}/{uuid}.{ext}
+```
+
+| 助手（`src/server/r2.server.ts`） | 作用 |
+|---|---|
+| `buildInspirationSubmissionKey(userId, ext)` | 拼上面的 key；前缀 `inspirations/` 开头 → 通过后 `deriveCoverKey` 天然接受 |
+| `copyToInspirationSubmission(srcKey, userId)` | **厂商中立** `GetObject → PutObject` 复制（不依赖 S3 `CopyObject`，换后端不破）→ 返回 `{ key, url }` |
+
+- 前缀以 `inspirations/` 打头，与站长自建封面同根：审核**通过**时 `inspirations.cover_key` 直接**复用同一对象**、无需二次复制（审核事务把 `cover_key` 设为投稿副本 key，见 [INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)）。
+- 投稿记录落 `inspiration_submissions(status=pending)`（与上架表 `inspirations` 分离，用户端 `loadInspirations(active=true)` 零改动、不泄露 pending/rejected），副本 key 存 `inspiration_submissions.image_key`。
+
 ## 7.3 上传落图（在扣费事务外）
 
 **顺序铁律（引 [03-money.md §4.3](03-money.md)）**：先 `putToR2`（事务外、结果存临时变量）→ 再开扣费单事务把 `images` 行和 `debit` 一起落。这样「图落 R2 成功 + 写库成功」共同定义"成功才扣"；R2 写成功但事务回滚留下的对象是孤儿，交清理 cron（§7.5）。
@@ -239,6 +255,8 @@ for await (const page of listR2Pages()) {           // ListObjectsV2 续传 Cont
 ```
 
 `LastModified > 1h` 的保护窗口至关重要：**避免误删一张刚 PUT、事务还没 COMMIT 的在途图**。
+
+> **孤儿 known-set 须并入在用的非 `images` 对象**：除 `images.storage_key` 外，灵感封面/投稿副本也存活在桶里却不在 `images` 表，known-set 须 UNION 进来才不被误删——`inspirations.cover_key`（站长封面 + 通过的投稿卡）+ **`inspiration_submissions.image_key WHERE status='pending'`**（待审副本）。语义：pending 副本受保护、approved 由 `inspirations.cover_key` 保护（审核事务把 `cover_key` 设为同一 key）、rejected/废弃按孤儿（`LastModified>1h`）回收。具体并集见 `sweepOrphanR2Objects`（[INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)）。
 
 ## 7.6 前端只读红线
 

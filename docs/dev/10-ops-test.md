@@ -264,11 +264,15 @@ async function runImageCleanup() {
   }
   // ③ 孤儿 R2 对象：扣费事务 ROLLBACK 留下的"传了 R2 但没落 images 行"的对象
   //    （03-money.md §4.3 提到的孤儿），按 key 前缀对账 R2 listing vs images.storage_key 删除
+  //    known-set 并 UNION 灵感库封面（inspirations.cover_key）与 pending 灵感投稿副本
+  //    （inspiration_submissions WHERE status='pending'），保护在用对象（见下）
   await sweepOrphanR2Objects();                   // 06 章
 }
 ```
 
 口径要点：**保留期权威在 `images.expires_at`**（清理只删 `expires_at < now()`），免费/付费天数与升级顺延的写入逻辑在 [06-storage.md §7.4](06-storage.md) 与 [03-money.md §4.7](03-money.md)（兑换升级顺延）。`events(image_cleaned)` 是 append-only，历史图删了看板数据也不丢（[02-database.md §3.2](02-database.md)）。删 R2 与删 DB 顺序：**先删 R2 再删 DB 行**（反过来会留孤儿对象）。
+
+> **孤儿清理与灵感投稿（UGC）副本**：用户投稿落 `inspiration_submissions(status=pending)` 时复制了一份永久副本到 `inspirations/submissions/<uid>/…`（[INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)）。`sweepOrphanR2Objects` 的 known-set 因此在原有 UNION 上**再并一支** `SELECT image_key FROM inspiration_submissions WHERE status='pending'`。语义：**pending** 副本受保护；**approved** 由 `inspirations.cover_key` 保护（审核事务把卡片 `cover_key` 设为同一副本 key、复用同一对象，[INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)）；**rejected/废弃** 不在任一 known-set，按孤儿（>1h）回收。
 
 执行顺序固定 **⓪预扫通知 → ①付费顺延兜底 → ②删图 → ③扫孤儿**：
 - **⓪到期前 1 天预扫通知**：把"次日内将到期"的图写入 `notifications`（`type='image_expiring'`、`dedupe_key='image_expiring:'||id`、`ON CONFLICT(dedupe_key) DO NOTHING`），cron 每日重跑/重复触发不重发同一条。**仅"图片到期前 1 天"用这张存储通知表**；积分到期提示走 `/api/me` 的实时字段 `expiringSoon`（[07-api.md §8.3](07-api.md) / [08-frontend.md §9.7](08-frontend.md)），不入此表。通知表 schema 见 [02-database.md §3.2](02-database.md)，读写端点 `GET /api/notifications` / `POST /api/notifications/read` 见 [07-api.md §8.3](07-api.md)，顶栏铃铛 UI 见 [08-frontend.md §9.2/§9.6](08-frontend.md)。
@@ -379,6 +383,20 @@ export async function alert(kind: AlertKind, detail: unknown) {
 ### Playwright 冒烟（关键路径不回归）
 
 一条端到端冒烟：**登录 → 生图（轮询到 succeeded）→ 看图（读 R2 `public_url`）→ 兑换码 → 余额增加**。中转在冒烟环境用桩/录制响应（避免真烧钱），断言五态流转（[08-frontend.md §9.4](08-frontend.md)）与扣费后余额变化。
+
+### 无界面 smoke（对真 Neon 分支跑服务端链路）
+
+灵感投稿（UGC）审核链路的服务端正确性用 `scripts/inspiration-submissions-smoke.ts` 对真 Neon 兜底（详见 [INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)；注入 `copyToInspirationSubmission` 桩免烧存储）：
+
+- **submit / 去重**：提交落 `inspiration_submissions(status=pending)`；同图（pending 或仍在架 approved）再提交被去重，`uq_insp_sub_pending_src` 兜底并发同图。
+- **越权**：投稿引用他人作品 → 404（owner-scope，服务端取权威 key/url/宽高，不信客户端）。
+- **approve**：建 `inspirations` 上架卡（`cover_key` = 投稿副本 key、`submitter_name` 掩码署名、`submitted_by` 审计）+ 置投稿 `approved` + `published_inspiration_id` + 审计 + `inspiration_reviewed` 通知；置终态。
+- **reject**：置 `rejected` + `review_reason` + 审计 + 通知。
+- **resubmit-after-delete**：源图删除后可重新投稿（pending 唯一索引仅约束在途，不挡历史）。
+
+迁移 `drizzle/0004_inspiration_submissions.sql` 由 `scripts/migrate-inspiration-submissions.ts` 应用（建 `inspiration_submissions` + `inspirations` 加 `submitted_by`/`submitter_name`）。
+
+`scripts/cron-smoke.ts` 新增**7 天保留段**断言孤儿清理对 UGC 副本的保护：pending 投稿副本受 known-set 保护不被回收、rejected/废弃副本按孤儿（>1h）回收（[§11.7](#117-图片清理-cron) 口径）。
 
 ### Biome + GitHub Actions 门禁
 

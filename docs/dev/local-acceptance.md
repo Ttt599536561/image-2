@@ -78,6 +78,13 @@ npx netlify dev           # 自动探测 React Router → 跑 vite dev（CSS Mod
 - [ ] 侧栏**搜索框**搜会话标题 → 结果点选跳对应会话
 - [ ] `/inspiration`：灵感画廊瀑布流；「用此提示词」一键带回 Composer
 
+### ✅ 灵感投稿 / 审核（UGC，详见 [INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)）
+- [ ] `/inspiration` 标题行点「投稿」→ 弹窗从「我的作品」选一张图 → 填标题（必填）/ 提示词（预填原图、可改）/ 分类 / 简介 → 提交（**不扣积分**）→ 弹窗「我的投稿」列表出现该条「待审」
+- [ ] 重复投同一张图（仍待审或已在架）→ 提示已投过、不重复入队
+- [ ] 后台 `/admin` 侧栏「灵感投稿」队列出现待审条（导航红点 +1）→ **通过**（可在编辑弹窗改字段 + 二次确认）→ 灵感库新增上架卡 / **驳回**（填原因）
+- [ ] 投稿人**铃铛**收到通知（灯泡图标 + 通过/驳回文案，驳回带原因）→ 点跳 `/inspiration`
+- [ ] 通过的卡片在灵感库浮层显示**「由 X 投稿」**署名（掩码昵称，如 `qk***`；站长自建卡不显署名）
+
 ## 3b. 阶段三+ 验收反馈 20 条（本轮新增/改动，重点看这些）
 
 > 全部完成：A(8) `59a09c7` · B(图片操作 5) `5c1e5b8` · C(新能力 4) `8aa24ec` · D(大重构 3) `af62860`。下表是 B/C/D 的浏览器验收点（A 多为 CSS/文案，随手看）。
@@ -139,13 +146,14 @@ node --env-file=.env --import tsx scripts/promote-admin.ts <你的邮箱>
 | `admin-smoke.ts` | 后台全套（发码/用户/调积分/套餐/灵感/看板/审计，27 检查）|
 | `search-smoke.ts` | 搜索（owner-scoped/转义/ILIKE，13 检查）|
 | `inspirations-smoke.ts` | **P3-S4 灵感运营化**（SQL 过滤/动态品类 DISTINCT/宽高回流/LIKE 转义/reorder 互换规整还原/上下架/红线无 storage_key，20 检查）|
+| `inspiration-submissions-smoke.ts` | **灵感投稿 UGC**（详见 [INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)）：submit / 同图去重 / 越权 404 / approve 建卡+署名+通知+终态 / reject / 删图后可重投 / 唯一索引并发兜底（注入 copy 桩免烧存储）|
 | `relay-chat-probe.ts` | **中转 chat 模型探测**（P3-S6 前置）：列 `/models` + 试打候选 chat 模型。**当前中转只有 `gpt-image-2`、无 chat 模型 → S6 跳过**；中转开 chat 渠道后复跑确认模型名 |
 | `relay-format-probe.ts` | **#9 中转 `output_format` 透传探测**（花 2 张图）：分别请求 png/jpeg 解码魔数。**实测中转不透传、jpeg 仍返 PNG → #9 只保留 png**；中转支持后复跑再做 |
-| `cron-smoke.ts` | cron（超时重扫/过期/对账/清图/预算，27 检查，注入 R2 桩）|
+| `cron-smoke.ts` | cron（超时重扫/过期/对账/清图/预算 + **灵感投稿孤儿保护**〔pending 副本受保护、rejected/废弃 >1h 回收〕，注入 R2 桩）|
 | `db-verify.ts` / `db-smoke.ts` / `storage-smoke.ts` | 种子/迁移 / FOR UPDATE / 存储往返 |
 | `npm run test:money` | 钱链路 33 例真库（并发/重入/幂等）|
 
-> 迁移：灵感库表 `scripts/migrate-inspirations.ts`(0001) + 封面宽高列 `scripts/migrate-inspirations-dims.ts`(0002，P3-S4，幂等 `ADD COLUMN IF NOT EXISTS`)。
+> 迁移：灵感库表 `scripts/migrate-inspirations.ts`(0001) + 封面宽高列 `scripts/migrate-inspirations-dims.ts`(0002，P3-S4，幂等 `ADD COLUMN IF NOT EXISTS`) + 灵感投稿表/署名列 `scripts/migrate-inspiration-submissions.ts`(0004，建 `inspiration_submissions` + `inspirations.submitted_by/submitter_name`)。
 
 ## 6. 验收须知
 

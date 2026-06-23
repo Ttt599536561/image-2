@@ -153,8 +153,26 @@ export function httpError(status: number, code: string, message: string, details
 |---|---|---|---|---|---|
 | GET | `/api/inspirations?category=&q=` | 品类筛选 + 关键词搜索（服务端 ILIKE，匹配 title/summary/prompt） | `{ items:[{id,cover,title,summary,prompt,category,width,height}], categories:[string] }` | 200 | loader |
 
-> 仅返回**已上架**(`active=true`)卡；「用此提示词」纯前端回填 Composer（[§13](../redesign-requirements.md)/[§24-10](../redesign-requirements.md)），无独立端点。CRUD 是后台能力（[09-admin.md §10.4](09-admin.md)）。
+> 仅返回**已上架**(`active=true`)卡；「用此提示词」纯前端回填 Composer（[§13](../redesign-requirements.md)/[§24-10](../redesign-requirements.md)），无独立端点。CRUD 是后台能力（[09-admin.md §10.4](09-admin.md)）。`InspirationItem` 含 `submitter:string|null`（用户投稿卡显「由 X 投稿」掩码昵称、站长自建为 `null` 不显署名，来源 `inspirations.submitter_name`）。
 > **P3-S4**：`category`/`q` 下沉为 SQL（`likePattern` 转义 `\%_` + 参数化绑定防注入），**仅当表无 active 卡时**回退服务端种子（`EXISTS(active)` 判定，非「筛选后为空」误回）；`categories` = `DISTINCT category`（active、排除 NULL/''，独立于当前筛选）供前台动态品类 Tab（前端补「全部」首位）；`width/height` = 封面原始宽高（瀑布流原比例，可空）。
+
+### 灵感库用户投稿与审核（UGC，[§13.1](../redesign-requirements.md)，详细设计见 [INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)）
+
+| 方法 | 路径 | 入参 | 响应 | 码 | 通道 |
+|---|---|---|---|---|---|
+| POST | `/api/inspiration-submissions` | `InspirationSubmitRequest`（`{imageId,title,prompt,category?,summary?}`） | `InspirationSubmitResponse`（`{id,status:'pending'}`） | 200/400/401/404/429 | REST |
+| GET | `/api/inspiration-submissions` | — | `MySubmissionsResponse`（我的近 50 条投稿 + 状态/驳回原因） | 200/401 | REST |
+
+> 用户在灵感库点「投稿」→ 从**自己的作品**选一张图 + 填标题/提示词/分类/简介 → 落 `inspiration_submissions(status='pending')` + 复制一份**永久副本**（与上架表 `inspirations` 分离，保证用户端 `loadInspirations(active=true)` 零改动、不泄露 pending/rejected）。**不扣积分**（`requireUserStrict`）。POST 入口**服务端取权威字段**（按 `imageId` 校 `images.user_id=$me` 取 key/url/宽高，**绝不信客户端**）、非本人图 → **404**；**待审上限 10**（`INSPIRATION_SUBMISSION_MAX_PENDING`）+ 限流 **10 次 / 10 分钟**（`INSPIRATION_SUBMISSION_RATE_PER_WINDOW`，[§8.6](#86-限流)）超出 → **429**；**同图去重**（pending 或仍在架 approved）→ **400**；唯一索引 `uq_insp_sub_pending_src` 并发兜底 `23505` → **400**。表结构 / 副本键 `inspirations/submissions/<uid>/…` / 厂商中立复制见 [INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)。
+
+**后台审核**（`requireAdmin`，[09-admin.md §10.4](09-admin.md)）：
+
+| 方法 | 路径 | 入参 | 响应 | 码 | 通道 |
+|---|---|---|---|---|---|
+| GET | `/api/admin/inspiration-submissions?status=&page=&pageSize=` | 状态筛 + 分页 | `{ items, page, pageSize, total, pendingCount }`（队列 + 导航待审红点数） | 200/401/403 | REST |
+| POST | `/api/admin/inspiration-submissions` | `SubmissionReviewAction`（判别联合 `op:'approve'|'reject'`） | `{ ok:true }` | 200/400/401/403/404 | REST |
+
+> `op='approve'` → 事务内 `FOR UPDATE` 锁 + 校 `status='pending'` → 建 `inspirations` 上架卡（`cover_key`=投稿副本键、`submitter_name`=`publicHandleFromEmail` 掩码昵称、`submitted_by`=投稿人 id）→ 投稿置 `approved` + `published_inspiration_id` → 同事务 `writeAudit` + 站内通知 `inspiration_reviewed`（`dedupe_key=inspiration_reviewed:<subId>`）；`op='reject'` 同上置 `rejected` + `review_reason` + 审计 + 通知。审计动作 `approve_inspiration_submission` / `reject_inspiration_submission`（`targetType=inspiration_submission`）。**双守卫**（页 `requireAdminPage` + API `requireAdmin`）+ 通过编辑弹窗二次确认见 [09-admin.md §10.4](09-admin.md)。
 
 ### 充值 / 兑换（[§7](../redesign-requirements.md)）
 
@@ -174,7 +192,7 @@ export function httpError(status: number, code: string, message: string, details
 
 > 改密走 Better Auth（密码 ≥6 位、字节限长在 `password.hash` 内强制断言防 bcrypt 72 字节截断，[05-auth.md §6.4](05-auth.md)）；改密后吊销其它会话（[05-auth.md §6.5](05-auth.md)）。**忘记密码本期占位**（提示联系站长，无端点，[§24-1](../redesign-requirements.md)）。
 
-### 站内通知（[10-ops-test.md §11.7](10-ops-test.md) cron 预扫产出，目前仅「图片到期前 1 天」）
+### 站内通知（[10-ops-test.md §11.7](10-ops-test.md) cron 预扫产出「图片到期前 1 天」+ 业务事件触发「灵感投稿审核」）
 
 | 方法 | 路径 | 入参 | 响应 | 码 | 通道 |
 |---|---|---|---|---|---|
@@ -182,6 +200,7 @@ export function httpError(status: number, code: string, message: string, details
 | POST | `/api/notifications/read` | `{ ids?: uuid[] }`（缺省全标） | `{ marked: number }` | 200/400/401 | REST |
 
 > 仅本人通知（`user_id=session.userId`）。图片到期前 1 天由 cron 预扫 `images` 写 `notifications`（`type='image_expiring'`、`dedupe_key=image_expiring:<图id>`、`ON CONFLICT DO NOTHING` 防重发），表结构见 [02-database.md §3.2](02-database.md)；前端顶栏铃铛 + 未读红点见 [08-frontend.md §9.2](08-frontend.md)/[§9.6](08-frontend.md)，走 TanStack Query。**积分到期**走 `/api/me` 的 `expiringSoon` 实时字段（不入此表）。`POST /read` 缺 `ids` 即标记该用户全部未读为已读。
+> **灵感投稿审核结果**：后台 approve/reject 在审核事务内写 `type='inspiration_reviewed'`（`payload:{status,title,reason?,inspirationId?}`、`dedupe_key=inspiration_reviewed:<subId>`）通知投稿人，铃铛 `Lightbulb` 图标 + 通过/驳回文案、点跳 `/inspiration`（[INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)）。
 
 ## 8.4 兑换错误码（与 [03-money.md §4.7](03-money.md) 对齐）
 
@@ -210,11 +229,14 @@ src/contracts/
   image.ts          # ImagesResponse / SaveRequest / DeleteRequest
   redeem.ts         # RedeemRequest / RedeemResponse + REDEEM_ALPHABET + REDEEM_CODE_RE（字母表真相源，09 §10.2 共用）
   package.ts        # PackageItem（drizzle-zod 派生）
-  inspiration.ts    # InspirationItem
+  inspiration.ts    # InspirationItem（含 submitter:string|null）
+  inspirationSubmission.ts  # InspirationSubmitRequest/Response + MySubmissionItem/MySubmissionsResponse + 上限/限流常量（灵感库 UGC，§13.1）
   account.ts        # ChangePasswordRequest / LedgerItem
   me.ts             # MeResponse（含 expiringSoon）
   notification.ts   # NotificationItem / NotificationListResponse / MarkReadRequest
 ```
+
+> `src/contracts/admin.ts` 另含审核动作 `ApproveSubmissionAction` / `RejectSubmissionAction` / `SubmissionReviewAction`（按 `op` 判别联合），供后台审核 API 入口 `.parse()`（[09-admin.md §10.4](09-admin.md)）。
 
 **派生 + 手写并用**：响应/实体 schema 用 **drizzle-zod** 从 `src/db/schema.ts` 派生（保持与表对齐），**请求 schema 手写**（含业务约束）：
 
@@ -288,12 +310,12 @@ export type MeResponse = z.infer<typeof MeResponse>;
 ```
 
 ```ts
-// src/contracts/notification.ts —— 站内通知（目前仅 image_expiring）
+// src/contracts/notification.ts —— 站内通知
 import { z } from 'zod';
 export const NotificationItem = z.object({
   id: z.uuid(),
-  type: z.enum(['image_expiring']),     // 后续新增类型在此扩枚举
-  payload: z.record(z.string(), z.unknown()).nullable(),  // image_expiring: { imageId, expiresAt }
+  type: z.enum(['image_expiring','announcement','inspiration_reviewed']),  // 后续新增类型在此扩枚举
+  payload: z.record(z.string(), z.unknown()).nullable(),  // image_expiring:{imageId,expiresAt}｜inspiration_reviewed:{status,title,reason?,inspirationId?}
   readAt: z.string().nullable(),
   createdAt: z.string(),
 });

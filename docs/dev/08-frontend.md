@@ -69,13 +69,14 @@ export async function requireAdmin(request: Request) {
 | `/` | `_app._index` | 当前用户、余额、最近会话首屏 20、灵感画廊（欢迎态）| — | 需登录 |
 | `/c/:id` | `_app.c.$id` | 校验会话归属、该会话对话流（轮次）、本次面板图片 | 提交生成转交 fn（见 §9.4）| 需登录 |
 | `/assets` | `_app.assets` | 资产库首页（日期分组首屏 + 默认筛选）| 批量删除 | 需登录 |
-| `/inspiration` | `_app.inspiration` | 灵感卡列表（品类 Tab + 已上架）| — | 需登录 |
+| `/inspiration` | `_app.inspiration` | 灵感卡列表（品类 Tab + 已上架）| 标题行「投稿」按钮开 SubmitInspirationModal（用户投稿 UGC，[INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)）| 需登录 |
 | `/billing` | `_app.billing` | 余额 + 套餐档卡片（上架、排序）| 兑换码核销（或交 fn）| 需登录 |
 | `/account` | `_app.account` | 账号信息（邮箱、注册时间、并发上限）| 改密 | 需登录 |
 | `/admin` | `_admin._index` | 看板 7 卡聚合 | — | 需 admin |
 | `/admin/codes` | `_admin.codes` | 兑换码批次列表 | 生成/作废/导出 | 需 admin |
 | `/admin/users` | `_admin.users` | 用户列表（搜索分页）| 封禁/改密/调积分/调并发 | 需 admin |
 | `/admin/inspiration` | `_admin.inspiration` | 灵感卡 CRUD 列表 | 增删改 | 需 admin |
+| `/admin/inspiration-submissions` | `_admin.inspiration-submissions` | 投稿审核队列（状态 Tab 筛选 + 分页 + 待审计数）| 通过（建卡 + 署名）/ 驳回（填原因）| 需 admin |
 | `/admin/generations` | `_admin.generations` | 生成记录列表（筛选分页）| — | 需 admin |
 | `/admin/packages` | `_admin.packages` | 套餐 + 全局参数 + 审计 | CRUD/改参数 | 需 admin |
 
@@ -127,6 +128,7 @@ function useGenerationStatus(generationId: string | null) {
 | `["conversations", { cursor }]` | 最近会话分页 | 新建/续聊 |
 | `["assets", { range, cursor }]` | 资产库分页（含日期筛选参数） | 删除、生成成功 |
 | `["inspiration", { tab, q }]` | 灵感卡列表 | 后台 CRUD（用户侧只读） |
+| `["my-submissions"]` | 我的投稿状态（待审/通过/驳回，`useMySubmissions`） | 投稿提交成功 |
 
 **mutation 后 invalidate**（强一致写完即刷新派生视图）：
 
@@ -232,10 +234,11 @@ sequenceDiagram
 | **尺寸浮层** | 复用 [GeneratorForm.tsx](../../src/components/GeneratorForm.tsx) 的 6 场景选项（`auto / 1024×1024 / 1024×1536 / 1536×1024 / 1088×1920 / 1920×1088`），选中态线框→实心黑边（[§17](../redesign-requirements.md)）；点比例药丸弹浮层（`--shadow-md`）| wireframes §Composer，[§5.1](../redesign-requirements.md) |
 | **高级设置浮层** | 仅质量 + 背景两项（审核固定 low、不出现）| [§5.1](../redesign-requirements.md) |
 | **全局 lightbox** | 屏幕居中模态 + `--scrim` 全屏遮罩，点遮罩/× 关闭；**浮层内仅「下载」**（不放再生成）；对话流/本次面板/资产库/灵感库/后台记录通用 | design-system 第 11 节（图片放大预览 lightbox），[§17](../redesign-requirements.md) |
-| **通知铃铛** | 顶栏铃铛 + 红点 badge（**只计未读** read_at IS NULL）；点开下拉**拉全部近 50 条（含已读，看完仍保留）**，已读灰显、未读淡陶土高亮；`image_expiring`（payload `{imageId,expiresAt}`）点跳资产库、`announcement`（payload `{title,body,link?}`）**点弹详情 Modal**（完整正文 + link 内站 navigate/外链 window.open + 知道了，关闭不删通知）；数据 + 标记已读走 TanStack Query（`GET /api/notifications`〔缺省全部，loader 仍兼容 `?unread=1`〕、`POST /api/notifications/read`，[07-api.md §8.3](07-api.md)），打开下拉即 `POST .../read`（缺省全标）→ invalidate 消红点但**条目保留可反复点开**。**②（2026-06-22）**：`image_expiring` 在 cron 删图时连带删除（`deleteExpiredImages`），避免到期提醒滞留 | [§9.2](#92-路由表)，[10-ops-test.md §11.7](10-ops-test.md) |
+| **通知铃铛** | 顶栏铃铛 + 红点 badge（**只计未读** read_at IS NULL）；点开下拉**拉全部近 50 条（含已读，看完仍保留）**，已读灰显、未读淡陶土高亮；按 `type` 分支：`image_expiring`（payload `{imageId,expiresAt}`）点跳资产库、`announcement`（payload `{title,body,link?}`）**点弹详情 Modal**（完整正文 + link 内站 navigate/外链 window.open + 知道了，关闭不删通知）、`inspiration_reviewed`（payload `{status,title,reason?,inspirationId?}`）**Lightbulb 图标 + 通过/驳回文案**（驳回带 reason）、点跳 `/inspiration`（投稿审核结果，[INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)）；数据 + 标记已读走 TanStack Query（`GET /api/notifications`〔缺省全部，loader 仍兼容 `?unread=1`〕、`POST /api/notifications/read`，[07-api.md §8.3](07-api.md)），打开下拉即 `POST .../read`（缺省全标）→ invalidate 消红点但**条目保留可反复点开**。**②（2026-06-22）**：`image_expiring` 在 cron 删图时连带删除（`deleteExpiredImages`），避免到期提醒滞留 | [§9.2](#92-路由表)，[10-ops-test.md §11.7](10-ops-test.md) |
 | **本次对话图片面板** | 右侧常驻（≥1024）、对话头部「本次·N」开关；网格 2 列、正方裁剪缩略图、按时间倒序、仅成功图；`<1024` 收抽屉、`<768` 底部抽屉；点缩略图定位/放大；「下载全部」（复用资产库打包 zip、命名 `图像工坊_导出_YYYYMMDD_HHmmss.zip`；亦可退化为逐张单下）+ 单张「存入资产库」| wireframes §对话，[§11](../redesign-requirements.md)/[§24.7](../redesign-requirements.md) |
 | **资产库** | 日期 **sticky 分组**（今天/昨天/具体日期）；**精致日期筛选**（快捷今天·近7·近30 + 带日历自定义区间，非朴素下拉，选完自动应用）；「批量管理」后框选+Shift 连选+单击切换，选中浮出**吸底 action bar**（已选 N · 打包 zip 下载 / 删除带确认）| wireframes §资产库，[§12](../redesign-requirements.md)/[§24.8](../redesign-requirements.md)/[§24.9](../redesign-requirements.md) |
-| **灵感卡** | 封面为主体的**瀑布流**（原始比例不裁切，`width/height` 回填预留盒避免抖动）；标题/摘要/「用此提示词」半透明渐变浮层叠下半部、品类标签浮左上、按钮 hover 转陶土；点「用此提示词」一键带回 Composer 并滚到底（不自动发，**直接覆盖输入框不弹确认**，站长定）。**P3-S4**：品类 Tab 由 `/api/inspirations` 的 `categories`（DISTINCT active）动态出 + 「全部」首位；搜索/品类**服务端过滤**（250ms debounce + `keepPreviousData` 防闪，默认视图用 loader initialData）| design-system 第 10 节，[§13](../redesign-requirements.md)/[§24.10](../redesign-requirements.md) |
+| **灵感卡** | 封面为主体的**瀑布流**（原始比例不裁切，`width/height` 回填预留盒避免抖动）；标题/摘要/「用此提示词」半透明渐变浮层叠下半部、品类标签浮左上、按钮 hover 转陶土；点「用此提示词」一键带回 Composer 并滚到底（不自动发，**直接覆盖输入框不弹确认**，站长定）。**P3-S4**：品类 Tab 由 `/api/inspirations` 的 `categories`（DISTINCT active）动态出 + 「全部」首位；搜索/品类**服务端过滤**（250ms debounce + `keepPreviousData` 防闪，默认视图用 loader initialData）。**署名（UGC）**：卡片 hover 浮层在 `item.submitter` 非空时显「由 X 投稿」（X = 通过时冻结的掩码昵称；站长自建卡 `submitter` 为 `null` 不显，[INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)）| design-system 第 10 节，[§13](../redesign-requirements.md)/[§24.10](../redesign-requirements.md) |
+| **投稿弹窗** | `SubmitInspirationModal`：从「我的作品」选一张图（`useAssets({range:'all',pageSize:200})`）+ 表单（标题必填、提示词预填原图可改、分类下拉、简介）+「我的投稿」状态列表（`useMySubmissions`，待审/已通过/已驳回 + 驳回原因）；提交走 `POST /api/inspiration-submissions`（**不扣积分**），成功 invalidate `["my-submissions"]`；服务端取权威字段、归属校验、待审上限/限流见 [INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md) | wireframes §灵感库，[§13.1](../redesign-requirements.md) |
 | **Toast** | 右上角（移动端顶部），成功/失败/提示三类（绿/红/中性），自动 3 秒、可手动关；挂 `root.tsx` 全局容器 | design-system，[§17](../redesign-requirements.md)/[§24.11](../redesign-requirements.md) |
 | **星空动效骨架** | 生成中占位：深空底（`--cosmic-*`）+ 旋转银河 + 错峰星点 + 偶发掠星 + 角落呼吸光点 + `生成中 M:SS`；按所选比例自适应铺满；**仅 transform/opacity** 动画 + `@media (prefers-reduced-motion: reduce)` 降级为静态深空底 | design-system 第 8 节，[§17](../redesign-requirements.md)/[§24.12](../redesign-requirements.md) |
 

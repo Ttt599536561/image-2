@@ -23,7 +23,10 @@ ai-image-workshop/
 │  │  ├─ _auth.login.tsx       #     登录（_auth pathless 布局）
 │  │  ├─ _auth.register.tsx    #     注册
 │  │  ├─ _auth.forgot.tsx      #     忘记密码
-│  │  └─ _admin.*.tsx          #     后台（独立 _admin 布局，RBAC=admin，§10.1）
+│  │  ├─ api.inspiration-submissions.ts       # 灵感库 UGC：POST 投稿 / GET 我的投稿（requireUserStrict，不扣积分，见 INSPIRATION-UGC-PLAN.md）
+│  │  ├─ api.admin.inspiration-submissions.ts # 后台投稿：GET 队列 / POST 审核（requireAdmin，同上）
+│  │  ├─ _admin.inspiration-submissions.tsx   # 后台「灵感投稿」队列页（状态筛 Tab + 通过/驳回，§10.1）
+│  │  └─ _admin.*.tsx          #     其余后台（独立 _admin 布局，RBAC=admin，§10.1）
 │  └─ entry.server.tsx / entry.client.tsx
 │
 ├─ src/
@@ -34,17 +37,21 @@ ai-image-workshop/
 │  ├─ contracts/              # Zod4 + drizzle-zod，前后端单一真相源（07 §8.5）
 │  │  ├─ generate.ts          #   提交/状态/列表 请求·响应 schema
 │  │  ├─ redeem.ts            #   兑换 请求·响应·错误码
-│  │  └─ admin.ts             #   后台各端点 schema
+│  │  ├─ inspirationSubmission.ts #  灵感库 UGC 投稿/我的投稿/审核 schema（client-safe 手写 Zod，见 INSPIRATION-UGC-PLAN.md）
+│  │  └─ admin.ts             #   后台各端点 schema（含投稿审核 SubmissionReviewAction）
 │  ├─ server/                 # ★只在服务端运行的纯逻辑层（无 React、被 functions + loader 共用；文件统一 *.server.ts，编译期剔除前端 bundle）
 │  │  ├─ relay/               #   中转代理：调用 + 响应解析（复用 v1 imageGeneration.ts）+ 脱敏 + 失败归一化
-│  │  ├─ r2.server.ts         #   R2 上传/删除（@aws-sdk/client-s3 或 aws4fetch，07 章）
+│  │  ├─ r2.server.ts         #   R2 上传/删除 + 灵感投稿副本复制（buildInspirationSubmissionKey/copyToInspirationSubmission，07 章）
+│  │  ├─ inspirationSubmissions.server.ts # 灵感库 UGC 投稿：submitInspiration（限流/上限/归属/去重/复制副本/事务）+ listMySubmissions（见 INSPIRATION-UGC-PLAN.md）
 │  │  ├─ money/               #   钱事务封装：扣费/兑换/注册发放/过期/对账（03 章 SQL 落 TS）
+│  │  ├─ admin/              #   后台服务端逻辑（双守卫 + 审计同事务）
+│  │  │  └─ inspirationReview.server.ts #  投稿审核：listSubmissions/countPendingSubmissions/approveSubmission/rejectSubmission（建上架卡+署名+通知，见 INSPIRATION-UGC-PLAN.md）
 │  │  ├─ tx.server.ts        #   tx() 事务助手（开 client→BEGIN→…→COMMIT/ROLLBACK→release，00 §1.3）
 │  │  ├─ budget.server.ts    #   单日预算熔断读写（铁律①，04 §5.6）
 │  │  └─ auth.server.ts      #   Better Auth 实例 + admin 鉴权守卫（05 章）
 │  ├─ components/            # 复用组件（Composer 五态 / 尺寸药丸 / 资产网格 / Toast，§9.6）
 │  ├─ hooks/                 # TanStack Query hooks（余额 / job 短轮询 / 列表，§9.3）
-│  ├─ lib/                   # 跨端纯工具：redaction.ts（复用）/ 金额换算 mp↔小数 / 格式化
+│  ├─ lib/                   # 跨端纯工具：redaction.ts（复用）/ 金额换算 mp↔小数 / 格式化 / publicHandle.ts（投稿署名掩码昵称 qk***，见 INSPIRATION-UGC-PLAN.md）
 │  └─ styles/
 │     └─ tokens.css          # 从 design-system.html 落地的设计令牌（明暗两套，§9.5）
 │
@@ -65,8 +72,11 @@ ai-image-workshop/
 │     └─ scheduled-budget-cleanup.ts # cron：清理/归档旧预算键 + 近阈告警（当日键 date-in-key 自动归零，10 §11.8）
 │
 ├─ drizzle/                   # drizzle-kit 生成的迁移 SQL（入库；部分唯一索引人工核对，02 §3.4）
+│  └─ 0004_inspiration_submissions.sql # 灵感库 UGC：建 inspiration_submissions 表 + inspirations 加 submitted_by/submitter_name（见 INSPIRATION-UGC-PLAN.md）
 ├─ scripts/
-│  └─ assert-no-secrets-in-bundle.ts # ★构建期断言：扫 dist/ 不含任何密钥（00 §1.4，CI 拦截）
+│  ├─ assert-no-secrets-in-bundle.ts # ★构建期断言：扫 dist/ 不含任何密钥（00 §1.4，CI 拦截）
+│  ├─ inspiration-submissions-smoke.ts # 灵感库 UGC 真 Neon 冒烟（投稿/去重/越权/审核建卡署名+通知/重投/唯一索引兜底）
+│  └─ migrate-inspiration-submissions.ts # 应用 0004 迁移
 ├─ tests/
 │  ├─ money/                  # 钱链路事务测试（对真 Neon 分支库，含并发双击/重试重入，10 §11.10）
 │  └─ e2e/                    # Playwright 冒烟（登录→生图→兑换，10 §11.10）
@@ -186,6 +196,7 @@ ai-image-workshop/
 - [x] **P3-S4 灵感库运营化**：category/q 下沉 SQL + 动态品类 DISTINCT + 瀑布流宽高回填（新增 `inspirations.width/height`）+ 后台上下移/上下架（[07 §8.3](07-api.md)/[09 §10.4](09-admin.md)）
 - 🚫 **P3-S6 优化提示词**：本期跳过——中转 `api.tangguo.xin` 只配 `gpt-image-2`、无 chat/文本模型（[PHASE3-PLAN §6](PHASE3-PLAN.md)）；药丸保持占位，中转开 chat 渠道后再做
 - 🚫 **P3-S3 RBAC / P3-S5 客服 360**：本期不做（站长：维持单管理员）
+- **灵感库用户投稿与审核（UGC）**：新需求（规格 [§13.1](../redesign-requirements.md)）——用户从作品投稿 → `inspiration_submissions(pending)` → 后台审核通过上架/驳回 + 站内通知，不扣积分；详细设计/落地见 [INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)
 - [ ] （更远）图生图 / 一次多图 / 单图编辑 / 订阅与真实支付（本期明确不做，规格 §21）
 - [ ] （规模化）DB-as-queue → 独立 worker + Redis/BullMQ 或 QStash，`generations` 状态机不变（[01 §2.5](01-architecture.md)）
 

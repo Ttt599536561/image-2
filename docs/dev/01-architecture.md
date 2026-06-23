@@ -152,7 +152,41 @@ sequenceDiagram
 
 单条 `UPDATE…WHERE status='active' RETURNING` 即防"一码多花/并发双击"——只有抢到那一次 `affected=1` 才入账。错误码区分见 [07-api.md §8.4](07-api.md)。
 
-## 2.5 三步演进（本期只做第一/第二步）
+## 2.5 流程四 · 灵感投稿（投稿队列与上架表分离）
+
+> 用户从自己的作品投稿灵感 → 落 `inspiration_submissions`(status=pending) → 后台审核 → 通过即建 `inspirations` 上架卡 + 署名、驳回填原因 → 给投稿人发站内通知。**投稿队列表与上架表 `inspirations` 物理分离**，用户端 `loadInspirations(active=true)` 零改动、永不读到 pending/rejected。**不扣积分**。完整设计/落地见 [INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)。
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as 前端(灵感库·投稿弹窗)
+  participant S as fn:api/inspiration-submissions (同步)
+  participant DB as Neon
+  participant R2 as R2
+  participant A as fn:admin/inspiration-submissions (同步)
+  participant N as NotificationBell
+
+  U->>S: POST {imageId,title,prompt,category?,summary?}
+  S->>S: 限流(events 10/10min) + 待审上限(≤10)
+  S->>DB: 归属校验 images.user_id=$me 取权威 key/url/宽高\n+ 同图去重(pending 或仍在架 approved)
+  S->>R2: 复制永久副本 → inspirations/submissions/<uid>/…(厂商中立 Get→Put)
+  S->>DB: 事务: INSERT inspiration_submissions(status=pending) + events\n  撞 uq_insp_sub_pending_src → 400(并发去重兜底)
+  S-->>U: 200 {id, status:pending}（不扣积分）
+  A->>DB: GET 队列(listSubmissions 按状态筛 + countPendingSubmissions 红点)
+  alt 通过
+    A->>DB: 事务: FOR UPDATE + status='pending' 校验\n  → INSERT inspirations(cover_key=投稿副本 key, submitter_name=掩码昵称, submitted_by)\n  → UPDATE 投稿 approved + published_inspiration_id + writeAudit\n  → 通知 inspiration_reviewed(dedupe inspiration_reviewed:<subId>)
+  else 驳回
+    A->>DB: 事务: status='rejected' + review_reason + writeAudit + 通知
+  end
+  N->>DB: 投稿人铃铛拉到 inspiration_reviewed → 点跳 /inspiration
+```
+
+**要点**：
+- **owner-scope**：服务端按 `images.user_id=$me` 取权威 `image_key/url/宽高`，绝不信客户端传来的字段。
+- **副本前缀以 `inspirations/` 开头** → `deriveCoverKey` 天然接受；通过事务把 `inspirations.cover_key` 设为同一对象、复用不再复制。孤儿清理 known-set 新增 `SELECT image_key FROM inspiration_submissions WHERE status='pending'`：pending 副本受保护、approved 由 `cover_key` 保护、rejected/废弃按孤儿(>1h)回收（[10-ops-test.md](10-ops-test.md)）。
+- 后台双守卫（`requireAdminPage` + `requireAdmin`）+ 通过/驳回二次确认 + 审计与状态变更同事务（审计动作 `approve_inspiration_submission` / `reject_inspiration_submission`）。
+
+## 2.6 三步演进（本期只做第一/第二步）
 
 | 步 | 内容 | 本期 |
 |---|---|---|
