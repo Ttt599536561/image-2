@@ -7,6 +7,7 @@ import { LedgerResponse, LotsResponse, RedemptionsResponse } from "../contracts/
 import { ConversationDetail, ConversationListResponse } from "../contracts/conversation";
 import { type ImageRange, ImagesResponse } from "../contracts/image";
 import { InspirationsResponse } from "../contracts/inspiration";
+import { MySubmissionsResponse } from "../contracts/inspirationSubmission";
 import { MeResponse } from "../contracts/me";
 import { NotificationListResponse } from "../contracts/notification";
 import { PackagesResponse } from "../contracts/package";
@@ -123,6 +124,15 @@ export function useRedemptions() {
   return useQuery({
     queryKey: ["redemptions"],
     queryFn: () => apiGet("/api/account/redemptions", RedemptionsResponse),
+  });
+}
+
+// §13.1 我的灵感投稿（弹窗内查审核状态）。owner-scoped，无 SSR initialData（按需拉）。
+export function useMySubmissions(enabled = true) {
+  return useQuery({
+    queryKey: ["my-submissions"],
+    queryFn: () => apiGet("/api/inspiration-submissions", MySubmissionsResponse),
+    enabled,
   });
 }
 

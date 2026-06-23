@@ -138,6 +138,8 @@ export async function sweepOrphanR2Objects(deps: CleanupDeps = {}): Promise<{ or
     // ② 灵感封面保护：admin 上传的封面（inspirations/…）由灵感 CRUD 管理，**在用的绝不能被孤儿清理误删**；
     //    删除/替换灵感卡后 cover_key 不再命中 → 自动按孤儿(>1h)回收（含 admin 上传后未保存的废弃封面）。
     // 已终态(succeeded/failed)生成的参考图 + 从没关联生成的废弃上传 → 不在 known → 按孤儿(>1h)回收（用后即弃）。
+    // ③ 灵感投稿保护（§13.1）：待审(pending)投稿副本绝不能被误删；通过后保护转移到 inspirations.cover_key、
+    //    驳回后不再命中 → 自动按孤儿回收。
     const known = new Set(
       (
         (await sql`
@@ -147,7 +149,10 @@ export async function sweepOrphanR2Objects(deps: CleanupDeps = {}): Promise<{ or
             WHERE input_image_key = ANY(${keys}::text[])
               AND status IN ('queued','claimed','running')
           UNION
-          SELECT cover_key AS k FROM inspirations WHERE cover_key = ANY(${keys}::text[])`) as Array<{ k: string }>
+          SELECT cover_key AS k FROM inspirations WHERE cover_key = ANY(${keys}::text[])
+          UNION
+          SELECT image_key AS k FROM inspiration_submissions
+            WHERE image_key = ANY(${keys}::text[]) AND status = 'pending'`) as Array<{ k: string }>
       ).map((r) => r.k),
     );
     const orphans = keys.filter((k) => !known.has(k));

@@ -16,6 +16,8 @@ export const InspirationItem = z.object({
   // 封面原始宽高（瀑布流按原比例不裁切；§13）。解析不到时可空。
   width: z.number().int().nullable(),
   height: z.number().int().nullable(),
+  // 投稿人掩码昵称（§13.1）：用户投稿通过的卡片显示「由 X 投稿」；站长自建卡片为 null（不显署名）。
+  submitter: z.string().nullable(),
 });
 export type InspirationItem = z.infer<typeof InspirationItem>;
 

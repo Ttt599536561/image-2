@@ -13,7 +13,7 @@ function insp(
   size: Size,
 ): InspirationItem {
   const img = makePlaceholderImage(title, size);
-  return { id, title, summary, prompt, category, cover: img.publicUrl, width: img.width, height: img.height };
+  return { id, title, summary, prompt, category, cover: img.publicUrl, width: img.width, height: img.height, submitter: null };
 }
 
 export const SEED_INSPIRATIONS: InspirationItem[] = [

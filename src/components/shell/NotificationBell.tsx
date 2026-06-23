@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Bell, Clock, Megaphone } from "lucide-react";
+import { Bell, Clock, Lightbulb, Megaphone } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router";
 import type { NotificationItem, NotificationListResponse } from "../../contracts/notification";
@@ -65,6 +65,12 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
   };
 
   const str = (v: unknown): string => (typeof v === "string" ? v : "");
+  // §13.1 投稿审核结果通知。
+  const reviewOf = (payload: Record<string, unknown> | null) => ({
+    status: str(payload?.status),
+    title: str(payload?.title),
+    reason: str(payload?.reason),
+  });
   const announcementOf = (payload: Record<string, unknown> | null) => {
     const raw = str(payload?.link);
     // 与后端 announcementLink 同一分类器二次校验（挡 javascript:/协议相对 //evil/反斜杠 /\evil）。
@@ -124,6 +130,34 @@ export function NotificationBell({ buttonClassName }: { buttonClassName?: string
                       {a.body ? <span className={styles.itemSummary}>{a.body}</span> : null}
                       <span className={styles.itemTime}>
                         {formatMonthDay(n.createdAt)} · 点此查看
+                      </span>
+                    </span>
+                  </button>
+                );
+              }
+              if (n.type === "inspiration_reviewed") {
+                const r = reviewOf(n.payload);
+                const approved = r.status === "approved";
+                return (
+                  <button
+                    key={n.id}
+                    type="button"
+                    className={itemCls}
+                    onClick={() => {
+                      pop.setOpen(false);
+                      navigate("/inspiration");
+                    }}
+                  >
+                    <Lightbulb size={14} className={styles.itemIcon} />
+                    <span className={styles.itemBody}>
+                      <span className={styles.itemTitle}>
+                        {approved ? `投稿已通过：${r.title}` : `投稿被驳回：${r.title}`}
+                      </span>
+                      {!approved && r.reason ? (
+                        <span className={styles.itemSummary}>原因：{r.reason}</span>
+                      ) : null}
+                      <span className={styles.itemTime}>
+                        {formatMonthDay(n.createdAt)} · {approved ? "已在灵感库公开" : "点此查看灵感库"}
                       </span>
                     </span>
                   </button>

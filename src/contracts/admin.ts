@@ -129,6 +129,28 @@ export const InspirationCoverUploadResponse = z.object({
 });
 export type InspirationCoverUploadResponse = z.infer<typeof InspirationCoverUploadResponse>;
 
+// ===================== 灵感投稿审核（§13.1）=====================
+// 通过可先改字段（封面/宽高来自投稿图，不在此填）；驳回必填原因。一经审核即终态（服务端校验 status=pending）。
+export const ApproveSubmissionAction = z.object({
+  op: z.literal("approve"),
+  id: z.uuid(),
+  title: z.string().min(1, "标题必填").max(100),
+  prompt: z.string().min(1, "提示词必填").max(4000),
+  category: z.string().max(50).nullable().optional(),
+  summary: z.string().max(500).nullable().optional(),
+  active: z.boolean().optional(), // 缺省=上架
+});
+export const RejectSubmissionAction = z.object({
+  op: z.literal("reject"),
+  id: z.uuid(),
+  reason: z.string().min(1, "驳回原因必填").max(500),
+});
+export const SubmissionReviewAction = z.discriminatedUnion("op", [
+  ApproveSubmissionAction,
+  RejectSubmissionAction,
+]);
+export type SubmissionReviewAction = z.infer<typeof SubmissionReviewAction>;
+
 // ===================== 站内通知：广播公告（§9）=====================
 // link 可空：站内路径（/assets…）前台走 navigate，外链（http(s)://…）走 window.open。
 // 🔴 link 安全分类（站内单层路径 / http(s) 外链 / 拒绝）抽到 src/lib/announcementLink 前后端单一真相源，

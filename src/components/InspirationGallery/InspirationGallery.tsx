@@ -48,6 +48,7 @@ export function InspirationGallery({
         {item.category ? <span className={styles.lbChip}>{item.category}</span> : null}
         <p className={styles.lbTitle}>{item.title}</p>
         {item.summary ? <p className={styles.lbSummary}>{item.summary}</p> : null}
+        {item.submitter ? <p className={styles.lbSummary}>由 {item.submitter} 投稿</p> : null}
         <button
           type="button"
           className={styles.lbUse}
@@ -109,6 +110,7 @@ export function InspirationGallery({
           <div className={styles.scrim} onClick={() => enlarge(item)}>
             <p className={styles.title}>{item.title}</p>
             <p className={styles.summary}>{item.summary}</p>
+            {item.submitter ? <p className={styles.byline}>由 {item.submitter} 投稿</p> : null}
             <button
               type="button"
               className={styles.use}

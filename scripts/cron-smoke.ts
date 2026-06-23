@@ -259,6 +259,31 @@ async function main(): Promise<void> {
     }
   }
 
+  // ===== 7d) 灵感投稿清理：pending 副本受保护、rejected 副本按孤儿回收（§13.1）=====
+  {
+    const uid = await mkUser();
+    const pendingKey = `inspirations/submissions/${uid}/2026/06/${randomUUID()}.png`;
+    const rejectedKey = `inspirations/submissions/${uid}/2026/06/${randomUUID()}.png`;
+    await sql`INSERT INTO inspiration_submissions(user_id, image_key, image_url, title, prompt, status) VALUES
+      (${uid}, ${pendingKey}, ${`https://x/${pendingKey}`}, 'pend', 'p', 'pending'),
+      (${uid}, ${rejectedKey}, ${`https://x/${rejectedKey}`}, 'rej', 'p', 'rejected')`;
+    const oldMs = Date.now() - 7200_000; // 都过 1h 保护窗口
+    const deleted: string[] = [];
+    await sweepOrphanR2Objects({
+      listObjects: async () => [
+        { key: pendingKey, lastModified: oldMs },
+        { key: rejectedKey, lastModified: oldMs },
+      ],
+      deleteMany: async (keys) => {
+        deleted.push(...keys);
+        return [];
+      },
+    });
+    checks.push(["灵感投稿: 待审(pending)副本受保护、绝不误删", !deleted.includes(pendingKey)]);
+    checks.push(["灵感投稿: 已驳回(rejected)副本按孤儿回收", deleted.includes(rejectedKey)]);
+    await sql`DELETE FROM inspiration_submissions WHERE user_id=${uid}`;
+  }
+
   // ===== 8) 旧预算键清理 + 昨日 ms 重算（评估「已结束的前一天」）=====
   {
     const oldKey = "relay_budget:2000-01-01";

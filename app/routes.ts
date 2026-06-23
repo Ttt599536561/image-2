@@ -20,6 +20,7 @@ export default [
   route("api/account/redemptions", "routes/api.account.redemptions.ts"),
   route("api/redeem", "routes/api.redeem.ts"),
   route("api/uploads", "routes/api.uploads.ts"), // ④b 图生图：参考图上传（multipart）
+  route("api/inspiration-submissions", "routes/api.inspiration-submissions.ts"), // §13.1 用户投稿（POST 提交 / GET 我的投稿）
   // 阶段二 ⑥：后台 API（资源路由，server-only；每个各自 requireAdmin = 双守卫之一）。
   route("api/admin/users", "routes/api.admin.users.ts"),
   route("api/admin/users/:id", "routes/api.admin.users.$id.ts"),
@@ -32,6 +33,7 @@ export default [
   route("api/admin/relay", "routes/api.admin.relay.ts"), // 中转站 url/key 配置（换厂商）
   route("api/admin/inspirations", "routes/api.admin.inspirations.ts"),
   route("api/admin/inspirations/upload", "routes/api.admin.inspirations.upload.ts"), // 封面本地上传（multipart）
+  route("api/admin/inspiration-submissions", "routes/api.admin.inspiration-submissions.ts"), // §13.1 投稿审核（GET 队列 / POST approve|reject）
   route("api/admin/generations", "routes/api.admin.generations.ts"),
   route("api/admin/notifications", "routes/api.admin.notifications.ts"),
   route("api/admin/audit", "routes/api.admin.audit.ts"),
@@ -58,6 +60,7 @@ export default [
     route("admin/codes", "routes/_admin.codes.tsx"),
     route("admin/generations", "routes/_admin.generations.tsx"),
     route("admin/inspiration", "routes/_admin.inspiration.tsx"),
+    route("admin/inspiration-submissions", "routes/_admin.inspiration-submissions.tsx"), // §13.1 灵感投稿审核
     route("admin/packages", "routes/_admin.packages.tsx"),
     route("admin/notifications", "routes/_admin.notifications.tsx"), // §9 广播公告
   ]),

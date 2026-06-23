@@ -178,6 +178,36 @@ export async function putInspirationCover(args: {
   return { storageKey, publicUrl: publicUrl(storageKey) };
 }
 
+// ===================== 灵感库用户投稿：副本（永久，§13.1） =====================
+// 投稿即把用户作品复制一份到 `inspirations/submissions/<uid>/{yyyy}/{mm}/{uuid}.{ext}`（以 inspirations/ 开头 →
+// deriveCoverKey 天然接受，通过后 inspirations.cover_key 复用同一对象）。pending 受孤儿 known-set 保护。
+export function buildInspirationSubmissionKey(userId: string, ext: string): string {
+  const d = new Date();
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `inspirations/submissions/${userId}/${yyyy}/${mm}/${randomUUID()}.${ext}`;
+}
+
+/**
+ * 把用户作品（srcKey）复制成投稿永久副本（厂商中立：GetObject 取字节 → PutObject 落新 key，
+ * 不依赖 Supabase 是否支持 S3 CopyObject）。返回 {storageKey(image_key), publicUrl(image_url)}。
+ */
+export async function copyToInspirationSubmission(
+  srcKey: string,
+  userId: string,
+): Promise<{ storageKey: string; publicUrl: string; contentType: string; bytes: number }> {
+  const res = await getR2Client().send(
+    new GetObjectCommand({ Bucket: env("STORAGE_BUCKET"), Key: srcKey }),
+  );
+  if (!res.Body) throw new Error(`[storage] 投稿源对象为空：${srcKey}`);
+  const body = new Uint8Array(await res.Body.transformToByteArray());
+  const contentType = res.ContentType ?? "image/png";
+  const ext = srcKey.split(".").pop()?.toLowerCase() || "png";
+  const storageKey = buildInspirationSubmissionKey(userId, ext);
+  await putObject(storageKey, body, contentType);
+  return { storageKey, publicUrl: publicUrl(storageKey), contentType, bytes: body.byteLength };
+}
+
 /** 落用户上传的参考图（④b）。返回 {storageKey, publicUrl}。 */
 export async function putUserUpload(args: {
   userId: string;

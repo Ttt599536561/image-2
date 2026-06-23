@@ -445,7 +445,7 @@ export async function loadInspirations(category?: string, q?: string): Promise<I
     const [ex] = (await sql`SELECT EXISTS(SELECT 1 FROM inspirations WHERE active = true) AS has`) as Row[];
     if (ex?.has === true) {
       const rows = (await sql`
-        SELECT id, cover_url, title, summary, prompt, category, width, height FROM inspirations
+        SELECT id, cover_url, title, summary, prompt, category, width, height, submitter_name FROM inspirations
         WHERE active = true
           AND (${cat}::text IS NULL OR category = ${cat})
           AND (${like}::text IS NULL OR title ILIKE ${like} OR summary ILIKE ${like} OR prompt ILIKE ${like})
@@ -465,6 +465,7 @@ export async function loadInspirations(category?: string, q?: string): Promise<I
           category: (r.category as string | null) ?? null,
           width: numOrNull(r.width),
           height: numOrNull(r.height),
+          submitter: (r.submitter_name as string | null) ?? null,
         })),
         categories: catRows.map((r) => r.category as string),
       };

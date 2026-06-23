@@ -1,4 +1,4 @@
-import { Search } from "lucide-react";
+import { Search, Upload } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router";
 import type { InspirationsResponse } from "../../contracts/inspiration";
@@ -7,6 +7,7 @@ import { useDebouncedValue } from "../../hooks/useDebouncedValue";
 import { InspirationGallery } from "../InspirationGallery/InspirationGallery";
 import { useShell } from "../shell/ShellContext";
 import { TopBar } from "../shell/TopBar";
+import { SubmitInspirationModal } from "./SubmitInspirationModal";
 import styles from "./Inspiration.module.css";
 
 // P3-S4：品类/搜索下沉为 SQL（useInspirations 服务端过滤 + 250ms debounce，与 S2 同范式）。
@@ -16,6 +17,7 @@ export function InspirationPage({ initialInspirations }: { initialInspirations?:
   const shell = useShell();
   const [category, setCategory] = useState<string>("全部");
   const [query, setQuery] = useState("");
+  const [submitOpen, setSubmitOpen] = useState(false);
   const debouncedQuery = useDebouncedValue(query, 250);
 
   const insp = useInspirations(category, debouncedQuery, initialInspirations);
@@ -35,7 +37,13 @@ export function InspirationPage({ initialInspirations }: { initialInspirations?:
       <TopBar title="灵感库" onOpenMenu={shell.openMenu} />
       <div className={styles.page}>
         <div className={styles.inner}>
-          <h1 className={styles.title}>灵感库</h1>
+          <div className={styles.headRow}>
+            <h1 className={styles.title}>灵感库</h1>
+            <button type="button" className={styles.submitBtn} onClick={() => setSubmitOpen(true)}>
+              <Upload size={15} />
+              投稿
+            </button>
+          </div>
 
           <div className={styles.search}>
             <Search size={16} />
@@ -67,6 +75,7 @@ export function InspirationPage({ initialInspirations }: { initialInspirations?:
           )}
         </div>
       </div>
+      {submitOpen ? <SubmitInspirationModal onClose={() => setSubmitOpen(false)} /> : null}
     </>
   );
 }

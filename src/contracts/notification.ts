@@ -4,7 +4,8 @@ import { z } from "zod";
 export const NotificationItem = z.object({
   id: z.uuid(),
   // image_expiring: {imageId, expiresAt} ｜ announcement: {title, body, link?}
-  type: z.enum(["image_expiring", "announcement"]),
+  // inspiration_reviewed: {status:'approved'|'rejected', title, reason?, inspirationId?}（§13.1 投稿审核结果）
+  type: z.enum(["image_expiring", "announcement", "inspiration_reviewed"]),
   payload: z.record(z.string(), z.unknown()).nullable(),
   readAt: z.string().nullable(),
   createdAt: z.string(),

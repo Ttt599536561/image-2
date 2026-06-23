@@ -41,6 +41,22 @@
   color: var(--text-primary);
   font-weight: 600;
 }
+/* 导航待审红点（灵感投稿待审数）：推到右侧的小药丸 */
+.navBadge {
+  margin-left: auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+  background: var(--accent, #c2410c);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
 .navSpacer {
   flex: 1;
 }

@@ -338,8 +338,50 @@ export const inspirations = pgTable(
     height: integer("height"), // 封面原始高（同上，可空）
     sort: integer("sort").notNull().default(0),
     active: boolean("active").notNull().default(true), // 前台只展示 active
+    // 署名（§13.1 用户投稿）：NULL = 站长自建、不显署名；用户投稿通过时写入。
+    submittedBy: uuid("submitted_by"), // 投稿人 id（审计/追溯，不下发客户端）
+    submitterName: text("submitter_name"), // 通过时冻结的掩码昵称（如 qk***）
     createdAt: timestamp("created_at", tz).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", tz).notNull().defaultNow(),
   },
   (t) => [index("ix_insp_active_sort").on(t.active, t.sort)],
+);
+
+// ========== inspiration_submissions（灵感库用户投稿队列；§13.1 / 迁移 0004） ==========
+// 与上架表 inspirations 分离：用户端只读 loadInspirations(active=true) 零改动、绝不泄露 pending/rejected。
+// 投稿图为「我的作品」的永久副本（inspirations/submissions/…）；pending 副本受孤儿 cron known-set 保护，
+// 通过后保护转移到 inspirations.cover_key，驳回后按孤儿回收。
+export const inspirationSubmissions = pgTable(
+  "inspiration_submissions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    sourceImageId: uuid("source_image_id"), // 来源 images.id（可空：用户日后删原图不影响投稿副本）
+    imageKey: text("image_key").notNull(), // 投稿图永久副本 key
+    imageUrl: text("image_url").notNull(), // 副本公有 URL（前端只读）
+    width: integer("width"),
+    height: integer("height"),
+    title: text("title").notNull(),
+    prompt: text("prompt").notNull(),
+    category: text("category"),
+    summary: text("summary"),
+    status: text("status").notNull().default("pending"), // pending | approved | rejected
+    reviewReason: text("review_reason"), // 驳回原因
+    reviewedBy: uuid("reviewed_by"),
+    reviewedAt: timestamp("reviewed_at", tz),
+    publishedInspirationId: uuid("published_inspiration_id"), // 通过时建的 inspirations.id
+    createdAt: timestamp("created_at", tz).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", tz).notNull().defaultNow(),
+  },
+  (t) => [
+    check("insp_sub_status_chk", sql`${t.status} IN ('pending','approved','rejected')`),
+    index("ix_insp_sub_status_time").on(t.status, t.createdAt), // 审核队列
+    index("ix_insp_sub_user_time").on(t.userId, t.createdAt.desc()), // 我的投稿
+    // 同图去重并发兜底：一张源图同时只能有一条 pending（仅 pending，便于上架卡删除后重投）。
+    uniqueIndex("uq_insp_sub_pending_src")
+      .on(t.userId, t.sourceImageId)
+      .where(sql`status = 'pending' AND source_image_id IS NOT NULL`),
+  ],
 );
