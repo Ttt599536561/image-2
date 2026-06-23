@@ -7,7 +7,15 @@ import { QueryClient } from "@tanstack/react-query";
 function makeQueryClient(): QueryClient {
   return new QueryClient({
     defaultOptions: {
-      queries: { staleTime: 30_000, refetchOnWindowFocus: false, retry: 1 },
+      queries: {
+        // 已加载的数据在本地缓存更久 → 切换页面/重新点开**不再重复跨境拉取**，命中缓存即时渲染。
+        // 安全：数据变更一律由对应 mutation 的 invalidateQueries 主动刷新（删/改/存/兑换/生成成功都 invalidate），
+        // 故拉长 staleTime 只压掉"被动重拉"（导航/重挂载/聚焦），不会让改动看不到。
+        staleTime: 5 * 60_000, // 5min 内视为新鲜：导航/组件重挂载不触发后台重拉
+        gcTime: 60 * 60_000, // 1h 不回收：离开页面再回来仍命中缓存
+        refetchOnWindowFocus: false,
+        retry: 1,
+      },
     },
   });
 }

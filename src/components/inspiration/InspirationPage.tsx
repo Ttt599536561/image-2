@@ -36,7 +36,6 @@ export function InspirationPage({ initialInspirations }: { initialInspirations?:
       <div className={styles.page}>
         <div className={styles.inner}>
           <h1 className={styles.title}>灵感库</h1>
-          <p className={styles.sub}>站长维护、不支持用户上传 · 点「用此提示词」一键带回</p>
 
           <div className={styles.search}>
             <Search size={16} />

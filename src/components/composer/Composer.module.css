@@ -78,18 +78,23 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  flex-wrap: wrap;
+  /* 不换行：左侧药丸过宽（如选了非智能比例）时，让药丸在 .left 内部换行，
+     而不是把右侧「消耗/剩余 + 生成按钮」整块挤到下一行（保持一行显示）。 */
+  flex-wrap: nowrap;
 }
 .left {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   flex-wrap: wrap;
+  min-width: 0; /* 允许收缩，药丸在内部换行 */
+  flex: 1 1 auto;
 }
 .right {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  flex: 0 0 auto; /* 消耗提示 + 生成按钮整块不被压、不换行，始终贴右一行 */
 }
 
 .pillWrap {
@@ -346,6 +351,14 @@
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+/* 窄屏兜底：手机上「消耗/剩余」+ 药丸 + 按钮一行放不下时，隐藏文字提示保按钮（避免横向溢出）。
+   桌面/平板（>520px）正常一行显示完整提示。 */
+@media (max-width: 520px) {
+  .costHint {
+    display: none;
   }
 }
 
