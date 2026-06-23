@@ -21,8 +21,8 @@
 | 11 | 🌐 生产上线（Netlify） | ✅ **已上线** → https://ai-image-workshop-612.netlify.app（runbook [dev/deploy.md](dev/deploy.md)）|
 | 12 | 生产优化波（2026-06-23） | ✅ **已上线 `5bd9ac8`**：单价用户端实时化 + 点击慢半拍提速 + 出图触发可靠性 + 后台换中转站 + 生成提交乐观立即跳转（详见下方「🆕 生产优化波」）|
 
-## 🆕 生产优化波（2026-06-23 · 已全部上线 `5bd9ac8`）
-> 上线后站长实测反馈驱动的一波"提速 + 运维能力"优化。每项均：实做 → tsc/test:run/build/assert-no-secrets(+ 涉钱跑 test:money / 对真 Neon smoke) 全绿 → 提交 → 生产部署 + 冒烟。
+## 🆕 生产优化波（2026-06-23 · 已全部上线，当前生产 = `69d585a`）← **新会话当前态从这看**
+> 上线后站长实测反馈驱动的"提速 + 运维能力 + 素材库上传"优化。每项均：实做 → tsc/test:run/build/assert-no-secrets(+ 涉钱跑 test:money / 对真 Neon smoke / 涉数据丢失跑多代理对抗审查) 全绿 → 提交 → 生产部署 + 冒烟。**下方各项已完成上线，无阻塞项；剩余皆可选/运营（见本节末「⬜ 接下来未完成/可选」）。再下方「🆕 新会话从这接手（2026-06-22）」起为历史建设纪要，不必逐字读。**
 
 1. **单价用户端实时化** `6d7b6fe`：后台改 `price_per_image_mp` 用户端不生效——真因=前端写死常量 `PRICE_PER_IMAGE_MP=70`。修：`/api/me` 经 `loadMe` 下发 `pricePerImageMp`（`getConfigInt` 实时值），Composer/欢迎页/充值页/`canAfford` 改用 `me.data.pricePerImageMp`（常量降级首帧兜底）。旁证：后台写配置链路本身健康；站长把单价设 **0.06（60mp）**。
 2. **「点击慢半拍」前端提速** `90875a3`：6 维度多代理审计 48 条发现（包体积/TTI 类经研判与"二次点击慢"无关已剔除）。落地：① `_app` 加 `shouldRevalidate`（GET 导航不重跑 `loadMe+loadConversations` 两条跨境查询，新鲜度交 TanStack Query）② 所有导航 `Link/NavLink` 加 `prefetch="intent"`（hover 预取）③ `_app` 加 `useNavigation` 顶部进度条 ④ 乐观更新：删/重命名会话·存资产库·标已读·兑换码到账 ⑤ 轮询后台暂停取舍 + `netlify.toml` `/assets/*` immutable 强缓存。
@@ -57,8 +57,8 @@
 
 **不做（已决策，非未完成）**：S3 RBAC / S5 客服 360（单管理员）、合规内容审核（站长风险自担）。
 
-## 🆕 新会话从这接手（2026-06-22）
-> 顺序：[CLAUDE.md](../CLAUDE.md) → 本段 → **当前主线 [docs/dev/PHASE3-FEEDBACK.md](dev/PHASE3-FEEDBACK.md)**。代码在 **`main`**（v2 主体全部已合并）。
+## 📜 接手记录（2026-06-22；当前态见上方「生产优化波」，此段及以下为历史纪要）
+> 当前主线/当前态已上移到上方「🆕 生产优化波」段——20 条验收、第二批需求、首发上线均**已完成**，此段留作追溯。代码在 **`main`**（v2 主体全部已合并；本地仓无 remote、未 push）。
 
 **整体进度**：v2 主体（阶段一壳 + 阶段二接真后端 + 阶段三增强 S1/S2/S4）全部完成并合并 `main`（`51f2b0b`）。S6 跳过（中转无 chat 模型）、S3/S5 不做（单管理员）。
 
