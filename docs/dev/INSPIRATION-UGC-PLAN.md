@@ -175,4 +175,4 @@ SELECT image_key AS k FROM inspiration_submissions
 - [x] hooks：`useMySubmissions`
 - [x] 测试代码：cron-smoke 7d + inspiration-submissions-smoke（已写+扩 resubmit/唯一索引用例）；**tsc 0 · test:run 78 · build 0 · assert-no-secrets PASS(116)** 全绿。⏳ 两个对真 Neon 的 smoke **待迁移应用后**才能跑（需 `.env` 配 `DATABASE_URL`）
 - [x] 对抗审查（多代理，63 agents/28 发现→10 confirmed，去重后 **4 个不同问题**）→ 全修：① 同图去重 TOCTOU（部分唯一索引 pending + catch 23505）② schema↔迁移 FK 漂移（补 0004 FK）③ 删上架卡后无法重投（dup-check 放行已删卡的 approved）④ 选图仅最近 50 张（pageSize:200）。disputed 6 条=「copy-before-commit 孤儿」既有设计(WAD) + window.alert nit(与姊妹页一致)，未改。
-- [ ] **应用迁移 + 部署生产 + 验收**（⏳ 站长拍板：① `.env` 补 `DATABASE_URL` ② 跑 migrate 0004 + 两个 smoke 对真 Neon ③ `netlify deploy --prod`）
+- [x] **应用迁移 + 部署生产** ✅：migrate 0004 已应用真 Neon（新表 + 2 署名列 + `user_id` FK + `uq_insp_sub_pending_src`）；inspiration-submissions-smoke 16/16 + cron-smoke 39/39 + test:money 39/39 全绿；`netlify deploy --prod` → `42d8a0b`（deploy `6a3aa2bd`）已上线 + 生产冒烟通过（/login 200·/inspiration 200·/api/me 401·/api/inspiration-submissions 401·/admin/inspiration-submissions 302→/admin/login）。⏳ 仅剩**站长生产浏览器逐态验收**（投稿→后台审核→通知→署名卡）。
