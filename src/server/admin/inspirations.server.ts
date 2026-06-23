@@ -1,10 +1,22 @@
 // ★server-only：灵感库 CRUD（09 §10.4）。非钱/码，单语句即可；但内容运营仍写 audit。
 // 封面本期为 admin 贴公有 URL（cover_url）；multipart 上传 Supabase 留增强（cover_key 暂空）。
 import { getSql } from "../../db/db.server";
+import { storageKeyFromPublicUrl } from "../r2.server";
 import { type TxClient, tx } from "../tx.server";
 import { writeAudit } from "./audit.server";
 
 type Row = Record<string, unknown>;
+
+/**
+ * 从 cover_url 派生 cover_key（本桶 `inspirations/…` 封面 → 其 key；外链/贴 URL → null）。
+ * 🔴 服务端派生、不靠客户端传：edit/快捷上下架重提交同一 cover_url 时自动得到同一 cover_key，
+ *    绝不会把上传封面的 key 误清成 null（否则孤儿清理会把在用封面当孤儿删掉 = 丢图）。
+ * cover_key 的用途：孤儿清理 cron known-set 保护在用封面；删/换后 cover_key 不再命中 → 自动回收。
+ */
+function deriveCoverKey(coverUrl: string): string | null {
+  const k = storageKeyFromPublicUrl(coverUrl);
+  return k && k.startsWith("inspirations/") ? k : null;
+}
 
 export interface AdminInspiration {
   id: string;
@@ -59,9 +71,9 @@ export async function createInspiration(args: { adminId: string; fields: Inspira
   const f = args.fields;
   return tx(async (c: TxClient) => {
     const r = await c.query(
-      `INSERT INTO inspirations(title,cover_url,category,prompt,summary,width,height,sort,active)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
-      [f.title, f.cover, f.category ?? null, f.prompt, f.summary ?? null, f.width ?? null, f.height ?? null, f.sort ?? 0, f.active ?? true],
+      `INSERT INTO inspirations(title,cover_url,cover_key,category,prompt,summary,width,height,sort,active)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING id`,
+      [f.title, f.cover, deriveCoverKey(f.cover), f.category ?? null, f.prompt, f.summary ?? null, f.width ?? null, f.height ?? null, f.sort ?? 0, f.active ?? true],
     );
     const id = r.rows[0].id as string;
     await writeAudit(c, { adminId: args.adminId, action: "create_inspiration", targetType: "inspiration", targetId: id, after: f, ip: args.ip ?? null });
@@ -75,8 +87,8 @@ export async function updateInspiration(args: { adminId: string; id: string; fie
     const before = (await c.query("SELECT * FROM inspirations WHERE id=$1", [args.id])).rows[0];
     if (!before) throw new Response("灵感卡不存在", { status: 404 });
     await c.query(
-      `UPDATE inspirations SET title=$1,cover_url=$2,category=$3,prompt=$4,summary=$5,width=$6,height=$7,sort=$8,active=$9,updated_at=now() WHERE id=$10`,
-      [f.title, f.cover, f.category ?? null, f.prompt, f.summary ?? null, f.width ?? null, f.height ?? null, f.sort ?? 0, f.active ?? true, args.id],
+      `UPDATE inspirations SET title=$1,cover_url=$2,cover_key=$3,category=$4,prompt=$5,summary=$6,width=$7,height=$8,sort=$9,active=$10,updated_at=now() WHERE id=$11`,
+      [f.title, f.cover, deriveCoverKey(f.cover), f.category ?? null, f.prompt, f.summary ?? null, f.width ?? null, f.height ?? null, f.sort ?? 0, f.active ?? true, args.id],
     );
     await writeAudit(c, { adminId: args.adminId, action: "edit_inspiration", targetType: "inspiration", targetId: args.id, before, after: f, ip: args.ip ?? null });
   });
@@ -124,7 +136,8 @@ export async function reorderInspiration(args: {
   });
 }
 
-/** 硬删（封面为贴入 URL、无 R2 对象需清；内容可重新添加）+ 审计。 */
+/** 硬删 + 审计。上传封面（cover_key 在 inspirations/…）删除后 cover_key 不再命中孤儿 known-set →
+ *  下次清理 cron 自动按孤儿(>1h)回收对象，无需在此显式删 R2（贴 URL 的封面是外链、本就无对象）。 */
 export async function deleteInspiration(args: { adminId: string; id: string; ip?: string | null }): Promise<void> {
   await tx(async (c: TxClient) => {
     const before = (await c.query("SELECT * FROM inspirations WHERE id=$1", [args.id])).rows[0];

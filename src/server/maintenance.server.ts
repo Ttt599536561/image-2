@@ -133,8 +133,10 @@ export async function sweepOrphanR2Objects(deps: CleanupDeps = {}): Promise<{ or
   let orphansDeleted = 0;
   for (let i = 0; i < aged.length; i += 1000) {
     const keys = aged.slice(i, i + 1000);
-    // known = 成品图 storage_key ∪ 「在途」(未终态)生成的参考图 input_image_key（④b）。
-    // 后者保护：上传后生成还没跑完时，参考图 key 虽不在 images 里，也不能被当孤儿误删。
+    // known = 成品图 storage_key ∪ 「在途」(未终态)生成的参考图 input_image_key（④b）∪ 在用的灵感封面 cover_key。
+    // ① 参考图保护：上传后生成还没跑完时，参考图 key 虽不在 images 里，也不能被当孤儿误删。
+    // ② 灵感封面保护：admin 上传的封面（inspirations/…）由灵感 CRUD 管理，**在用的绝不能被孤儿清理误删**；
+    //    删除/替换灵感卡后 cover_key 不再命中 → 自动按孤儿(>1h)回收（含 admin 上传后未保存的废弃封面）。
     // 已终态(succeeded/failed)生成的参考图 + 从没关联生成的废弃上传 → 不在 known → 按孤儿(>1h)回收（用后即弃）。
     const known = new Set(
       (
@@ -143,7 +145,9 @@ export async function sweepOrphanR2Objects(deps: CleanupDeps = {}): Promise<{ or
           UNION
           SELECT input_image_key AS k FROM generations
             WHERE input_image_key = ANY(${keys}::text[])
-              AND status IN ('queued','claimed','running')`) as Array<{ k: string }>
+              AND status IN ('queued','claimed','running')
+          UNION
+          SELECT cover_key AS k FROM inspirations WHERE cover_key = ANY(${keys}::text[])`) as Array<{ k: string }>
       ).map((r) => r.k),
     );
     const orphans = keys.filter((k) => !known.has(k));

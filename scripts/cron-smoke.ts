@@ -17,6 +17,7 @@ import {
 } from "../src/server/maintenance.server";
 import { expireCredits } from "../src/server/money/expire.server";
 import { reconcileBalances } from "../src/server/money/reconcile.server";
+import { storageKeyFromPublicUrl } from "../src/server/r2.server";
 
 const sql = getSql();
 const checks: [string, boolean][] = [];
@@ -222,6 +223,40 @@ async function main(): Promise<void> {
     checks.push(["④b 上传清理: 在途(queued)参考图受保护不删", !deleted.includes(inflightKey)]);
     checks.push(["④b 上传清理: 已终态(succeeded)参考图按孤儿回收", deleted.includes(doneKey)]);
     checks.push(["④b 上传清理: 废弃(无生成)上传按孤儿回收", deleted.includes(abandonedKey)]);
+  }
+
+  // ===== 7c) 灵感封面清理：在用封面(cover_key)受保护、admin 上传后废弃的封面按孤儿回收 =====
+  {
+    const inUseCover = `inspirations/2026/06/${randomUUID()}.png`;
+    const abandonedCover = `inspirations/2026/06/${randomUUID()}.png`;
+    const inspId = randomUUID();
+    await sql`INSERT INTO inspirations(id,title,cover_url,cover_key,prompt)
+      VALUES (${inspId}, 'cover-smoke', ${`https://img.test/${inUseCover}`}, ${inUseCover}, 'p')`;
+    const oldMs = Date.now() - 7200_000; // 都过 1h 保护窗口
+    const deleted: string[] = [];
+    await sweepOrphanR2Objects({
+      listObjects: async () => [
+        { key: inUseCover, lastModified: oldMs },
+        { key: abandonedCover, lastModified: oldMs },
+      ],
+      deleteMany: async (keys) => {
+        deleted.push(...keys);
+        return [];
+      },
+    });
+    checks.push(["灵感封面: 在用封面(cover_key)受保护、绝不误删", !deleted.includes(inUseCover)]);
+    checks.push(["灵感封面: 废弃上传封面按孤儿回收", deleted.includes(abandonedCover)]);
+    await sql`DELETE FROM inspirations WHERE id=${inspId}`; // 清理测试行
+
+    // 派生剥 query/fragment（对抗审查 confirmed）：admin 粘贴带 ?v=1/#a 的本桶 URL 时，
+    // 派生 cover_key 必须等于真实 S3 key（不含 ?#），否则孤儿 known-set 比对落空 → 误删在用封面。
+    const base = (process.env.STORAGE_PUBLIC_BASE_URL ?? "").replace(/\/+$/, "");
+    if (base) {
+      const cleanKey = `inspirations/2026/06/${randomUUID()}.png`;
+      checks.push(["派生剥 query: 带 ?v=1 → 干净 key", storageKeyFromPublicUrl(`${base}/${cleanKey}?v=1`) === cleanKey]);
+      checks.push(["派生剥 fragment: 带 #a → 干净 key", storageKeyFromPublicUrl(`${base}/${cleanKey}#a`) === cleanKey]);
+      checks.push(["派生: 外链 → null", storageKeyFromPublicUrl(`https://evil.test/${cleanKey}`) === null]);
+    }
   }
 
   // ===== 8) 旧预算键清理 + 昨日 ms 重算（评估「已结束的前一天」）=====

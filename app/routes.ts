@@ -31,6 +31,7 @@ export default [
   route("api/admin/config", "routes/api.admin.config.ts"),
   route("api/admin/relay", "routes/api.admin.relay.ts"), // 中转站 url/key 配置（换厂商）
   route("api/admin/inspirations", "routes/api.admin.inspirations.ts"),
+  route("api/admin/inspirations/upload", "routes/api.admin.inspirations.upload.ts"), // 封面本地上传（multipart）
   route("api/admin/generations", "routes/api.admin.generations.ts"),
   route("api/admin/notifications", "routes/api.admin.notifications.ts"),
   route("api/admin/audit", "routes/api.admin.audit.ts"),

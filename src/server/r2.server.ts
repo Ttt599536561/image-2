@@ -56,6 +56,17 @@ export function publicUrl(storageKey: string): string {
   return `${env("STORAGE_PUBLIC_BASE_URL")}/${storageKey}`;
 }
 
+/** 反 publicUrl：本桶公有 URL → storage key；非本桶（外链）→ null。用于从 cover_url 派生 cover_key。 */
+export function storageKeyFromPublicUrl(url: string): string | null {
+  const base = process.env.STORAGE_PUBLIC_BASE_URL;
+  if (!base) return null;
+  const prefix = `${base.replace(/\/+$/, "")}/`;
+  if (!url.startsWith(prefix)) return null;
+  // 🔴 剥 query/fragment：S3 对象 key 物理上不含 ?#。若 admin 粘贴带 ?v=1 之类的本桶 URL，
+  //    派生 key 必须与真实 key 对齐，否则孤儿清理 known-set 比对落空 → 误删在用封面（对抗审查 confirmed）。
+  return url.slice(prefix.length).split("#")[0].split("?")[0];
+}
+
 /** 不可枚举 key（§7.2）：{userId}/{yyyy}/{mm}/{generationId}-{rand}.png。 */
 export function buildStorageKey(userId: string, generationId: string): string {
   const d = new Date();
@@ -144,6 +155,27 @@ export function buildUploadKey(userId: string, ext: string): string {
   const yyyy = d.getUTCFullYear();
   const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
   return `uploads/${userId}/${yyyy}/${mm}/${randomUUID()}.${ext}`;
+}
+
+// ===================== 灵感库封面：管理员本地上传（永久，由灵感 CRUD 管理） =====================
+// 存 `inspirations/{yyyy}/{mm}/{uuid}.{ext}`（不带 userId 段；非「用后即弃」）。
+// 孤儿清理 cron 的 known-set UNION `inspirations.cover_key` 保护在用封面；删/换后的封面 cover_key 移除 → 孤儿回收。
+export function buildInspirationCoverKey(ext: string): string {
+  const d = new Date();
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `inspirations/${yyyy}/${mm}/${randomUUID()}.${ext}`;
+}
+
+/** 落灵感封面。返回 {storageKey(cover_key), publicUrl(cover_url)}。 */
+export async function putInspirationCover(args: {
+  bytes: Uint8Array;
+  contentType: string;
+  ext: string;
+}): Promise<{ storageKey: string; publicUrl: string }> {
+  const storageKey = buildInspirationCoverKey(args.ext);
+  await putObject(storageKey, args.bytes, args.contentType);
+  return { storageKey, publicUrl: publicUrl(storageKey) };
 }
 
 /** 落用户上传的参考图（④b）。返回 {storageKey, publicUrl}。 */

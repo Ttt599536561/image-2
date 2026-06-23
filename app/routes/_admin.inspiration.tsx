@@ -1,15 +1,33 @@
-import { ArrowDown, ArrowUp, Eye, EyeOff, Lightbulb, Pencil, Plus, Trash2, X } from "lucide-react";
-import { useState } from "react";
+import { ArrowDown, ArrowUp, Eye, EyeOff, ImagePlus, Lightbulb, Pencil, Plus, Trash2, X } from "lucide-react";
+import { useRef, useState } from "react";
 import { useRevalidator } from "react-router";
+import { InspirationCoverUploadResponse } from "../../src/contracts/admin";
 import styles from "../../src/components/admin/Admin.module.css";
 import { ConfirmDialog } from "../../src/components/ConfirmDialog/ConfirmDialog";
-import { ApiError, apiPost } from "../../src/lib/api-client";
+import { ApiError, apiPost, apiPostForm } from "../../src/lib/api-client";
 import {
   type AdminInspiration,
   listAllInspirations,
 } from "../../src/server/admin/inspirations.server";
 import { requireAdminPage } from "../../src/server/page.server";
 import type { Route } from "./+types/_admin.inspiration";
+
+/** 客户端读图片原始尺寸（瀑布流原比例自动回填，全格式通用）。 */
+function readImageDims(file: File): Promise<{ w: number; h: number }> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      resolve({ w: img.naturalWidth, h: img.naturalHeight });
+      URL.revokeObjectURL(url);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error("read dims failed"));
+    };
+    img.src = url;
+  });
+}
 
 // 后台灵感库 CRUD（09 §10.4）：列表 + 新增/编辑同一表单 + 删除二次确认；封面贴公有 URL。
 export async function loader({ request }: Route.LoaderArgs) {
@@ -67,6 +85,38 @@ export default function Page({ loaderData }: Route.ComponentProps) {
   const [pendingDelete, setPendingDelete] = useState<AdminInspiration | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [rowBusy, setRowBusy] = useState<string | null>(null); // 行内操作（上下移/上下架）进行中的卡 id
+  const coverFileRef = useRef<HTMLInputElement>(null);
+  const [coverUploading, setCoverUploading] = useState(false);
+
+  // 选本地图片 → 客户端读尺寸自动回填宽高 + 上传换公有 URL 填进 cover（cover_key 由服务端据 cover_url 派生）。
+  async function onCoverFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // 允许重选同一文件再次触发
+    if (!file || !form) return;
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      setFormErr("仅支持 PNG / JPG / WEBP 图片");
+      return;
+    }
+    if (file.size > 4 * 1024 * 1024) {
+      setFormErr("图片过大（上限 4MB）");
+      return;
+    }
+    setCoverUploading(true);
+    setFormErr(null);
+    const dims = await readImageDims(file).catch(() => null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await apiPostForm("/api/admin/inspirations/upload", fd, InspirationCoverUploadResponse);
+      setForm((f) =>
+        f ? { ...f, cover: res.coverUrl, ...(dims ? { width: String(dims.w), height: String(dims.h) } : {}) } : f,
+      );
+    } catch (err) {
+      setFormErr(err instanceof ApiError ? err.message : "上传失败，请重试");
+    } finally {
+      setCoverUploading(false);
+    }
+  }
 
   function openCreate() {
     setFormErr(null);
@@ -341,15 +391,49 @@ export default function Page({ loaderData }: Route.ComponentProps) {
               <label className={styles.label} htmlFor="insp-cover">
                 封面
               </label>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 8 }}>
+                <button
+                  type="button"
+                  className={`${styles.btn} ${styles.btnSm} ${styles.btnGhost}`}
+                  onClick={() => coverFileRef.current?.click()}
+                  disabled={coverUploading}
+                >
+                  <ImagePlus size={14} />
+                  {coverUploading ? "上传中…" : "上传图片"}
+                </button>
+                <input
+                  ref={coverFileRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp"
+                  hidden
+                  onChange={onCoverFile}
+                />
+                {form.cover ? (
+                  <img
+                    src={form.cover}
+                    alt="封面预览"
+                    onError={(e) => {
+                      e.currentTarget.style.display = "none"; // 坏 URL：隐藏破图（上传路径不会触发；仅粘贴坏链时）
+                    }}
+                    style={{
+                      width: 40,
+                      height: 40,
+                      objectFit: "cover",
+                      borderRadius: 6,
+                      border: "0.5px solid var(--border-subtle)",
+                    }}
+                  />
+                ) : null}
+              </div>
               <input
                 id="insp-cover"
                 className={styles.input}
                 value={form.cover}
                 onChange={(e) => setForm({ ...form, cover: e.target.value })}
-                placeholder="https://…"
+                placeholder="或粘贴公有图片 URL"
               />
               <span className={styles.muted} style={{ fontSize: 12 }}>
-                公有图片 URL
+                本地上传图片，或粘贴公有图片 URL
               </span>
             </div>
 

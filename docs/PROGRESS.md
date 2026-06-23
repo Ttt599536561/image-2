@@ -29,9 +29,11 @@
 3. **出图慢真因 = 触发不可靠 + 后台换中转站** `e41d4d5`：① 出图"显示 89s 实等 3-4min"——`triggerBackground` 原 `void fetch`(fire-and-forget) 在 serverless 返回后被冻结掐死 → 任务干等每分钟兜底 cron。修 `await fetch`（8s 超时兜底）让后台可靠拉起、立即开跑；兜底阈值 1min→45s + 并发。**与换库/换区域无关**。② **后台换中转站**：`relay.ts` 读 `relay_base_url`/`relay_api_key` 优先 `app_config`、回退 env（`getConfigString`）；后台「套餐/参数」页新增「中转站配置」区（base 预填可改 + key **写后即焚**·只显末 4 位·留空不改 + 二次确认）；`api.admin.relay`(requireAdmin) + `relay-config.server`（getRelayConfig 脱敏 / updateRelayConfig 审计不落 key 明文）+ `RelayConfigUpdateRequest`。**Key 绝不下发客户端**。③ **钱测试解耦单价/赠送额**：`tests/money/*` 原写死 70（与生产共库、价改即误红）→ `priceMp()`/`signupGrantMp()` 读实际值、断言按 `PRICE`/`140-PRICE`/`GRANT` 算。
 4. **生成提交「点击即跳」乐观立即跳转** `5bd9ac8`：原 `useGeneration` 等 POST 202 才 navigate、再跑路由 loader = 两次串行跨境往返才出页面（点生成键好几秒才跳）。改：点击瞬间客户端生成 `cid/gid`、写"排队中乐观 turn"进缓存、**立即 navigate(/c/cid)** 看生图骨架，POST 脱离组件生命周期异步跑（qc 单例缓存对账）；失败把该 turn 标 failed 可重试。服务端 `enqueue` owner-safe upsert 接受客户端 `conversationId`（既有复用/新建/他人占用→404）+ 客户端 `generationId`；`app/queryClient.ts` 浏览器单例 + `_app.c.$id` 加 `clientLoader`（命中缓存即时渲染）。**站长实测：秒跳、立刻看到生图中。**
 
+5. **后续追加（2026-06-23）**：① 文生图强制 `response_format=b64_json`（`bf395fa`，探测 `relay-t2i-format-probe` 证实中转默认回 us-west url 需二次下载）；② 消耗提示+生成按钮保持一行（Composer 控制行 nowrap）+ QueryClient `staleTime`30s→5min/`gcTime`→1h（已加载数据切换/点击不重复拉取）+ 删灵感库副标题（`29e82fb`）；③ **后台素材库封面本地上传**：`POST /api/admin/inspirations/upload`（requireAdmin + 魔数嗅探 + ≤4MB）→ 存永久 `inspirations/<uuid>` → 回公有 URL；编辑表单加「上传图片」+预览+客户端读尺寸；**`cover_key` 服务端据 cover_url 派生**（剥 query/fragment）、孤儿清理 known-set UNION `inspirations.cover_key` 保护在用封面（删/换/废弃自动回收）。多代理对抗审查 37 findings→2 confirmed 已修。
+
 **配置现状（站长有意设定，非默认）**：`price_per_image_mp`=60（0.06/张）、`signup_grant_mp`=70（注册送 0.07=1 张）。规格文里的 0.07/0.14 是初始默认值。
 
-**测试基线（本波后）**：tsc 0 · test:run 78 · **test:money 39/39** · build 0 · assert-no-secrets PASS(108) · relay-config / enqueue 客户端 id 等 smoke 绿。
+**测试基线（本波后）**：tsc 0 · test:run 78 · **test:money 39/39** · **cron-smoke 37/37**（+灵感封面保护/派生剥 query）· build 0 · assert-no-secrets PASS(111)。
 
 ### ⬜ 接下来未完成 / 可选任务（2026-06-23 视角）
 > 均为"可选/按需"——v2 主体 + 上线 + 本波优化都已完成，下面是锦上添花或运营动作，没有"必须马上做"的阻塞项。
