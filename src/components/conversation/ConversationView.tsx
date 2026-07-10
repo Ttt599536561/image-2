@@ -13,7 +13,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import type { ConversationDetail, ConversationGeneration } from "../../contracts/conversation";
-import type { Background, GenerateRequest, Quality, Size } from "../../contracts/generate";
+import type { Background, GenerateParams, Quality, Size } from "../../contracts/generate";
 import { SaveResponse } from "../../contracts/image";
 import { UPLOAD_ACCEPT, UPLOAD_MAX_BYTES, type UploadMime } from "../../contracts/upload";
 import type { InspirationItem } from "../../contracts/inspiration";
@@ -41,7 +41,7 @@ import styles from "./ConversationView.module.css";
 // 一轮生成（generations 行 + 可选 images 行），渲染单元（08 §9.4）。
 type Turn = ConversationGeneration;
 
-const EMPTY_REQUEST: GenerateRequest = {
+const EMPTY_REQUEST: GenerateParams = {
   prompt: "",
   size: "auto",
   quality: "auto",
@@ -100,7 +100,7 @@ export function ConversationView({
   const navigate = useNavigate();
   const isDesktop = useMediaQuery("(min-width: 1024px)");
 
-  const [request, setRequest] = useState<GenerateRequest>(EMPTY_REQUEST);
+  const [request, setRequest] = useState<GenerateParams>(EMPTY_REQUEST);
   const [inputImageFile, setInputImageFile] = useState<File | null>(null); // ④b 图生图参考图（用后即弃）
   const [panelOpen, setPanelOpen] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -225,7 +225,7 @@ export function ConversationView({
     textareaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
-  const runGeneration = (req: GenerateRequest, file: File | null = null, onAccepted?: () => void) => {
+  const runGeneration = (req: GenerateParams, file: File | null = null, onAccepted?: () => void) => {
     if (!req.prompt.trim()) return;
     if (balanceMp < priceMp) {
       toast.error("积分不足，去充值");

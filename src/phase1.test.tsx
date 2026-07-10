@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 import { Composer } from "./components/composer/Composer";
 import { aspectRatioFor, dimensionsFor, SIZE_OPTIONS } from "./components/composer/sizeOptions";
-import type { GenerateRequest } from "./contracts/generate";
+import type { GenerateParams } from "./contracts/generate";
 import { imageExt, imageFilename } from "./lib/download";
 import { formatCredits, formatTimer } from "./lib/format";
 import { makePlaceholderImage } from "./lib/placeholder";
@@ -12,7 +12,7 @@ import { buildZip, exportZipName } from "./lib/zip";
 
 // 前端形态冒烟测试（Composer UI + 展示/格式工具 + zip）。账号/会话/生成数据已接真（loader/REST），
 // 单测只覆盖纯函数与 props 驱动组件（真库交互在 tests/money + 冒烟脚本）。
-const baseReq: GenerateRequest = {
+const baseReq: GenerateParams = {
   prompt: "一只猫",
   size: "auto",
   quality: "auto",

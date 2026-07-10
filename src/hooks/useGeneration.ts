@@ -2,7 +2,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import type { ConversationDetail, ConversationListResponse } from "../contracts/conversation";
-import { GenerateAcceptedResponse, type GenerateRequest } from "../contracts/generate";
+import { GenerateAcceptedResponse, type GenerateParams } from "../contracts/generate";
 import { UploadResponse } from "../contracts/upload";
 import { ApiError, apiPost, apiPostForm } from "../lib/api-client";
 
@@ -19,7 +19,7 @@ export interface UseGenerationOptions {
 
 type Turn = ConversationDetail["generations"][number];
 
-function makeOptimisticTurn(gid: string, req: GenerateRequest, createdAt: string): Turn {
+function makeOptimisticTurn(gid: string, req: GenerateParams, createdAt: string): Turn {
   return {
     id: gid,
     prompt: req.prompt,
@@ -48,7 +48,7 @@ export function useGeneration(conversationId: string | null, opts: UseGeneration
   onErrorRef.current = opts.onError;
 
   const submit = useCallback(
-    (req: GenerateRequest, file: File | null = null, onAccepted?: () => void) => {
+    (req: GenerateParams, file: File | null = null, onAccepted?: () => void) => {
       if (submittingRef.current) return; // 双闸：同步 ref
       submittingRef.current = true;
       setIsSubmitting(true);
@@ -88,7 +88,7 @@ export function useGeneration(conversationId: string | null, opts: UseGeneration
           }
           const accepted = await apiPost(
             "/api/generate",
-            { ...req, conversationId: cid, generationId: gid, inputImageKey },
+            { ...req, credentialMode: "system", conversationId: cid, generationId: gid, inputImageKey },
             GenerateAcceptedResponse,
           );
           // 服务端已建会话 + queued 行（同 cid/gid）→ 拉真数据校正缓存 + 刷新侧栏。

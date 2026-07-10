@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { type Ref, useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import type { Background, GenerateRequest, Quality } from "../../contracts/generate";
+import type { Background, GenerateParams, Quality } from "../../contracts/generate";
 import { UPLOAD_ACCEPT } from "../../contracts/upload";
 import { PRICE_PER_IMAGE_MP } from "../../lib/credits";
 import { formatCredits } from "../../lib/format";
@@ -25,8 +25,8 @@ import {
 import styles from "./Composer.module.css";
 
 export interface ComposerProps {
-  request: GenerateRequest;
-  onChange: (req: GenerateRequest) => void;
+  request: GenerateParams;
+  onChange: (req: GenerateParams) => void;
   onSubmit: () => void;
   disabled?: boolean;
   canAfford: boolean;
@@ -101,7 +101,7 @@ export function Composer({
     ta.style.height = `${Math.min(ta.scrollHeight, 200)}px`;
   }, [request.prompt, variant]);
 
-  const set = <K extends keyof GenerateRequest>(key: K, value: GenerateRequest[K]) =>
+  const set = <K extends keyof GenerateParams>(key: K, value: GenerateParams[K]) =>
     onChange({ ...request, [key]: value });
 
   const canSend = !disabled && request.prompt.trim().length > 0;

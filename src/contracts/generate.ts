@@ -18,6 +18,16 @@ export type Quality = (typeof QUALITIES)[number];
 export const BACKGROUNDS = ["auto", "transparent", "opaque"] as const;
 export type Background = (typeof BACKGROUNDS)[number];
 
+export const CredentialModeSchema = z.enum(["system", "custom"]);
+export type CredentialMode = z.infer<typeof CredentialModeSchema>;
+
+export const GENERATE_REQUEST_ERROR_CODES = {
+  CUSTOM_KEY_REQUIRED: "CUSTOM_KEY_REQUIRED",
+  SYSTEM_MODE_FORBIDS_CUSTOM_KEY: "SYSTEM_MODE_FORBIDS_CUSTOM_KEY",
+} as const;
+export type GenerateRequestErrorCode =
+  (typeof GENERATE_REQUEST_ERROR_CODES)[keyof typeof GENERATE_REQUEST_ERROR_CODES];
+
 // 归一化失败枚举（唯一权威 04 §5.8；09 §10.5 直显）。error_code 为 text 列（无 DB CHECK），可加值不需迁移。
 export const ERROR_CODES = [
   "insufficient_quota",
@@ -36,8 +46,8 @@ export interface GeneratedImage {
   height: number | null;
 }
 
-// POST /api/generate 请求体。model/n/moderation/apiKey 服务端固定，前端不收不发（07 §8.3）。
-export const GenerateRequest = z.object({
+// Composer 只编辑生图参数；凭据模式在提交边界冻结并组装。
+export const GenerateParamsSchema = z.object({
   prompt: z.string().min(1, "prompt 不能为空").max(4000),
   size: z.enum(SIZES),
   quality: z.enum(QUALITIES).optional(),
@@ -50,7 +60,45 @@ export const GenerateRequest = z.object({
   // 仅长度/形态校验；owner-scope（key 必须属本人 uploads/<me>/）由入队事务权威校验。
   inputImageKey: z.string().min(1).max(300).optional(),
 });
+export type GenerateParams = z.infer<typeof GenerateParamsSchema>;
+
+// POST /api/generate wire 请求。旧页面缺 mode 且无 custom Key 时兼容为 system。
+export const GenerateRequest = GenerateParamsSchema.extend({
+  credentialMode: CredentialModeSchema.optional(),
+  customApiKey: z.string().trim().max(500).optional(),
+})
+  .strict()
+  .superRefine((value, ctx) => {
+    const mode = value.credentialMode ?? "system";
+    if (mode === "custom" && !value.customApiKey) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["customApiKey"],
+        message: GENERATE_REQUEST_ERROR_CODES.CUSTOM_KEY_REQUIRED,
+      });
+    }
+    if (mode === "system" && value.customApiKey !== undefined) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["customApiKey"],
+        message: GENERATE_REQUEST_ERROR_CODES.SYSTEM_MODE_FORBIDS_CUSTOM_KEY,
+      });
+    }
+  })
+  .transform((value) => ({ ...value, credentialMode: value.credentialMode ?? "system" }));
 export type GenerateRequest = z.infer<typeof GenerateRequest>;
+
+export function generateRequestErrorCode(error: z.ZodError): GenerateRequestErrorCode | null {
+  for (const issue of error.issues) {
+    if (issue.message === GENERATE_REQUEST_ERROR_CODES.CUSTOM_KEY_REQUIRED) {
+      return GENERATE_REQUEST_ERROR_CODES.CUSTOM_KEY_REQUIRED;
+    }
+    if (issue.message === GENERATE_REQUEST_ERROR_CODES.SYSTEM_MODE_FORBIDS_CUSTOM_KEY) {
+      return GENERATE_REQUEST_ERROR_CODES.SYSTEM_MODE_FORBIDS_CUSTOM_KEY;
+    }
+  }
+  return null;
+}
 
 // 按 status 的判别联合（与 04 §5.4 逐字段一致）：进行中无 creditsChargedMp，succeeded/failed 字段各异。
 export const GenerateStatusResponse = z.discriminatedUnion("status", [
