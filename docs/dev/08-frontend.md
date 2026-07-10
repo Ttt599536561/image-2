@@ -1,14 +1,14 @@
 # 9 · 前端架构
 
-> RR7 framework 模式（loader/action/SSR）+ TanStack Query v5 客户端态 + tokens.css 落地。骨架/状态看产品规格 [§3 导航](../redesign-requirements.md)/[§5 五态](../redesign-requirements.md)/[§10 最近](../redesign-requirements.md)/[§11 本次面板](../redesign-requirements.md)/[§12 资产库](../redesign-requirements.md)/[§13 灵感库](../redesign-requirements.md)/[§17 视觉](../redesign-requirements.md)/[§24 交互默认值](../redesign-requirements.md)；**结构**真相源 [wireframes.html](../prototypes/wireframes.html)、**视觉/令牌**真相源 [design-system.html](../prototypes/design-system.html)。技术栈见 [00-overview.md §1.1](00-overview.md)。
+> React Router 8 framework 模式（loader/action/SSR）+ TanStack Query v5 客户端态 + tokens.css。骨架/状态看产品规格 [§3 导航](../redesign-requirements.md)/[§5 五态](../redesign-requirements.md)/[§10 最近](../redesign-requirements.md)/[§11 本次面板](../redesign-requirements.md)/[§12 资产库](../redesign-requirements.md)/[§13 灵感库](../redesign-requirements.md)/[§17 视觉](../redesign-requirements.md)/[§24 交互默认值](../redesign-requirements.md)；结构真相源 [wireframes.html](../prototypes/wireframes.html)、视觉/令牌真相源 [design-system.html](../prototypes/design-system.html)。
 
-## 9.1 RR7 框架模式
+## 9.1 RR8 框架模式
 
-> **实现注（阶段一已落地）**：实际用 **React Router 8**——RR7（7.x）仅支持 vite ≤7，而本仓 vite 已是 8.x；RR8 的 framework 模式与 RR7 **同构**（`loader`/`action`/SSR/`routes.ts`/`+types`/`react-router.config.ts` 全一致），且原生支持 vite 8，配 `@netlify/vite-plugin-react-router@4`、React 钉 ≥19.2.7。**下文「RR7」一律指 framework 模式，版本以 RR8 为准。**
+> **当前实现**：`react-router`/`@react-router/node`/`@react-router/dev` 均为 **8.0.1**，Vite 8，配 `@netlify/vite-plugin-react-router@4` 与 React 19.2.7。本文直接使用 RR8 名称，不再使用旧版本代称。
 
-React Router 7 **framework 模式**（非 library/data 模式）：路由即模块，每个路由模块可导出 `loader`（服务端取数、SSR 首屏）、`action`（表单/写操作）、`Component`（UI）、`ErrorBoundary`。配 Vite + React 19，`@react-router/dev` 插件接管打包与 SSR。
+React Router 8 **framework 模式**（非 library/data 模式）：路由即模块，每个路由模块可导出 `loader`、`action`、`Component`、`ErrorBoundary`。配 Vite 8 + React 19，`@react-router/dev` 接管打包与 SSR。
 
-`vite.config.ts` 形态（Netlify 跑 RR7 framework 模式必需）：`plugins:[reactRouter(), netlifyReactRouter()]`——`reactRouter()` 取自 `@react-router/dev/vite`、`netlifyReactRouter()` 取自 `@netlify/vite-plugin-react-router`（依赖见 [11-structure-roadmap.md §12.4](11-structure-roadmap.md)），后者默认产出 Netlify Serverless Functions(Node)、Edge 才设 `edge:true`；`@react-router/node`、`isbot` 保留。
+`vite.config.ts` 形态：`plugins:[reactRouter(), netlifyReactRouter()]`；前者来自 `@react-router/dev/vite`，后者来自 `@netlify/vite-plugin-react-router`，默认产出 Netlify Serverless Functions(Node)。
 
 ```ts
 // vite.config.ts
@@ -34,8 +34,8 @@ app/
 
 **server-only 边界（密钥红线 · [00-overview.md §1.4](00-overview.md)）**：
 
-- 文件名带 `.server.ts` 的模块被 RR7/Vite **从客户端 bundle 整体剔除**；`loader`/`action` 函数体也只在服务端跑。DB 句柄、Better Auth 实例、`RELAY_*`/`DATABASE_URL*`/R2 凭据/`BETTER_AUTH_SECRET` 只从 `.server.ts` 引用，**绝不**在 Component 顶层 import。
-- 误把 server 模块拖进客户端图（如组件直接 import `db.server`）会被 RR7 编译期报错；再叠 `scripts/assert-no-secrets-in-bundle.ts` 扫 `build/client/` 兜底（[00-overview.md §1.4](00-overview.md)）。
+- 文件名带 `.server.ts` 的模块被 RR8/Vite 从客户端 bundle 整体剔除；`loader`/`action` 函数体也只在服务端跑。DB、Better Auth、`RELAY_*`/`DATABASE_URL*`/`STORAGE_*`/`BETTER_AUTH_SECRET` 只从 server-only 模块引用。
+- 误把 server 模块拖进客户端图会被 RR8 编译期报错；再叠 `assert-no-secrets-in-bundle.ts` 扫 `build/client/` 兜底。
 - `loader`/`action` 内直连 DB 走 [00-overview.md §1.3](00-overview.md) 的两种模式：列表/余额只读走 HTTP `neon()`；若 loader 内需事务（少见，写操作尽量交给同步 fn）才用 Pool。
 
 **loader 鉴权 guard 与重定向**：受保护路由统一挂在 `_app.tsx` 父布局下，父 loader 做一次硬校验（查 DB 会话、读封禁态，不吃 cookieCache，见 [05-auth.md §6.3](05-auth.md)），失败即 `throw redirect("/login?next=...")`。
@@ -55,7 +55,7 @@ export async function requireAdmin(request: Request) {
 }
 ```
 
-> RR7 的 `throw redirect()` / `throw new Response(401)` 在 loader 里是惯用法——抛出即中断渲染并返回响应，无需 `return`。
+> RR8 的 `throw redirect()` / `throw new Response(401)` 在 loader 里会中断渲染并返回响应，无需 `return`。
 
 ## 9.2 路由表
 
@@ -69,13 +69,14 @@ export async function requireAdmin(request: Request) {
 | `/` | `_app._index` | 当前用户、余额、最近会话首屏 20、灵感画廊（欢迎态）| — | 需登录 |
 | `/c/:id` | `_app.c.$id` | 校验会话归属、该会话对话流（轮次）、本次面板图片 | 提交生成转交 fn（见 §9.4）| 需登录 |
 | `/assets` | `_app.assets` | 资产库首页（日期分组首屏 + 默认筛选）| 批量删除 | 需登录 |
-| `/inspiration` | `_app.inspiration` | 灵感卡列表（品类 Tab + 已上架）| — | 需登录 |
+| `/inspiration` | `_app.inspiration` | 灵感卡列表（品类 Tab + 已上架）| 标题行「投稿」按钮开 SubmitInspirationModal（用户投稿 UGC，[INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)）| 需登录 |
 | `/billing` | `_app.billing` | 余额 + 套餐档卡片（上架、排序）| 兑换码核销（或交 fn）| 需登录 |
 | `/account` | `_app.account` | 账号信息（邮箱、注册时间、并发上限）| 改密 | 需登录 |
 | `/admin` | `_admin._index` | 看板 7 卡聚合 | — | 需 admin |
 | `/admin/codes` | `_admin.codes` | 兑换码批次列表 | 生成/作废/导出 | 需 admin |
 | `/admin/users` | `_admin.users` | 用户列表（搜索分页）| 封禁/改密/调积分/调并发 | 需 admin |
 | `/admin/inspiration` | `_admin.inspiration` | 灵感卡 CRUD 列表 | 增删改 | 需 admin |
+| `/admin/inspiration-submissions` | `_admin.inspiration-submissions` | 投稿审核队列（状态 Tab 筛选 + 分页 + 待审计数）| 通过（建卡 + 署名）/ 驳回（填原因）| 需 admin |
 | `/admin/generations` | `_admin.generations` | 生成记录列表（筛选分页）| — | 需 admin |
 | `/admin/packages` | `_admin.packages` | 套餐 + 全局参数 + 审计 | CRUD/改参数 | 需 admin |
 
@@ -85,13 +86,13 @@ export async function requireAdmin(request: Request) {
 
 ## 9.3 TanStack Query v5
 
-**与 RR7 loader 分工（不重叠）**：
+**与 RR8 loader 分工（不重叠）**：
 
 | 关注点 | 谁负责 |
 |---|---|
-| 首屏/路由导航数据（SSR、SEO 不需但要快、随 URL 变） | **RR7 loader** —— 列表第一页、余额初值、会话对话流 |
+| 首屏/路由导航数据（SSR、SEO 不需但要快、随 URL 变） | **RR8 loader** —— 列表第一页、余额初值、会话对话流 |
 | 客户端交互态：job 轮询、乐观更新、跨页缓存复用、分页「加载更多」 | **TanStack Query** |
-| 写操作（表单提交） | RR7 `action`（导航型）或 TanStack `useMutation`（局部、不导航，如兑换/存资产库）|
+| 写操作（表单提交） | RR8 `action`（导航型）或 TanStack `useMutation`（局部、不导航，如兑换/存资产库）|
 
 loader 取到的首屏数据可作为对应 query 的 `initialData`（用同一 query key），避免「SSR 渲染一份 → 客户端再拉一份」抖动。
 
@@ -127,6 +128,7 @@ function useGenerationStatus(generationId: string | null) {
 | `["conversations", { cursor }]` | 最近会话分页 | 新建/续聊 |
 | `["assets", { range, cursor }]` | 资产库分页（含日期筛选参数） | 删除、生成成功 |
 | `["inspiration", { tab, q }]` | 灵感卡列表 | 后台 CRUD（用户侧只读） |
+| `["my-submissions"]` | 我的投稿状态（待审/通过/驳回，`useMySubmissions`） | 投稿提交成功 |
 
 **mutation 后 invalidate**（强一致写完即刷新派生视图）：
 
@@ -232,10 +234,11 @@ sequenceDiagram
 | **尺寸浮层** | 复用 [sizeOptions.ts](../../src/components/composer/sizeOptions.ts) 的 6 场景选项（`auto / 1024×1024 / 1024×1536 / 1536×1024 / 1088×1920 / 1920×1088`），选中态线框→实心黑边（[§17](../redesign-requirements.md)）；点比例药丸弹浮层（`--shadow-md`）| wireframes §Composer，[§5.1](../redesign-requirements.md) |
 | **高级设置浮层** | 仅质量 + 背景两项（审核固定 low、不出现）| [§5.1](../redesign-requirements.md) |
 | **全局 lightbox** | 屏幕居中模态 + `--scrim` 全屏遮罩，点遮罩/× 关闭；**浮层内仅「下载」**（不放再生成）；对话流/本次面板/资产库/灵感库/后台记录通用 | design-system 第 11 节（图片放大预览 lightbox），[§17](../redesign-requirements.md) |
-| **通知铃铛** | 顶栏铃铛 + 红点 badge（**只计未读** read_at IS NULL）；点开下拉**拉全部近 50 条（含已读，看完仍保留）**，已读灰显、未读淡陶土高亮；`image_expiring`（payload `{imageId,expiresAt}`）点跳资产库、`announcement`（payload `{title,body,link?}`）**点弹详情 Modal**（完整正文 + link 内站 navigate/外链 window.open + 知道了，关闭不删通知）；数据 + 标记已读走 TanStack Query（`GET /api/notifications`〔缺省全部，loader 仍兼容 `?unread=1`〕、`POST /api/notifications/read`，[07-api.md §8.3](07-api.md)），打开下拉即 `POST .../read`（缺省全标）→ invalidate 消红点但**条目保留可反复点开**。**②（2026-06-22）**：`image_expiring` 在 cron 删图时连带删除（`deleteExpiredImages`），避免到期提醒滞留 | [§9.2](#92-路由表)，[10-ops-test.md §11.7](10-ops-test.md) |
+| **通知铃铛** | 顶栏铃铛 + 红点 badge（**只计未读** read_at IS NULL）；点开下拉**拉全部近 50 条（含已读，看完仍保留）**，已读灰显、未读淡陶土高亮；按 `type` 分支：`image_expiring`（payload `{imageId,expiresAt}`）点跳资产库、`announcement`（payload `{title,body,link?}`）**点弹详情 Modal**（完整正文 + link 内站 navigate/外链 window.open + 知道了，关闭不删通知）、`inspiration_reviewed`（payload `{status,title,reason?,inspirationId?}`）**Lightbulb 图标 + 通过/驳回文案**（驳回带 reason）、点跳 `/inspiration`（投稿审核结果，[INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)）；数据 + 标记已读走 TanStack Query（`GET /api/notifications`〔缺省全部，loader 仍兼容 `?unread=1`〕、`POST /api/notifications/read`，[07-api.md §8.3](07-api.md)），打开下拉即 `POST .../read`（缺省全标）→ invalidate 消红点但**条目保留可反复点开**。**②（2026-06-22）**：`image_expiring` 在 cron 删图时连带删除（`deleteExpiredImages`），避免到期提醒滞留 | [§9.2](#92-路由表)，[10-ops-test.md §11.7](10-ops-test.md) |
 | **本次对话图片面板** | 右侧常驻（≥1024）、对话头部「本次·N」开关；网格 2 列、正方裁剪缩略图、按时间倒序、仅成功图；`<1024` 收抽屉、`<768` 底部抽屉；点缩略图定位/放大；「下载全部」（复用资产库打包 zip、命名 `图像工坊_导出_YYYYMMDD_HHmmss.zip`；亦可退化为逐张单下）+ 单张「存入资产库」| wireframes §对话，[§11](../redesign-requirements.md)/[§24.7](../redesign-requirements.md) |
 | **资产库** | 日期 **sticky 分组**（今天/昨天/具体日期）；**精致日期筛选**（快捷今天·近7·近30 + 带日历自定义区间，非朴素下拉，选完自动应用）；「批量管理」后框选+Shift 连选+单击切换，选中浮出**吸底 action bar**（已选 N · 打包 zip 下载 / 删除带确认）| wireframes §资产库，[§12](../redesign-requirements.md)/[§24.8](../redesign-requirements.md)/[§24.9](../redesign-requirements.md) |
-| **灵感卡** | 封面为主体的**瀑布流**（原始比例不裁切，`width/height` 回填预留盒避免抖动）；标题/摘要/「用此提示词」半透明渐变浮层叠下半部、品类标签浮左上、按钮 hover 转陶土；点「用此提示词」一键带回 Composer 并滚到底（不自动发，**直接覆盖输入框不弹确认**，站长定）。**P3-S4**：品类 Tab 由 `/api/inspirations` 的 `categories`（DISTINCT active）动态出 + 「全部」首位；搜索/品类**服务端过滤**（250ms debounce + `keepPreviousData` 防闪，默认视图用 loader initialData）| design-system 第 10 节，[§13](../redesign-requirements.md)/[§24.10](../redesign-requirements.md) |
+| **灵感卡** | 封面为主体的**瀑布流**（原始比例不裁切，`width/height` 回填预留盒避免抖动）；标题/摘要/「用此提示词」半透明渐变浮层叠下半部、品类标签浮左上、按钮 hover 转陶土；点「用此提示词」一键带回 Composer 并滚到底（不自动发，**直接覆盖输入框不弹确认**，站长定）。**P3-S4**：品类 Tab 由 `/api/inspirations` 的 `categories`（DISTINCT active）动态出 + 「全部」首位；搜索/品类**服务端过滤**（250ms debounce + `keepPreviousData` 防闪，默认视图用 loader initialData）。**署名（UGC）**：卡片 hover 浮层在 `item.submitter` 非空时显「由 X 投稿」（X = 通过时冻结的掩码昵称；站长自建卡 `submitter` 为 `null` 不显，[INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)）| design-system 第 10 节，[§13](../redesign-requirements.md)/[§24.10](../redesign-requirements.md) |
+| **投稿弹窗** | `SubmitInspirationModal`：从「我的作品」选一张图（`useAssets({range:'all',pageSize:200})`）+ 表单（标题必填、提示词预填原图可改、分类下拉、简介）+「我的投稿」状态列表（`useMySubmissions`，待审/已通过/已驳回 + 驳回原因）；提交走 `POST /api/inspiration-submissions`（**不扣积分**），成功 invalidate `["my-submissions"]`；服务端取权威字段、归属校验、待审上限/限流见 [INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md) | wireframes §灵感库，[§13.1](../redesign-requirements.md) |
 | **Toast** | 右上角（移动端顶部），成功/失败/提示三类（绿/红/中性），自动 3 秒、可手动关；挂 `root.tsx` 全局容器 | design-system，[§17](../redesign-requirements.md)/[§24.11](../redesign-requirements.md) |
 | **星空动效骨架** | 生成中占位：深空底（`--cosmic-*`）+ 旋转银河 + 错峰星点 + 偶发掠星 + 角落呼吸光点 + `生成中 M:SS`；按所选比例自适应铺满；**仅 transform/opacity** 动画 + `@media (prefers-reduced-motion: reduce)` 降级为静态深空底 | design-system 第 8 节，[§17](../redesign-requirements.md)/[§24.12](../redesign-requirements.md) |
 
@@ -318,26 +321,29 @@ export function clearUserApiConfig(userId: string): void;
 - 缺失/损坏 JSON 默认 `{mode:"system",customApiKey:""}`；schema 版本不认识也安全回退。绝不把 Key放进 URL、cookie、SSR loader、TanStack Query cache、analytics 或错误。
 - 这是明确批准的**明文** `localStorage`，不做伪加密。配置按稳定 user ID 隔离；退出不删，清除按钮才删除并切 system。
 - 保存 custom Key 只校验 `trim().length>0` 与最大 500 字符，保存后切 custom；切 system 保留 Key。固定 URL 只读展示且不进入提交 payload。
+- `/api/me.customKeyModesEnabled` 是 custom 可用性的服务端权威；配置或 me 尚未 ready 时所有提交控件禁用。false 时保留已存 Key、禁用 custom 保存/提交且不自动切 system。
 
 ### 顶部弹窗
 
 - `TopBar` 增加 Lucide `KeyRound` 图标按钮与 tooltip/可访问名称。弹窗用单选/segmented control 表达 system/custom；custom 区含 password 输入、`Eye/EyeOff`、保存、清除和只读 URL。
-- system 状态说明按积分计费；custom 状态说明不扣积分。不要展示 Key hint、余额验证或“连接测试”。
+- system 状态说明按积分计费；custom 明确写“本站不扣积分，第三方计费以服务商规则为准”。不要展示 Key hint、余额验证或“连接测试”。
 - 弹窗需有焦点圈、Escape/遮罩关闭、label/description 关联；360px 与桌面均无横向溢出、按钮文字截断或顶栏重叠。
 
 ### 生成与批量轮询
 
 - 每次提交从当前 user 配置构造 `{credentialMode, customApiKey?}`。system 不放 `customApiKey`；custom 没 Key 时打开/聚焦弹窗并阻止请求。
 - system 本地余额预检查继续存在；custom 不读取 `canAfford`，Composer 显示“不扣积分”。服务端仍是最终权威。
-- 防双击 guard 只覆盖一次 enqueue 动作，到 202/错误即释放；不能锁到 generation 终态。这样 system 可在服务端并发上限内多任务，custom 可无限制连续提交。
-- 不再以单个 `activeId` 表示整页生成状态。由当前 conversation cache 派生所有 `queued/claimed/running` IDs，以一次批量请求轮询，按 `generationId` 更新对应 turn；一个终态只从集合移除自己。
+- 防双击 guard 只覆盖一次 enqueue 动作，到 202/错误即释放。custom 可无限制连续提交；system 保留现有同会话单项交互锁，前一项终态前 Composer 禁用。服务端 system 并发只统计 `credential_mode='system'`，custom 不占 system 槽。
+- 不再以单个 `activeId` 表示整页生成状态。由当前 conversation cache 派生所有 `queued/claimed/running` IDs，以一个轮询控制器按每批 `<=50` 分片请求并合并，按 `generationId` 更新对应 turn；显式处理 `missingIds`，一个终态只从集合移除自己。
+- 同一 ID 连续两次进入 `missingIds` 后刷新权威会话；若仍不存在，将原乐观项收口为 UI-only“任务不存在或无权访问” tombstone 并停止该 ID 的轮询，不伪造服务端失败态，其他任务继续。
 - 页面刷新/切回会话从 loader 数据重建 pending 集合；路由离开或标签关闭不取消服务端任务。到 `deadlineAt` 后做最后一次刷新，UI 只接受服务端返回的终态。
+- 已打开页面若 custom POST 收到 `503 CUSTOM_KEY_MODES_DISABLED`，立即把 me cache 标为 false 并 invalidate，撤销本次乐观项、打开暂停态弹窗且保留 Key；不得自动重试为 system。
 
 ## 红线清单（前端）
 
 - [ ] server-only：DB、system/基础设施 Key、任务加密主密钥只从 `.server.ts` 引用。custom 用户 Key 仅按 §9.8 存本地/随请求，组件不得日志化或放 Query cache。
 - [ ] 受保护路由统一走 `_app` 父 loader `requireUser`、后台走 `requireAdmin`；未登录 `redirect("/login?next=")`，封禁号撵出（[05-auth.md §6.3](05-auth.md)）。
-- [ ] 图片 URL **只用 R2 `public_url`**，绝不渲染中转临时 URL（[01-architecture.md §2.1](01-architecture.md)）。
+- [ ] 图片 URL **只用 Supabase Storage `public_url`**，绝不渲染中转临时 URL（[01-architecture.md §2.1](01-architecture.md)）。
 - [ ] 当前会话所有非终态 job 走单次批量轮询；按各自 `deadlineAt` 最后刷新，单项终态不影响其他项。
 - [ ] 余额本地校验只用于 system；custom 不因余额禁用提交。两者真权威都在服务端。
 - [ ] 生成**不可取消**：UI 无取消按钮、无「已取消」态（[§5.3](../redesign-requirements.md)）。

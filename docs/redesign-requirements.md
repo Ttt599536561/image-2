@@ -156,7 +156,7 @@
 - **图片生成记录（列表形式）**：以**列表/表格**展示**所有用户的生成记录**（小缩略图 + 所属用户 + 生图时长 + 提示词 + 状态 + 时间），可按用户/时间筛选、分页，一屏看多条不用一直下滑；**点缩略图即放大**（无需单独"放大"按钮）。**失败行直接显示报错原因 + 状态码**（如「504 中转网关超时」），无需再点"查看错误"。**纯记录/排查用，不做"收录灵感库"等操作。**
 - **套餐管理（CRUD）**：以列表展示充值套餐，可**新建/编辑/删除**。每个套餐字段：**套餐标题、套餐描述（适用场景/人群，可空，多行输入、前台 2 行内展示）、价格、积分、有效期（= 该套餐积分兑换后多少天过期，**可设「永久」**）、跳转 URL、排序、是否上架**。
 - **全局参数（后台可改、不写死）**：单张扣费价（0.07）、新用户赠送额（0.14）、**新用户赠送有效期（天，默认 30）**、保留期天数（免费 7 / 付费 60）。
-- **数据看板（本期最小 7 卡）**：①今日注册数 ②今日成功/失败次数 + **失败原因 Top**（新任务按 §25 十值错误契约，历史六值只读兼容，并支持按 system/custom 下钻）③累计总图数 ④今日/累计**收入**（兑换成功按**面值现金** ¥9.9/¥29.9 记账）⑤**积分发放 vs 消耗 + 账面负债**（赠送与充值分列）⑥**队列健康**（待处理/运行中）⑦**平均生图时长**。再加：付费转化率/ARPU、DAU、尺寸占比。
+- **数据看板（本期最小 7 卡）**：①今日注册数 ②今日成功/失败次数 + **失败原因 Top**（system 保留七值语义，custom 用 §25 十值，读取/聚合取并集并支持按 mode 下钻）③累计总图数 ④今日/累计收入 ⑤积分发放 vs 消耗 + 账面负债 ⑥队列健康 ⑦平均生图时长。再加：付费转化率/ARPU、DAU、尺寸占比。
 - **操作审计日志（本期做）**：管理员敏感操作（调积分、改密、封禁、生成/作废码、改配置/定价/文案/Key）留痕（管理员 ID、时间、对象、动作、变更前后值、IP、原因）；**只追加、管理员不可删改自己的记录**。
 - **站内通知配置 / 管理（新需求 2026-06-22）**：现状——站内通知**仅 `image_expiring`**（图片到期前 1 天 cron 自动产出）。本需求让管理员能在后台**创建并下发站内通知**，让前台铃铛不只有自动到期提醒。
   - ① **广播公告（✅ 已实现）**：通知类型 `announcement`（payload `{title, body, link?}`），后台撰写 → 选目标（全体 / 仅付费 `has_paid=true`）→ 下发；前台铃铛按类型渲染（Megaphone + 摘要，link 站内 navigate / 外链 window.open）。实现：`api.admin.notifications`(`requireAdmin`) + `notifications.server.broadcastAnnouncement`（per-user 批量插 `notifications`，`dedupe_key=announcement:<aid>:<uid>` 幂等、INSERT+审计同事务）+ `_admin.notifications.tsx` 撰写页 + `NotificationBell` 分支。link 安全分类器 `src/lib/announcementLink`（站内单层路径 / http(s) 外链）挡开放重定向。
@@ -233,21 +233,21 @@
 
 ## 15. 系统架构（技术选型已定稿；三步演进）
 
-> **技术选型已锁定（完整技术设计见开发文档）。** 栈：部署 **Netlify**（Background Functions 15min 跑 5min 生图 / Scheduled Functions 跑 cron / 阶段一 **DB-as-queue** 用 generations 状态机做队列，不引独立队列服务）；DB **Neon Postgres**（钱/码 `@neondatabase/serverless` **Pool/WS** 事务+`FOR UPDATE`，看板 HTTP；region 选 AWS 美东与 Netlify 函数同区）；ORM **Drizzle**+drizzle-kit（关键幂等约束手写校对 SQL）；前端 **React Router 7 framework 模式**+Vite+React 19；鉴权 **Better Auth**（DB 可吊销会话+admin 插件+bcryptjs，钉版避 multi-session CVE、敏感路径每请求查 DB 硬校验）；存储 **R2**（公有 bucket+不可枚举 URL+自定义域）；API 手写 REST(202+短轮询、语义化状态码)+**TanStack Query v5**+**Zod4/drizzle-zod**（`src/contracts` 单一真相源）；样式 tokens.css+CSS Modules；质量 Vitest(真 Neon 分支测钱链路)+Playwright 冒烟+**Biome**+Sentry+GitHub Actions。**已排除** Next.js/TanStack Start、MySQL/PlanetScale（缺部分唯一索引+RETURNING、serverless 生态弱）、Supabase（鉴权/存储已另选）。
+> **技术选型已锁定（完整技术设计见开发文档）。** 栈：部署 **Netlify**（Background Functions 15min 跑 5min 生图 / Scheduled Functions 跑 cron / 阶段一 **DB-as-queue**）；DB **Neon Postgres**（钱/码走 Pool/WS 事务 + `FOR UPDATE`，看板 HTTP）；ORM **Drizzle**；前端 **React Router 8.0.1 framework 模式** + Vite 8 + React 19；鉴权 **Better Auth**；存储为 **Supabase Storage 的 S3 兼容公有桶**，代码使用厂商中立 `STORAGE_*`（`r2.server.ts`/`putToR2` 仅是历史命名）；API 手写 REST + TanStack Query v5 + Zod 4；样式 tokens.css + CSS Modules；质量 Vitest、Playwright、Sentry、GitHub Actions。已排除 Next.js/TanStack Start、MySQL/PlanetScale、Supabase Auth/Database；Supabase Storage 是当前采用项。
 >
 > **⚠️ 因「中转 api.tangguo.xin = 同步阻塞」的 4 条成本约束**：① system 保留单日预算熔断，custom 明确绕过且风险已接受；② 持续实测单图 GB-hour compute 与存储成本；③ generations 抢占式状态机防平台重试/cron 重扫重复下单；④ system 只读服务端全局 Key，custom 只读 generation-scoped 加密临时凭据。
 >
 > **安全边界**：构建期继续断言 system/基础设施 secret 永不进 bundle；另以运行时哨兵证明 custom Key 只存在于按 user ID 命名空间化的 `localStorage`、本次 HTTPS 请求体与服务端临时密文，不进入日志、错误、事件、审计或响应。
 
-**第一步 · 修现状隐患（本期必做）**
-- 把 [generate.ts](../netlify/functions/generate.ts) 里"用 `fetch` 主动调 generate-background"改成**真正的 Netlify Background Function**（拿回 15 分钟时长与平台重试）；普通同步函数 10s/26s 会被生图打超时。
+**第一步 · 已完成的现状修复（保持回归）**
+- `generate-background` 已是 Netlify Background Function；[generate.ts](../netlify/functions/generate.ts) 只 `await` 一次短触发请求以保证请求发出，不等待 relay/job 结果。禁止改回 `void fetch`，也禁止在同步 handler 内等待生图。
 - v1 system 路径曾把已删除的 `src/server/imageProxy.ts` 中 Key 从请求体 `apiKey` 改为服务端 `RELAY_API_KEY` 并删除旧全局密钥 UI；新 custom 只按 §25 的受控链路实现，不恢复旧请求/jobStore 传 Key 方案。
 - 前端继续**短轮询**，但目标契约改为 owner-scoped 批量查询当前会话所有非终态 generation。system/custom 均以服务端 `deadline_at` 为准、创建后最多 5 分钟；不上 SSE/WebSocket。
 
 **第二步 · 上数据库 + 可靠队列（落地积分必做）**
 - **数据库**：Serverless Postgres（**Neon**），承载用户/积分账本/批次/兑换码/会话/生成/图片/审计/事件等强一致数据。**Netlify Blobs 是 KV、最终一致、无原子操作，绝不放余额/兑换码/job 态**；**job 态迁 generations 表**（避免 60s 一致性坑）。**调用模式区分**：兑换核销可用 **HTTP 单语句**（`UPDATE…RETURNING` 已原子）；但**扣费/FIFO 扣批次/注册原子发放等多语句事务必须走 transaction（Pool / WebSocket）模式**——Neon HTTP 单语句模式不支持 `FOR UPDATE`/跨语句事务，用错幂等防双花会落空。DB client 单 handler 内开-用-关、不跨请求复用。
 - **队列（阶段一 = DB-as-queue，已定）**：不引独立队列服务——用 **generations 表做状态机**（`queued→claimed→running→succeeded/failed`）+ Background Function 消费 + Scheduled Function 5min 兜底重扫。去重/幂等靠 `generation_id` 部分唯一索引 + **抢占式中间态**：后台函数入口 `UPDATE…WHERE status='queued' RETURNING` 抢占（抢不到即退，挡平台自动重试 1/2min 与 cron 重扫的重复扣费/重复下单）；调中转前按 generation_id 查重或带请求级幂等键防重复下单。**Netlify Async Workloads / Upstash QStash 留作量大后的平滑升级**（仍在 Netlify 内、不锁平台）。
-- **对象存储**：结果图从中转站临时 URL/base64 **落到 Cloudflare R2**（S3 兼容、零出口费）；DB 只存 `storage_key + public_url`，前端永远读稳定 URL（否则历史/资产库整片裂图）。
+- **对象存储**：结果图从中转站临时 URL/base64 落到 **Supabase Storage（S3 兼容）**；DB 只存 `storage_key + public_url`，前端永远读稳定 URL。供应商由服务端 `STORAGE_*` 配置，历史 helper 名不代表当前供应商。
 - **幂等主键**：一个 `generation_id` 贯穿"提交 → 生图 → 落图 → 扣费"。
 - **扣费事务**：成功时单事务内「锁批次 → FIFO 扣减 → insert images → debit → 更新余额 → 标记成功」（可执行步骤与部分唯一索引见 §22 / §16）。
 - **provider 回调**：对接中转站时优先用其 webhook 回调替代"函数里 sleep 轮询 provider"；保持两层解耦——前端↔本站短轮询、本站↔provider webhook。
@@ -271,14 +271,14 @@ Neon Postgres。**金额一律用整数**（定死）：积分列用**毫积分 
 - **redeem_codes**(id, code unique, **package_id（决定积分/面值/有效期）**, credits_value, cash_value（面值现金，用于按面值记收入）, status[active|redeemed|disabled], batch_id, redeemed_by, redeemed_at, created_at) — 兑换时按 `package.valid_days` 给新批次设 `expires_at`
 - **conversations**(id, user_id, title, created_at, updated_at)
 - **generations**(id, conversation_id, user_id, prompt, model[固定 gpt-image-2], size, quality, background, moderation, **credential_mode[system|custom] default system**, **deadline_at**, **status[queued|claimed|running|succeeded|failed]**, job_id, error, credits_charged, **started_at, completed_at, duration_ms**, created_at, updated_at) — `duration_ms = completed_at − started_at`；in-flight = `queued/claimed/running`。`deadline_at` 对新任务固定为创建时刻 + 5 分钟，迁移需兼容存量 system 行。
-- **generation_credentials**(generation_id pk/fk cascade, ciphertext, iv, auth_tag/由密文格式携带, key_version, expires_at, created_at) — 只供 custom generation 保存 AES-GCM/KMS 等价密文；不得保存明文、Base URL 或用户级长期配置。终态立即删，`expires_at` 最迟创建后 15 分钟供孤儿清理。
+- **generation_credentials**(generation_id pk/fk cascade, ciphertext, iv, auth_tag/由密文格式携带, key_version, expires_at, created_at) — 只供 custom generation 保存 AES-GCM/KMS 等价密文；不得保存明文、Base URL 或用户级长期配置。终态立即删；数据库 `now()+10min` 计算 `expires_at`，cleanup 每 5 分钟按数据库时钟删除，正常最迟 15 分钟物理删除。
 - **images**(id, generation_id unique, user_id, storage_key, public_url, content_type, width, height, size_bytes, is_public default false, expires_at null, created_at)
 - **audit_log**(id, admin_id, action, target_type, target_id, before jsonb, after jsonb, ip, reason, created_at) — 管理员敏感操作；只追加、管理员不可改自己的记录
 - **events**(id, type[user_registered|image_succeeded|image_failed(含 reason)|code_redeemed|credit_granted|credit_consumed|credit_expired|image_cleaned], user_id, payload jsonb, created_at) — **append-only 事实表，数据看板全部从它聚合**（job/历史清理后不丢数据）
 
 **二级索引**（高频查询防全表扫）：`generations(conversation_id)`、`generations(user_id,created_at)`、`generations(status,created_at)`、`images(user_id,created_at)`、`images(expires_at)`、`credit_lots(user_id,expires_at)`、`credit_ledger(user_id,created_at)`、`redeem_codes(batch_id)`、`events(type,created_at)`。
 
-**并发计数**：不设独立计数列；并发 = `COUNT(*) FROM generations WHERE user_id=? AND status IN('queued','claimed','running')`（唯一事实源；任务进终态即自动释放，无双减/漏减）。
+**并发计数**：不设独立计数列；system 账户并发 = `COUNT(*) FROM generations WHERE user_id=? AND credential_mode='system' AND status IN('queued','claimed','running')`。custom in-flight 可单独观测，但不占 `max_concurrency`；任务进终态自动释放。
 
 > **Better Auth 的会话表同库**：`user / session / account / verification` 四张表（Better Auth 管理）与上述业务表共用同一 Neon 库、各管各事务、互不干扰（钱/码事务只碰 credit_lots/redeem_codes/ledger 等）。`users` 业务字段（role、max_concurrency 等）与 Better Auth 的 user 表对齐方式在开发文档定。
 
@@ -376,7 +376,7 @@ Neon Postgres。**金额一律用整数**（定死）：积分列用**毫积分 
 
 ## 25. 系统 Key / 自定义 Key 与多任务生成（2026-07-11 批准增补）
 
-> 本节是当前待实施功能的产品摘要；字段、错误码、安全边界和逐条验收以 [批准版 PRD](../tasks/prd-user-api-key-modes.md) 为准。当前生产仍是 system-only，完成状态看 [PROGRESS.md](PROGRESS.md)。
+> 本节是当前待实施功能的产品摘要；字段、错误码、安全边界和逐条验收以 [批准版 PRD](../tasks/prd-user-api-key-modes.md) 为准。当前生产代码 `42d8a0b` 仍是 system-only，完成状态看 [PROGRESS.md](PROGRESS.md)。
 
 | 维度 | system | custom |
 |---|---|---|
@@ -384,25 +384,29 @@ Neon Postgres。**金额一律用整数**（定死）：积分列用**毫积分 
 | 中转 | 现有后台 `app_config`，env 兜底 | 固定 `https://api.tangguo.xin/v1`，客户端不可改也不发送 URL |
 | Key | 仅服务端全局配置 | user-scoped `localStorage` 明文 + HTTPS 请求；服务端 generation-scoped 密文 |
 | 计费 | 保持余额校验、成功扣费、FIFO、账本 | 不查余额、不扣费；成功 `credits_charged_mp=0`，余额/批次/账本不变 |
-| 防护 | 保持账户并发、系统日预算及既有限制 | 不限账户并发、不计系统预算、不做提交限流；风险已接受 |
+| 防护 | system 并发只统计 system in-flight；保留系统日预算及既有限制 | 不限账户生成并发、不计系统预算/并发、不做生成提交限流；通用鉴权/参数/上传安全限制仍有效 |
 | 失败 | 现有系统错误 | 精确映射 custom Key/配额/限流等错误；不自动回退 system，不清本地 Key |
 | 存储 | 对象存储 + 会话历史 + 资产库 | 完全相同的存储、历史、资产与保留策略 |
 | deadline | 创建后最多 5 分钟 | 同一 5 分钟规则 |
 
 ### 25.1 交互与本地配置
 
-- 顶栏 `KeyRound` 图标打开模态框；system/custom 用单选或分段控件，custom Key 用密码输入并支持显隐、保存、清除，固定 URL 只读展示。
-- 保存时只校验非空与合理最大长度，不探测上游、不产生测试图片。首次默认 system；按登录用户 ID 隔离本地键名，无跨设备同步。退出登录不删除该用户配置。
+- 顶栏 `KeyRound` 图标打开模态框；system/custom 用单选或分段控件，custom Key 用密码输入并支持显隐、保存、清除，固定 URL 只读展示；tooltip/可访问名称包含当前 mode。
+- 保存时只校验 trim 后非空与最多 500 字符，不探测上游、不产生测试图片。首次默认 system；按登录用户 ID 隔离本地键名，无跨设备同步。退出登录不删除该用户配置。
+- SSR 水合与账号切换期间须有 ready gate，配置加载完成前不得提交；dialog 须有初始焦点、焦点圈定、Esc 关闭和触发点恢复。
 - 浏览器明文存储带来的同源 XSS、恶意扩展和共享设备风险是明确接受的设计，不得宣传为端到端加密。
+- “本站不扣积分”不代表第三方免费；用户自定义 Key 是否计费与退款以服务商规则为准。
 
 ### 25.2 请求、凭据与安全
 
-- `GenerateRequest` 必含 `credentialMode: "system" | "custom"`；custom 必含 `customApiKey`，system 不得携带它。custom Key 最大长度由契约限制；客户端永不提交 Base URL。
-- 自定义凭据与 generation 必须原子创建或具有等价补偿；后台载荷只含 `generationId`。临时凭据终态立即删除，15 分钟仅为异常孤儿清理上限。
-- Key 明文不得进入 generation 普通字段、图片、events、audit、Sentry、日志、错误字符串、用户/管理员响应；脱敏器须覆盖本次真实 system/custom Key、Bearer 头和常见 Key 形态。
+- 新客户端必须显式发送 `credentialMode: "system" | "custom"`；旧请求缺 mode 且无 Key 时兼容为 system，缺 mode/system 却携带 Key 时固定 400。custom 必含 trim 后非空且最多 500 字符的 `customApiKey`；客户端永不提交 Base URL。
+- 入队成功统一返回 `202 {generationId,conversationId,status,credentialMode,deadlineAt}`，客户端用服务端 deadline 校正乐观值。
+- 自定义凭据与 generation 必须原子创建或具有等价补偿；后台载荷只含 `generationId`。临时凭据终态立即删除；数据库时钟计算孤儿 10 分钟到期、5 分钟 cron，正常调度下最迟 15 分钟物理删除。
+- Key 明文不得进入 generation 普通字段、图片、events、audit、Sentry、日志、错误字符串、用户/管理员响应；relay 边界脱敏器须覆盖本次真实 system（含 app_config 值）/custom Key。成功路径只返回解析图片，不带出原始 response body。
+- custom 有服务端缺省关闭的运维开关。关闭时返回 `503 CUSTOM_KEY_MODES_DISABLED` 且零写入；UI 保留已存 Key但禁用 custom 提交，不能静默切 system；已打开页面首次收到 503 后立即刷新开关并进入暂停态。回滚先关入口，再以受审计脚本收口在途 custom 和删除凭据，清零前不得删除或轮换主密钥。
 
 ### 25.3 多任务、超时与错误
 
-- custom 允许用户在第一张未完成时继续提交。前端 owner-scoped 批量查询当前会话所有非终态任务，按 generation ID 更新对应卡片；单项终态不停止其他项轮询。
+- custom 允许用户在第一张未完成时继续提交；system 保持同会话单项锁定。一个轮询控制器把全部非终态任务按每批 ≤50 IDs 自动分片、合并并按 ID 更新卡片；`missingIds` 必须显式收口，单项终态不停止其他项。
 - 两种模式的权威 deadline 均为 generation 创建后 5 分钟；上游请求预留 30 秒做解析/落图/终态事务。状态接口可主动收口过期任务，cron 继续兜底。
-- 超时统一 `provider_timeout`，文案“请求超时，本次未扣积分，请重试”。custom 另覆盖 `custom_key_invalid`、`custom_key_quota`、`relay_rate_limited`、`relay_unreachable`、`invalid_request`、`content_rejected`、`invalid_response`、`storage_failed`、`unknown`；任何失败都不得自动改模式。
+- 超时统一 `provider_timeout`，文案“请求超时，本站未扣积分，请重试”。custom 使用 `custom_key_invalid`、`custom_key_quota`、`relay_rate_limited`、`relay_unreachable`、`invalid_request`、`content_rejected`、`invalid_response`、`storage_failed`、`unknown`；system 保留现有 `insufficient_quota` / `relay_5xx` 等语义，任何失败都不得自动改模式。

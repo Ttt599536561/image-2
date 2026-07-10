@@ -14,7 +14,7 @@
 
 - 独立路由组 `/admin/*`，与前台用户路由隔离（[08-frontend.md §9.2](08-frontend.md) 的路由表）。
 - 守卫两道，**缺一不可**：
-  1. RR7 `admin` 布局 loader：每请求 `requireAdmin(request)` —— 取会话 → **每请求查 DB**（不吃 cookieCache）→ `role==='admin' && !is_banned`，否则 `throw redirect('/')`（不暴露后台存在）。详见 [05-auth.md §6.7](05-auth.md)。
+  1. RR8 `admin` 布局 loader：每请求 `requireAdmin(request)` —— 取会话 → **每请求查 DB**（不吃 cookieCache）→ `role==='admin' && !is_banned`，否则 `throw redirect('/')`（不暴露后台存在）。详见 [05-auth.md §6.7](05-auth.md)。
   2. 所有 admin API 也独立做同一校验（不依赖前端隐藏菜单）。
 
 ### admin API 统一约定
@@ -146,10 +146,11 @@ SELECT source, granted_mp, remaining_mp, expires_at FROM credit_lots WHERE user_
 -- 流水（分页）
 SELECT entry_type, amount_mp, balance_after_mp, reason, ref_type, ref_id, created_at
   FROM credit_ledger WHERE user_id=$1 ORDER BY created_at DESC LIMIT 50;
--- 会话数 / 图片数 / 进行中并发
+-- 会话数 / 图片数 / 进行中任务（账户并发只认 system）
 SELECT count(*) FROM conversations WHERE user_id=$1;
 SELECT count(*) FROM images        WHERE user_id=$1;
-SELECT count(*) FROM generations   WHERE user_id=$1 AND status IN('queued','claimed','running'); -- 当前并发
+SELECT credential_mode, count(*) FROM generations
+ WHERE user_id=$1 AND status IN('queued','claimed','running') GROUP BY credential_mode;
 -- 注册/活跃：created_at + 最近一次 generation/会话 updated_at
 ```
 
@@ -294,8 +295,8 @@ LIMIT $pageSize OFFSET $offset;
 
 - 列：**缩略图 + 用户邮箱 + 生图时长(`duration_ms` → `M:SS`) + 提示词 + 状态 + 时间**。
 - 点缩略图 → **全局 lightbox**（[08-frontend.md §9.6](08-frontend.md) 通用浮层，仅「下载」，[§19](../redesign-requirements.md) 通用 lightbox）。
-- **失败行直显三列 `error_code` / `error` / `http_status`**，无需点开。存量行兼容 [§5.8](04-generation-pipeline.md) 六值，新任务展示 [07 §8.7](07-api.md) 十值；`error` 是脱敏人读串，`http_status` 是上游 HTTP 状态码（可空）。
-- 缩略图走 R2 `public_url`（前端只读，[06 §7.6](06-storage.md)），失败行无图占灰位。
+- **失败行直显三列 `error_code` / `error` / `http_status`**。system 展示 [§5.8](04-generation-pipeline.md) 七值既有语义，custom 展示 [07 §8.7](07-api.md) 十值；读取取并集，`error` 是脱敏人读串。
+- 缩略图走 Supabase Storage `public_url`（前端只读，[06 §7.6](06-storage.md)），失败行无图占灰位。
 
 ---
 
@@ -375,7 +376,7 @@ async function writeAudit(c, e: {
 | 卡 | 指标 | 聚合 SQL 思路（events） |
 |---|---|---|
 | ① 今日注册 | 今日新号 | `count(*) WHERE type='user_registered' AND today` |
-| ② 今日成功/失败 + 失败 Top | 成败计数 + 失败原因排行 | 成功 `count WHERE type='image_succeeded' AND today`；失败 `count WHERE type='image_failed' AND today`；Top: `SELECT payload->>'reason' r, count(*) FROM events WHERE type='image_failed' AND today GROUP BY r ORDER BY 2 DESC`；新任务按 [07 §8.7](07-api.md) 十值统计，历史六值保留兼容，并按 `credential_mode` 下钻。 |
+| ② 今日成功/失败 + 失败 Top | 成败计数 + 失败原因排行 | 成功/失败按 events 统计；Top 按 `payload->>'reason'` 聚合；system 七值、custom 十值取并集，并按 `credential_mode` 下钻。 |
 | ③ 累计总图 | 历史成功图 | `count(*) WHERE type='image_succeeded'` |
 | ④ 今日/累计收入（面值现金） | 兑换面值之和（分） | `sum((payload->>'cashValue')::bigint)::text WHERE type='code_redeemed' [AND today]`（展示 `/100`） |
 | ⑤ 积分发放 vs 消耗 + 账面负债 | grant/credit 分列、消耗、负债 | 发放 `sum((payload->>'amountMp')::bigint)::text WHERE type='credit_granted'`（按 `payload->>'source'` 分 signup/code/adjust）；消耗 `(sum(creditsChargedMp WHERE image_succeeded) + sum(amountMp WHERE credit_consumed))::text`（**口径修正**：生图扣费走 `image_succeeded`(payload.creditsChargedMp)、`credit_consumed` 仅 adjust 减额发——消耗=生图扣费+管理员减额；原写"仅 credit_consumed"会漏掉占绝大多数的生图消耗）；**账面负债 = 全站未过期 `credit_lots.remaining_mp` 之和**（直接查 lots：`sum(remaining_mp)::text WHERE remaining_mp>0 AND (expires_at IS NULL OR expires_at>now())`） |
@@ -414,5 +415,6 @@ async function writeAudit(c, e: {
 - [ ] **所有敏感写**：二次确认 + 同事务写 `audit_log`(before/after/ip/reason)；改密类不落明文。
 - [ ] `audit_log` 只追加，**无删改端点**（管理员不可改自己的记录）。
 - [ ] 看板全从 `events` 聚合（队列健康例外查实时表）；**所有 `SUM` 走 string codec 换 BigInt**（[10-ops-test.md §11.4](10-ops-test.md)）。
-- [ ] 生成记录默认近 7 天/50 条、倒序、失败行直显三列 `error_code`/`error`/`http_status`；新任务使用 [07 §8.7](07-api.md) 十值，历史六值只读兼容；缩略图全局 lightbox。
+- [ ] 生成记录默认近 7 天/50 条、倒序、失败行直显三列；system 七值、custom 十值读取取并集并可按 mode 筛选；缩略图全局 lightbox。
 - [ ] 生成列表/看板可区分 system/custom；后台所有 API 与页面均不得返回 custom credential 行或任何可推导 Key 的材料。
+- [ ] 灵感投稿队列（`_admin.inspiration-submissions`）双守卫（页 `requireAdminPage` + 两条 API `requireAdmin`）；通过/驳回二次确认，并在同一事务内写 `writeAudit`（`approve_inspiration_submission` / `reject_inspiration_submission`）和 `inspiration_reviewed` 通知；通过流程以 `FOR UPDATE` + `status='pending'` 防并发重复上架。投稿表与上架表分离、全程不扣积分，详见 [灵感投稿审核队列](#灵感投稿审核队列ugc--_admininspiration-submissions) 与 [INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)。

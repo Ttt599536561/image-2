@@ -17,12 +17,12 @@
 flowchart LR
   U["前端\nComposer 五态"] -->|"① POST /api/generate"| S["fn:generate (同步 ≤26s)\n三闸校验 + INSERT queued"]
   S -->|"202 {generationId,status:queued}"| U
-  S -.->|"② 真后台触发(generation_id)"| BG["fn:generate-background (15min)\n抢占→中转→落R2→扣费"]
+  S -.->|"② 真后台触发(generation_id)"| BG["fn:generate-background (15min)\n抢占→中转→落对象存储→扣费"]
   U -->|"③ 每2s GET /api/generate-status?id="| ST["fn:generate-status (同步)"]
   ST -->|"status (+image / +errorCode,error,httpStatus)"| U
   BG -->|"抢占 UPDATE queued→claimed"| DB[("generations")]
   BG -->|"Bearer RELAY_API_KEY, n=1, moderation=low"| RELAY["中转 api.tangguo.xin"]
-  BG -->|"PUT 结果图"| R2[("R2")]
+  BG -->|"PUT 结果图"| Storage[("Supabase Storage")]
   BG -->|"扣费事务 succeeded / failed"| DB
   ST --> DB
 ```
@@ -30,7 +30,7 @@ flowchart LR
 | 段 | 函数 | 类型 | 职责 | 链接 |
 |---|---|---|---|---|
 | 提交入队 | `generate` | 同步（≤26s） | 三闸校验 → 建会话 → `INSERT generations(queued)` → 触发真后台 → 返回 202 | §5.2 |
-| 后台消费 | `generate-background` | **Background（15min）** | 抢占 → 调中转 → 落 R2 → 扣费 → 终态 | §5.3 |
+| 后台消费 | `generate-background` | **Background（15min）** | 抢占 → 调中转 → 落对象存储 → 扣费 → 终态 | §5.3 |
 | 状态查询 | `generate-status` | 同步 | 查 `generations` 返回 status (+image / +errorCode,error,httpStatus) | §5.4 |
 
 **铁律映射**：抢占式状态机（铁律③）落 §5.3 + [03-money.md §4.5](03-money.md)；单日预算熔断（铁律①）落 §5.6；真后台 + 读 env key（铁律④）落 §5.7。
@@ -68,7 +68,7 @@ export async function handler(event) {
 
 | 闸 | 判定 | 失败 | 说明 |
 |---|---|---|---|
-| 并发闸 | `COUNT(status IN queued/claimed/running) < users.max_concurrency` | `409 超出并发数量` | COUNT 为准、无独立计数器 |
+| 并发闸 | `COUNT(credential_mode='system' AND status IN queued/claimed/running) < users.max_concurrency` | `409 超出并发数量` | 仅 system 占 system 槽；custom 绕过且不占槽 |
 | 余额闸 | `SUM(可用批次 remaining_mp) ≥ PRICE_MP(70)` | `402 积分不足，去充值` | **只判不扣**（成功才扣）；不足直接报错、不入队、不扣费 |
 | 预算闸 | `!isDailyBudgetExhausted(c)`（铁律①，§5.6；**入队前·事务内**用同一 client `c` 读当日 key） | `429 今日额度已满，请稍后` | 省 compute 的第一道闸 |
 
@@ -79,7 +79,7 @@ export async function handler(event) {
 
 > ⚠️ `INSERT generations` 与三闸**同一事务**（`FOR UPDATE` 串行化），杜绝"并发两次提交都读到余额够"的双花。`generationId` 即贯穿全链路的幂等主键。
 
-**触发真后台**：见 §5.7「触发方式迁移」——v2 不再用 `fetch` 主动调，靠 **`-background` 后缀**让 Netlify 异步派发（拿回 15min + 平台重试）。
+**触发真后台**：见 §5.7。同步 handler `await triggerBackground()` 的短触发请求，目标 **`-background`** 函数由 Netlify 异步执行；只等受理往返，绝不等待 relay/job。helper 吞错并由 queued cron 补派。
 
 ---
 
@@ -133,7 +133,7 @@ export async function handler(event) {
     }
     const { images, raw } = await callRelay({ prompt: g.prompt, size: g.size, quality: g.quality, background: g.background, inputImage });
 
-    // ⑤ 落 R2（事务外，结果存临时变量）→ 06 §7.3
+    // ⑤ 落对象存储（事务外，结果存临时变量）→ 06 §7.3
     //    putToR2 内部自取字节（url→下载 或 b64_json→decode，复用 imageGeneration.ts 解析，§5.7），返回 {storageKey,publicUrl,contentType,width,height,sizeBytes}
     const obj = await putToR2(g.user_id, generationId, images[0]);
 
@@ -238,13 +238,13 @@ export async function callRelay(req: { prompt: string; size: string; quality: st
 **要点**：
 - 抢占用 **HTTP 单语句**（`UPDATE…RETURNING` 即原子，不需事务），扣费用 **Pool/WS 事务**（[03-money.md §4.3](03-money.md)）——两种 DB 调用模式各司其职（[00-overview.md §1.3](00-overview.md)）。
 - **失败/超时路径从不进扣费事务**，所以天然"未扣"；前端失败卡注明"未扣积分"（§5.4）。
-- 落 R2 在扣费事务**外**：先传图存临时变量，再开单事务扣费；ROLLBACK 留下的孤儿 R2 对象由清理 cron 扫（[06-storage.md §7.5](06-storage.md)）。
+- 落对象存储在扣费事务**外**：先传图存临时变量，再开单事务扣费；ROLLBACK 留下的孤儿存储对象由清理 cron 扫（[06-storage.md §7.5](06-storage.md)）。
 
 ### 5.3.1 图生图（i2i）管线分支
 
 文生图与图生图共用同一 `generate-background` 主流程，**唯一分叉在调中转前**：`claimed` 回读到 `input_image_key` 非空 → 进入 i2i 分支（步骤④ 上半）。
 
-- **参考图回读**：i2i 先 `getUploadObject(input_image_key)`（[06-storage.md §7.x](06-storage.md)）从 R2 取参考图字节 + content-type。**回读失败即归一化为友好 `invalid_request`（HTTP 400「参考图读取失败，请重试」）→ 不调中转、不扣费**（走 §5.3 步骤⑦失败路径，天然未扣）。参考图本身「用后即弃」、靠孤儿 cron 回收（入队链路 = `POST /api/uploads` → `uploads/<userId>/…` → `GenerateRequest.inputImageKey` → `generations.input_image_key`，迁移 0003）。
+- **参考图回读**：i2i 先 `getUploadObject(input_image_key)`（[06-storage.md §7.x](06-storage.md)）从对象存储取参考图字节 + content-type。**回读失败即归一化为友好 `invalid_request`（HTTP 400「参考图读取失败，请重试」）→ 不调中转、不扣费**（走 §5.3 步骤⑦失败路径，天然未扣）。参考图本身「用后即弃」、靠孤儿 cron 回收（入队链路 = `POST /api/uploads` → `uploads/<userId>/…` → `GenerateRequest.inputImageKey` → `generations.input_image_key`，迁移 0003）。
 - **端点与编码**：`callRelay` 见 `inputImage` 即走 `/v1/images/edits` **multipart**（`buildEditsForm` 塞 image/prompt/size/n=1）；文生图仍走 `/v1/images/generations` JSON。multipart 由 `FormData` 自带 boundary、不手设 `Content-Type`。
 - **★★ 关键性能项：`response_format='b64_json'`**（commit `0378d67`）。中转 `/images/edits` **默认回美西 aliyuncs 临时 url**，`putToR2` 拿到 url 还要**二次跨境下载**该临时图，慢到数分钟（曾超 5min 前端轮询窗 → 图其实已成功入库、但 UI 看不到、被软超时误判失败）。强制 `b64_json` 让中转**内联回 base64**，`putToR2` 直接 decode 落库、免去这趟跨境下载，是把 i2i 拉回 5min 窗内的**性能必需项、非可选优化**。
 - **耗时可观测**：管线加 `[gen-timing]` 拆分日志（`fetchInput / relay / putToR2 / total` 毫秒，commit `f6842c1`），专为定位 i2i 跨境慢点。
@@ -313,12 +313,12 @@ export async function handler(event) {
 | 前端软超时 | 轮询满 5min 无终态 | 释放 UI、显失败卡 | 否（纯 UI） |
 | **服务端权威 cron** | `status IN(claimed,running) AND COALESCE(started_at, updated_at) < now()-5min`；**并覆盖超龄 `queued`**（触发 fetch 失败成孤儿的行）：`status='queued' AND updated_at < now()-5min` | 把僵死/孤儿任务置 `failed/provider_timeout`，**权威释放并发** | 是 |
 
-> **触发失败不成永久孤儿**：§5.7 真后台触发是 fire-and-forget，触发 fetch 偶发失败时 generations 行已 `queued`、202 已返回。两道兜底保证它最终被消费或收尾：① 常驻 **Scheduled Function** 每分钟扫 `queued` 派发（§5.5 末「派发兜底」，已从"不作主路径"升为常驻兜底）；② 上面超时 cron 把超龄 `queued`（绝非短暂在途、而是 >5min 仍没人抢）一并置 `failed/provider_timeout`，释放并发。
+> **触发失败不成永久孤儿**：§5.7 会 await 短触发请求，但 helper 对超时/非 2xx/网络错误只记脱敏固定信号并返回；generation 行已 `queued`。两道兜底保证它最终被消费或收尾：① Scheduled Function 补派 queued；② deadline helper/cron 把超龄 queued 收口 `failed/provider_timeout`。
 
 - **僵尸 `claimed` 兜底**：后台抢占（`status='claimed'`）后、尚未执行步骤②写 `started_at` 之前若被平台杀掉，`started_at` 仍为 NULL，单看它会永远扫不到 → 超时重扫一律用 **`COALESCE(started_at, updated_at)`**（抢占即 `updated_at=now()`，故必有值），保证「claimed 但未写 started_at 即被杀」的行也能被收尾。判定 SQL 与此完全一致，见 [03-money.md §4.6](03-money.md) / [10-ops-test.md §11.6](10-ops-test.md)。
-- **释放并发 = 状态进终态**：并发口径 = `COUNT(status IN queued/claimed/running)`，行一旦置 `failed/succeeded` 即自动移出 COUNT，**无双减/漏减**（规格 §22）。
+- **释放并发 = 状态进终态**：system 槽口径 = `COUNT(credential_mode='system' AND status IN queued/claimed/running)`；行进终态即移出，无双减/漏减。custom in-flight 仅作运维观测，不占 system 槽。
 - 为什么需要服务端兜底：前端可能关页/断网，软超时不会触发；后台函数也可能被平台杀在 5min 后——只有 cron 能权威收尾、避免并发被僵死任务永久占满。
-- **派发兜底（常驻、非临时）**：一个 **Scheduled Function** 每分钟扫 `status='queued'` 的行、对其调真后台触发（与 §5.7 同一 fire-and-forget 触发，抢占式状态机 §5.3 保证重发不重复下单）。这道兜底从过去的"不作主路径"**升为常驻兜底**：主路径仍是 §5.2 入队后立即触发，但触发 fetch 失败时由它补派发，杜绝 `queued` 永久无人消费。部署见 [10-ops-test.md §11.6](10-ops-test.md)。
+- **派发兜底（常驻、非临时）**：Scheduled Function 扫 `status='queued'` 的行，调用与 §5.7 相同的 awaited trigger helper；它只等后台受理，不等任务。抢占式状态机保证补派/重发不重复下单。部署见 [10-ops-test.md §11.6](10-ops-test.md)。
 
 ---
 
@@ -409,7 +409,7 @@ export const budget = {
 
 | # | v1 现状（文件） | 问题 | v2 目标 |
 |---|---|---|---|
-| 1 | `generate.ts` 用 `fetch(${baseUrl}/.netlify/functions/generate-background)` 主动调 | **非真 Background**：发起方是同步函数，10/26s 会被生图打超时；丢平台 15min + 重试 | 删 `triggerBackgroundJob` 的 fetch；靠 **`-background` 后缀**让 Netlify 异步派发（见下「触发方式」） |
+| 1 | v1 同步函数调用非 background 目标并等待生图 | 10/26s 会被生图打超时 | 目标改为 **`-background`**；同步函数 await 受理请求但不等 relay/job（见下） |
 | 2 | `imageProxy.ts` 从 `input.apiKey`（请求体）取 Key | **Key 经前端/请求体流转**，违反密钥红线 | 删 `apiKey` 入参；`callRelay` 内从 `process.env.RELAY_API_KEY` 注入（§5.3）；全链路删 apiKey 字段、密钥 UI、localStorage（[00-overview.md §1.4](00-overview.md) / 规格 §18） |
 | 3 | `imageProxy.ts` 在**同步函数**内 `await fetch(中转)` | 阻塞调用在 10/26s 函数里跑 5min 生图 | 把阻塞 fetch **搬进 Background Function**（`generate-background.ts` 的 `callRelay`） |
 | 4 | `jobStore.ts`（Netlify Blobs `getStore`）+ `asyncImageJob.ts` 的 `JobRecord` | Blobs 是 **KV、最终一致、无原子操作**；抢占式状态机要靠 DB 行锁/RETURNING | job 态迁 **`generations` 表**；删 `jobStore.ts`/Blobs；`JobRecord` 字段映射见下 |
@@ -423,27 +423,27 @@ export const budget = {
 // v1（错）：同步函数主动 fetch 后台 —— 删掉
 await fetch(`${baseUrl}/.netlify/functions/generate-background`, { method:'POST', body: ... });
 
-// v2（对）：Netlify 对 -background 后缀函数提供异步触发。两种合规姿势：
-//   A. @netlify/functions v2 的同步/后台分离：generate.ts INSERT 后，由 generate-background.ts 自身被平台异步拉起。
-//      最简：仍发一个到 /.netlify/functions/generate-background 的请求，但目标是 *-background 函数 ——
-//      Netlify 见 -background 后缀即「立即 202、后台跑满 15min」，发起方不阻塞、不等结果。
-//   B. （阶段一 DB-as-queue）由 Scheduled Function 每分钟扫 queued 派发 —— **常驻兜底**（§5.5），不只是主路径的临时替补。
+// v2（对）：目标是 -background；await 只等待 Netlify 接受触发，不等待 relay/job。
 async function triggerBackground(generationId: string) {
   // 本地 netlify dev 下 URL/DEPLOY_PRIME_URL 可能缺失 → 显式回退到本地、缺失则断言报错（F-trigger）
   const base = process.env.URL || process.env.DEPLOY_PRIME_URL
     || (process.env.NETLIFY_DEV ? 'http://localhost:8888' : undefined);
   if (!base) throw new Error('triggerBackground: 缺少 URL/DEPLOY_PRIME_URL（生产环境必有，本地请用 netlify dev）');
-  // 关键差异：目标是 *-background 函数；Netlify 立即返回、后台独立跑（拿回 15min + 平台重试）。
-  // ★ fire-and-forget：触发 fetch 不 await、错误吞掉（行已 queued、202 已返回）；
-  //   触发失败由 §5.5 常驻 Scheduled 派发 + 超时 cron 扫超龄 queued 兜底，绝不成永久孤儿。
-  void fetch(`${base}/.netlify/functions/generate-background`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ generationId }),                 // ★ 只传 generationId，不传任何 Key/input 明细
-  }).catch((e) => { /* 仅记日志、不抛：触发失败不影响已 202，兜底见 §5.5 */ console.error('triggerBackground failed', e); });
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8_000);
+  try {
+    const response = await fetch(`${base}/.netlify/functions/generate-background`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ generationId }),
+      signal: ctrl.signal,
+    });
+    if (!response.ok) console.error(`[triggerBackground] status ${response.status}`);
+  } catch { console.error('[triggerBackground] trigger failed'); }
+  finally { clearTimeout(timer); }
 }
 ```
 
-> 与 v1 的本质区别：v1 发起方**等 await 那个调用完成**（同步函数里阻塞），目标函数无 `-background` 后缀按同步跑、超时；v2 目标函数是 `-background`，Netlify 见后缀即「即刻 202、后台异步跑满 15min」，发起方不被 5min 生图拖死。**抢占式状态机（§5.3）配合平台重试**，即便触发重发也不会重复下单。
+> 与 v1 的本质区别是目标函数的 background 语义：现在 await 的只是短触发请求，绝不等待 5 分钟任务。未 await 的 `void fetch` 在 serverless handler 返回后可能被冻结，禁止恢复。抢占状态机保证补派不重复下单。
 
 ### 可复用的 v1 资产（保留、别重写）
 
@@ -463,7 +463,7 @@ async function triggerBackground(generationId: string) {
 
 中转**原始文案 / HTTP 状态** → **有限枚举**，便于看板「失败原因 Top」统计（规格 §9 看板②）与后台生成记录列表直显（[09-admin.md §10.5](09-admin.md)）。**脱敏后才回前端 / 落库**。
 
-> 本节记录现有 system-only 实现的六值历史口径：`insufficient_quota | relay_5xx | provider_timeout | content_rejected | relay_unreachable | unknown`，仅用于迁移和存量行读取兼容。2026-07-11 之后的新任务写入以 §5.9.4 / [07 §8.7](07-api.md) 的十值契约为唯一权威源。
+> system 的既有且继续有效的七值语义是：`insufficient_quota | relay_5xx | provider_timeout | content_rejected | invalid_request | relay_unreachable | unknown`。custom 使用 §5.9.4 的十值集合；读取接受两组并集。
 > ⚠️ **澄清**：`insufficient_quota` = **中转/上游**的配额或额度不足（共享 Key 烧光、上游欠费等），**不是用户积分不足**——用户积分不足在入队前即由余额闸 `402` 拦截（§5.2）、根本不入队，永远走不到这里。
 
 **枚举与映射表**：
@@ -472,6 +472,7 @@ async function triggerBackground(generationId: string) {
 |---|---|---|---|
 | `insufficient_quota` | 中转返回额度/欠费类（如 `insufficient_quota`、402/429 含 quota 文案） | 服务暂忙，请稍后重试 | `额度不足` |
 | `content_rejected` | 内容被中转/上游审核拒（400/403 含 moderation/safety/content_policy） | 提示词被拒，请调整后重试 | `内容被拒` |
+| `invalid_request` | 中转 400 或明确参数/尺寸/格式不支持 | 参数不支持，请调整后重试 | `invalid_request` |
 | `relay_5xx` | 中转 5xx（500/502/503）**或非 quota 的 429**（含上游 429 限流：服务端临时不可用、可稍后重试） | 服务暂时不可用，请重试 | `relay_5xx`（带状态码，如 `502 中转网关错误` / `429 上游限流`） |
 | `provider_timeout` | 上游超时（504）**或** cron 5min 兜底置位 | 生成超时，请重试 | `504 中转网关超时` / `5min 超时` |
 | `relay_unreachable` | 本站无法连达中转（fetch 抛网络错） | 网络异常，请稍后重试 | `无法连达中转` |
@@ -492,13 +493,14 @@ export function normalizeFailure(err: any): { code: FailureCode; message: string
   else if (err?.name === 'TypeError' || /fetch failed|ECONN|network/i.test(raw)) code = 'relay_unreachable';
   else if (/insufficient_quota|quota|billing|欠费/i.test(raw) || status === 402) code = 'insufficient_quota';
   else if (/moderation|safety|content_policy|rejected/i.test(raw) || status === 403) code = 'content_rejected';
+  else if (status === 400 || /invalid|unsupported|dimension|format/i.test(raw)) code = 'invalid_request';
   else if ((status && status >= 500) || status === 429)                    code = 'relay_5xx'; // 非 quota 的 429（上游限流）归 relay_5xx，不新增枚举值
 
   return { code, message: raw.slice(0, 500), httpStatus: status }; // message 已脱敏、限长
 }
 ```
 
-- 存量失败行仍按 `error_code` + `error` + `http_status` 三列读取；后台显示和看板聚合必须同时识别历史六值与 §5.9.4 新值。
+- system/custom 失败行都按 `error_code` + `error` + `http_status` 读取；后台和看板必须识别 system 七值与 custom 十值并集。
 - 看板②的「失败原因 Top」直接 `GROUP BY error_code` 聚合，并按 mode 和新旧错误码区分（[09-admin.md §10.7/§10.8](09-admin.md)）。
 - **脱敏是硬约束**：任何回前端 / 落库的中转文案都先过 `redactText([RELAY_API_KEY])`，绝不泄露 Key（[00-overview.md §1.4](00-overview.md)）。
 
@@ -522,14 +524,14 @@ export function normalizeFailure(err: any): { code: FailureCode; message: string
 
 ### 5.9.3 批量状态与权威超时
 
-- 状态接口保留单 ID 兼容，同时提供 owner-scoped 批量查询（同一请求接受去重后的 IDs，限制数量）。前端每轮查询当前会话全部非终态 ID，按 ID 合并；一个终态不停止其他项。
+- 状态接口保留单 ID 兼容；owner-scoped 批量每批最多 50 IDs，响应显式含 `items/missingIds` 且不区分不存在/非 owner。前端用一个控制器对 51+ 自动分片合并；一个终态不停止其他项。
 - 状态读取发现 `deadline_at<=now()` 时，可用 `UPDATE ... WHERE id IN (...) AND status IN (...) AND deadline_at<=now() RETURNING` 原子收口，再返回 failed。cron 使用同一 helper 作兜底，**不再是唯一权威入口**。
 - 成功/失败/超时只允许从中间态以状态谓词进入终态；恰逢 deadline 的竞争中，只有 affected row 的一方写事件/图片/扣费或清理。
 
 ### 5.9.4 错误与脱敏
 
-- 本节与 [07 §8.7](07-api.md) 是新任务写入的权威错误契约；§5.8 六值仅作历史读取兼容。
-- 入队缺 custom Key：`CUSTOM_KEY_REQUIRED`。任务错误枚举：`custom_key_invalid`、`custom_key_quota`、`relay_rate_limited`、`provider_timeout`、`relay_unreachable`、`invalid_request`、`content_rejected`、`invalid_response`、`storage_failed`、`unknown`。
+- 本节与 [07 §8.7](07-api.md) 是 mode-aware 权威错误契约：system 继续 §5.8 语义，custom 使用下列十值，读取取并集。
+- 入队缺 custom Key：`CUSTOM_KEY_REQUIRED`；system 携 Key：`SYSTEM_MODE_FORBIDS_CUSTOM_KEY`；custom 开关关闭：`CUSTOM_KEY_MODES_DISABLED`。custom 任务枚举：`custom_key_invalid`、`custom_key_quota`、`relay_rate_limited`、`provider_timeout`、`relay_unreachable`、`invalid_request`、`content_rejected`、`invalid_response`、`storage_failed`、`unknown`。
 - 401/鉴权型 403 → `custom_key_invalid`；配额/账单不足 → `custom_key_quota`；普通 429 → `relay_rate_limited`；内容策略 403 → `content_rejected`。不得把所有 403 混为一种。
 - `redactText` 必须接收**本次实际 system/custom Key**并覆盖精确值、`Bearer <key>` 与常见回显形式。先脱敏、再分类/截断/持久化/上报。
 
@@ -542,11 +544,11 @@ export function normalizeFailure(err: any): { code: FailureCode; message: string
 - [ ] system Key 只从服务端全局配置注入；custom Key 仅按 user ID 存本地、随统一提交请求进入并转任务密文。Background 只按 generationId 解析对应凭据，普通字段/日志/响应不含 Key。
 - [ ] 中转调用固定 `model='gpt-image-2'` / `n=1` / `moderation='low'`。
 - [ ] 图生图(i2i)：有 `input_image_key` → 先 `getUploadObject` 回读参考图字节（失败→友好 `invalid_request`、不扣费）→ `callRelay` 走 `/images/edits` multipart；**multipart 必带 `response_format='b64_json'`**（中转默认回美西临时 url、`putToR2` 二次跨境下载超 5min 窗，commit `0378d67`）；管线带 `[gen-timing]` 日志（commit `f6842c1`）。抢占/成功才扣/双守卫/超时与文生图一致（§5.3.1）。
-- [ ] 落 R2 在扣费事务**外**（先传图、再开单事务扣费）；扣费走 [03-money.md §4.3](03-money.md)、抢占走 [03-money.md §4.5](03-money.md)。
-- [ ] 失败/超时**从不进扣费事务**（天然未扣）；前端失败卡注明"未扣积分"。
+- [ ] 落对象存储在扣费事务**外**（先传图、再开单事务扣费）；扣费走 [03-money.md §4.3](03-money.md)、抢占走 [03-money.md §4.5](03-money.md)。
+- [ ] 失败/超时**从不进本站扣费事务**；前端注明“本站未扣积分”，custom 同时披露第三方计费边界。
 - [ ] system/custom 都以 `deadline_at=created_at+5min` 为权威；上游预留 30s。状态读取可主动原子收口，cron 兜底；前端不自造另一个终态。
-- [ ] 触发真后台 **fire-and-forget**（不 await、吞错），失败不影响已 202；**常驻 Scheduled 派发**扫 `queued` 兜底（§5.5）。
+- [ ] `await triggerBackground()` 的短受理请求，但绝不等待 relay/job；helper 吞触发错误，Scheduled 派发 queued 兜底。禁止 `void fetch`。
 - [ ] system 单日预算熔断仍为软预拦 + 原子硬上限；custom 不读、不增预算键，也不因 system 预算满失败。
 - [ ] 库内算 `duration_ms` 一律 `(EXTRACT(EPOCH FROM now()-started_at)*1000)::int`（cron 用 `COALESCE`），禁 `EXTRACT(MILLISECONDS …)`。
 - [ ] 回前端/后台、落库、日志和 Sentry 前用本次实际 Key 脱敏；失败码按 §5.9.4 有限枚举。
-- [ ] `generate-status` owner-scoped，支持批量并限制数量；只回逐项状态联合，不回原始中转响应或凭据。
+- [ ] `generate-status` owner-scoped，单批最多 50，响应含不泄露归属原因的 `missingIds`；只回状态联合，不回原始中转响应或凭据。

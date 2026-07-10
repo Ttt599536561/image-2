@@ -14,7 +14,7 @@
 | 旧预算键清理 | `0 16 * * *`（= 北京 00:00） | 清理/归档旧日期的中转预算键 + 近阈告警（当日键靠 date-in-key 自动归零，无需清零） | 删旧键天然幂等；不 upsert 固定行 | [§11.8](#118-旧预算键清理-cron) |
 | 积分过期 | `10 16 * * *`（北京 00:10） | 过期批次清零 + `expire` 流水 + 同步余额 | `uq_expire_lot`（每 lot 只清一次）；永久批次 `expires_at IS NULL` 跳过 | [§11.2](#112-积分过期-cron) |
 | 余额对账 | `30 16 * * *`（北京 00:30） | 物化余额 vs `SUM(lots.remaining 未过期)`，不平告警+以批次修正 | 重算覆盖（重跑收敛到同值） | [§11.3](#113-余额对账-cron) |
-| 图片清理 | `0 17 * * *`（北京 01:00） | 删过期 R2 对象 + DB + `events(image_cleaned)` + 孤儿清理 | 删除天然幂等；已删行不再命中 | [§11.7](#117-图片清理-cron) |
+| 图片清理 | `0 17 * * *`（北京 01:00） | 删过期对象存储对象 + DB + `events(image_cleaned)` + 孤儿清理 | 删除天然幂等；已删行不再命中 | [§11.7](#117-图片清理-cron) |
 | custom 凭据孤儿清理 | `*/5 * * * *` | 删除 `generation_credentials.expires_at<=now()`；同步把仍在中间态且 deadline 已过的任务收口 | 按 PK 删除；终态/已删行重跑无影响 | [§11.11](#1111-key-模式deadline-与安全验证2026-07-11) |
 
 > 时区：cron 是 UTC，"每日 0 点"按运营所在北京时区折算（UTC+8 → UTC 的 16:00）。过期/对账/清理**错峰**排（00:10/00:30/01:00），避免与旧预算键清理同刻抢连接、且对账在过期之后跑（先清过期再对账才准）。
@@ -228,7 +228,7 @@ if (r.length > 0) await alert('queue_timeout_rescan', { count: r.length, ids: r.
 
 ## 11.7 图片清理 cron
 
-落地 [06-storage.md §7.5](06-storage.md) 的调度：删过期 R2 对象 + DB 行 + 写 `events(image_cleaned)` + 孤儿清理。本节只管"什么时候、按什么口径触发"，删除细节与 R2 SDK 调用见 06 章。
+落地 [06-storage.md §7.5](06-storage.md) 的调度：删过期对象存储对象 + DB 行 + 写 `events(image_cleaned)` + 孤儿清理。本节只管“什么时候、按什么口径触发”，删除细节与 S3 SDK 调用见 06 章。
 
 ```ts
 async function runImageCleanup() {
@@ -263,13 +263,17 @@ async function runImageCleanup() {
               VALUES('image_cleaned',${img.user_id},${JSON.stringify({
                 generationId: img.generation_id, reason: 'retention_expired' })})`;
   }
-  // ③ 孤儿 R2 对象：扣费事务 ROLLBACK 留下的"传了 R2 但没落 images 行"的对象
-  //    （03-money.md §4.3 提到的孤儿），按 key 前缀对账 R2 listing vs images.storage_key 删除
+  // ③ 孤儿对象存储对象：扣费事务 ROLLBACK 留下的“已上传但没落 images 行”对象
+  //    （03-money.md §4.3 提到的孤儿），按 key 前缀对账 S3 listing vs images.storage_key 删除
+  //    known-set 并 UNION 灵感库封面（inspirations.cover_key）与 pending 灵感投稿副本
+  //    （inspiration_submissions WHERE status='pending'），保护在用对象（见下）
   await sweepOrphanR2Objects();                   // 06 章
 }
 ```
 
-口径要点：**保留期权威在 `images.expires_at`**（清理只删 `expires_at < now()`），免费/付费天数与升级顺延的写入逻辑在 [06-storage.md §7.4](06-storage.md) 与 [03-money.md §4.7](03-money.md)（兑换升级顺延）。`events(image_cleaned)` 是 append-only，历史图删了看板数据也不丢（[02-database.md §3.2](02-database.md)）。删 R2 与删 DB 顺序：**先删 R2 再删 DB 行**（反过来会留孤儿对象）。
+口径要点：**保留期权威在 `images.expires_at`**（清理只删 `expires_at < now()`），免费/付费天数与升级顺延的写入逻辑在 [06-storage.md §7.4](06-storage.md) 与 [03-money.md §4.7](03-money.md)（兑换升级顺延）。`events(image_cleaned)` 是 append-only，历史图删了看板数据也不丢（[02-database.md §3.2](02-database.md)）。删对象与删 DB 顺序：**先删对象存储、再删 DB 行**（反过来会留孤儿对象）。
+
+> **孤儿清理与灵感投稿（UGC）副本**：用户投稿落 `inspiration_submissions(status=pending)` 时复制了一份永久副本到 `inspirations/submissions/<uid>/…`（[INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)）。`sweepOrphanR2Objects` 的 known-set 因此在原有 UNION 上**再并一支** `SELECT image_key FROM inspiration_submissions WHERE status='pending'`。语义：**pending** 副本受保护；**approved** 由 `inspirations.cover_key` 保护（审核事务把卡片 `cover_key` 设为同一副本 key、复用同一对象，[INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)）；**rejected/废弃** 不在任一 known-set，按孤儿（>1h）回收。
 
 执行顺序固定 **⓪预扫通知 → ①付费顺延兜底 → ②删图 → ③扫孤儿**：
 - **⓪到期前 1 天预扫通知**：把"次日内将到期"的图写入 `notifications`（`type='image_expiring'`、`dedupe_key='image_expiring:'||id`、`ON CONFLICT(dedupe_key) DO NOTHING`），cron 每日重跑/重复触发不重发同一条。**仅"图片到期前 1 天"用这张存储通知表**；积分到期提示走 `/api/me` 的实时字段 `expiringSoon`（[07-api.md §8.3](07-api.md) / [08-frontend.md §9.7](08-frontend.md)），不入此表。通知表 schema 见 [02-database.md §3.2](02-database.md)，读写端点 `GET /api/notifications` / `POST /api/notifications/read` 见 [07-api.md §8.3](07-api.md)，顶栏铃铛 UI 见 [08-frontend.md §9.2/§9.6](08-frontend.md)。
@@ -379,7 +383,21 @@ export async function alert(kind: AlertKind, detail: unknown) {
 
 ### Playwright 冒烟（关键路径不回归）
 
-一条端到端冒烟：**登录 → 生图（轮询到 succeeded）→ 看图（读 R2 `public_url`）→ 兑换码 → 余额增加**。中转在冒烟环境用桩/录制响应（避免真烧钱），断言五态流转（[08-frontend.md §9.4](08-frontend.md)）与扣费后余额变化。
+一条端到端冒烟：**登录 → 生图（轮询到 succeeded）→ 看图（读 Supabase Storage `public_url`）→ 兑换码 → 余额增加**。中转在冒烟环境用桩/录制响应（避免真烧钱），断言五态流转（[08-frontend.md §9.4](08-frontend.md)）与扣费后余额变化。
+
+### 无界面 smoke（对真 Neon 分支跑服务端链路）
+
+灵感投稿（UGC）审核链路的服务端正确性用 `scripts/inspiration-submissions-smoke.ts` 对真 Neon 兜底（详见 [INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)；注入 `copyToInspirationSubmission` 桩免烧存储）：
+
+- **submit / 去重**：提交落 `inspiration_submissions(status=pending)`；同图（pending 或仍在架 approved）再提交被去重，`uq_insp_sub_pending_src` 兜底并发同图。
+- **越权**：投稿引用他人作品 → 404（owner-scope，服务端取权威 key/url/宽高，不信客户端）。
+- **approve**：建 `inspirations` 上架卡（`cover_key` = 投稿副本 key、`submitter_name` 掩码署名、`submitted_by` 审计）+ 置投稿 `approved` + `published_inspiration_id` + 审计 + `inspiration_reviewed` 通知；置终态。
+- **reject**：置 `rejected` + `review_reason` + 审计 + 通知。
+- **resubmit-after-delete**：源图删除后可重新投稿（pending 唯一索引仅约束在途，不挡历史）。
+
+迁移 `drizzle/0004_inspiration_submissions.sql` 由 `scripts/migrate-inspiration-submissions.ts` 应用（建 `inspiration_submissions` + `inspirations` 加 `submitted_by`/`submitter_name`）。
+
+`scripts/cron-smoke.ts` 新增**7 天保留段**断言孤儿清理对 UGC 副本的保护：pending 投稿副本受 known-set 保护不被回收、rejected/废弃副本按孤儿（>1h）回收（[§11.7](#117-图片清理-cron) 口径）。
 
 ### Biome + GitHub Actions 门禁
 
@@ -398,7 +416,7 @@ jobs:
 流水线顺序 **lint → typecheck → test → build → 密钥断言**，任一失败阻断合入：
 
 - **每 PR 一条 Neon 分支**：CI 用 Neon API 按 PR 创建分支库 → 跑迁移 → 注入 `DATABASE_URL_UNPOOLED` 给测试 → PR 关闭时销毁分支。隔离、可对真库跑、互不污染。
-- **构建期密钥断言**（`assert-no-secrets-in-bundle.ts`）：`vite build` 后扫 `dist/`，断言 `RELAY_API_KEY`/`RELAY_BASE_URL`/`DATABASE_URL*`/`R2_SECRET_*`/`BETTER_AUTH_SECRET` 的**值与名**均未出现，命中即 `exit(1)`。这是密钥红线的 CI 兜底，泄露代码无法合入。实现见 [00-overview.md §1.4](00-overview.md)。
+- **构建期密钥断言**：build 后扫 `build/client/`，断言真实 `RELAY_*`/`DATABASE_URL*`/`STORAGE_S3_*`/`BETTER_AUTH_SECRET`/custom 任务主密钥值及内部 schema 标记未出现；本地命令加载 `.env`，固定公开 custom URL 只做精确 allowlist。
 
 ## 11.11 Key 模式、deadline 与安全验证（2026-07-11）
 
@@ -411,8 +429,8 @@ jobs:
 
 ### custom 凭据生命周期
 
-- 每 5 分钟删 `expires_at<=now()` 的凭据；若关联 generation 仍是中间态且 deadline 已过，先用统一 helper 收口。告警指标：删除数量、最老密文年龄、终态仍带 credential 的数量（目标 0）。
-- 日志只记 generationId/mode/阶段/耗时/错误码，不记请求 body、Authorization、Key、密文或解密异常原文。Sentry `beforeSend` 继续做字段和值级清洗。
+- 凭据由数据库 `now()+10min` 计算到期，每 5 分钟按数据库 `expires_at<=now()` 删除；正常调度最迟 15 分钟物理删除，应用实例时钟不得改变 SLA。若关联 generation 仍是中间态且 deadline 已过，先用统一 helper 收口。告警指标：删除数量、最老密文年龄、终态仍带 credential 的数量（目标 0）。
+- 日志只记 generationId/mode/阶段/耗时/错误码，不记请求 body、Authorization、Key、密文或解密异常原文。`captureException/captureMessage` wrapper 在 console 与 Sentry sink 前统一做字段和值级清洗，并用注入 sink 的测试证明两处均已脱敏。
 - 运行时哨兵使用高熵测试 Key，覆盖 202、成功、鉴权失败、配额失败、429、网络异常、超时、存储失败；扫描 DB 普通表、events/audit、捕获日志、Sentry 桩、用户/admin 响应，除允许的临时密文外不得命中 plaintext。
 
 ### 必测矩阵
@@ -423,7 +441,8 @@ jobs:
 | custom 入队 | 零余额、system 预算满、system 并发满仍可入队；连续至少 3 项均 202；无 Key 400 且不建任务 |
 | custom 成功 | t2i/i2i 均固定 URL、同一 `callRelay`、图片入同一存储；`creditsChargedMp=0` 且账户/lots/ledger 不变 |
 | custom 失败 | 无效 Key、配额、普通 429、内容拒绝、网络、响应、存储、未知错误精确映射；不调用 system Key |
-| 批量状态 | 最多 50 IDs、去重、owner-scope、混合终态、单项终态不停止其他项、刷新后恢复 |
+| 停用/回滚 | kill switch 缺省 false；关闭 custom 503/零写入、system 正常；收口脚本 dry-run、确认词、终态竞争、删凭据和审计 |
+| 批量状态 | 每批最多 50 IDs、51+ 自动分片、去重、owner-scope、显式 missingIds、混合终态、单项终态不停止其他项、刷新后恢复 |
 | 5 分钟 | queued/claimed/running 均可收口；状态读无需等 cron；成功/超时竞争只有一个终态；两种 mode 都清凭据/不误扣 |
 | 前端 | 模式记忆与账号隔离、保存/切换/清除、360px/桌面无重叠、custom 不因余额禁用、多任务卡正确关联 |
 
@@ -438,4 +457,4 @@ jobs:
 - [ ] 上线前填完 GB-hour 对账表、确认毛利为正（铁律②，[§11.5](#115-gb-hour-成本实测铁律)）。
 - [ ] system 单日预算熔断触发即告警；custom 不计该预算，但单独监控平台 compute/DB/存储敞口。
 - [ ] 钱链路 9 类用例对真 Neon 分支跑通；CI 含密钥断言。
-- [ ] custom Key 运行时哨兵、凭据终态/15min 清理、system/custom 全矩阵与批量轮询 Playwright 全部通过。
+- [ ] custom Key 运行时哨兵、凭据终态立即删除与 10min TTL + 5min cron 边界、system/custom 全矩阵与批量轮询 Playwright 全部通过。

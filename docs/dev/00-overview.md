@@ -11,16 +11,16 @@
 | 数据库 | **Neon Postgres** | region = **AWS 美东**（与 Netlify 函数同区，压低 RTT） | 钱/码走 Pool/WS 事务；看板走 HTTP |
 | DB 驱动 | **`@neondatabase/serverless`** | `Pool`/`neonConfig`（WS）+ `neon()`（HTTP） | 见 §1.3 调用模式 |
 | ORM | **Drizzle** + **drizzle-kit** | schema-first，迁移用 `drizzle-kit generate` | 关键幂等约束（部分唯一索引）**手写 SQL 校对**，不全靠 ORM 推断 |
-| 前端框架 | **React Router 7** | **framework 模式**（loader/action/SSR）+ Vite + React 19 | 路由即文件；server loader 直连 DB |
+| 前端框架 | **React Router 8.0.1** | **framework 模式**（loader/action/SSR）+ Vite 8 + React 19 | 路由即文件；server loader 直连 DB |
 | 鉴权 | **Better Auth** | email+password + **admin 插件** + bcryptjs；钉版避 multi-session CVE | DB 可吊销会话；敏感路径每请求查 DB（不吃 cookieCache） |
-| 对象存储 | **Cloudflare R2** | 公有 bucket + 不可枚举 key + 自定义域 | S3 兼容、零出口费；DB 存 `storage_key + public_url` |
+| 对象存储 | **Supabase Storage** | 公有 bucket + S3 兼容接口 + 稳定公开 URL | 代码使用厂商中立 `STORAGE_*`；DB 存 `storage_key + public_url` |
 | API 风格 | **手写 REST** | 提交 `202 + generationId` → 前端**批量短轮询当前会话非终态任务**；语义化状态码 | 不上 SSE/WebSocket；允许多任务 |
 | 数据获取 | **TanStack Query v5** | 查询缓存 + 短轮询 `refetchInterval` | 余额/job 态/列表统一走它 |
 | 校验/契约 | **Zod 4** + **drizzle-zod** | 放 `src/contracts`，前后端单一真相源 | 请求/响应 schema 复用 |
 | 样式 | **tokens.css** + **CSS Modules** | tokens 从 design-system.html 落地 | 取色/间距/圆角一律引 CSS 变量，不硬编码 |
 | 质量 | **Vitest**（真 Neon 分支测钱链路）+ **Playwright** 冒烟 + **Biome** + **Sentry** + **GitHub Actions** | — | 钱链路必须对真库跑事务测试 |
 
-**已排除**（不要再提）：Next.js / TanStack Start、MySQL / PlanetScale（缺部分唯一索引 + `RETURNING`、serverless 生态弱）、Supabase（鉴权/存储已另选）、Refine（后台自建贴 design-system）。
+**已排除**（不要再提）：Next.js / TanStack Start、MySQL / PlanetScale（缺部分唯一索引 + `RETURNING`、serverless 生态弱）、Supabase Auth/Database（鉴权与主库已另选）、Refine（后台自建贴 design-system）。Supabase Storage 是当前已采用的对象存储，不在排除项内。
 
 ## 1.2 Netlify 函数三态（生图为什么必须 Background）
 
@@ -30,7 +30,7 @@
 | **Background Function** | `netlify/functions/x-background.ts`（**`-background` 文件名后缀**），**或**（Functions v2）函数内 `export const config = { background: true }`——**二者其一**；官方推荐后者，后缀仍受支持 | **15 min** | 跑 5min 生图（长 await 中转） |
 | **Scheduled Function** | `netlify.toml` 配 `[functions.x] schedule="..."` 或导出 `config.schedule` | 按 cron | 超时兜底重扫、积分过期、图片清理、余额对账、旧预算键清理 |
 
-> ⚠️ 同步函数 10/26s 会被生图打超时——**这是现存 `generate.ts` 的硬伤**（它用 `fetch` 主动调后台，不是真 Background）。修法见 [04-generation-pipeline.md §5.7](04-generation-pipeline.md)。
+> 同步函数绝不等待 relay/job。当前实现会 **await 发往 `-background` 函数的短触发请求**，目标函数由 Netlify 异步执行；helper 吞触发错误并由 queued cron 补派。不得恢复为未 await 的 `void fetch`，见 [04-generation-pipeline.md §5.7](04-generation-pipeline.md)。
 
 ## 1.3 Neon 两种调用模式（用错幂等会落空）
 
@@ -65,9 +65,9 @@ await sql`UPDATE redeem_codes SET status='redeemed' WHERE code=${code} AND statu
 | `DATABASE_URL_UNPOOLED` | Neon **direct**（钱/码事务） | direct endpoint，跑 `FOR UPDATE` |
 | `BETTER_AUTH_SECRET` | 会话签名密钥 | 32+ 字节随机 |
 | `BETTER_AUTH_URL` | 站点 URL | Better Auth baseURL |
-| `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | R2 S3 凭据 | 仅落图函数用 |
-| `R2_BUCKET` | bucket 名 | 公有 bucket |
-| `R2_PUBLIC_BASE_URL` | R2 自定义公有域（如 `https://img.example.com`） | 拼 `public_url`；前端只读它 |
+| `STORAGE_S3_ENDPOINT` / `STORAGE_S3_REGION` | 当前 Supabase Storage 的 S3 endpoint/region | 服务端存储 client 使用 |
+| `STORAGE_S3_ACCESS_KEY_ID` / `STORAGE_S3_SECRET_ACCESS_KEY` | S3 凭据 | 仅落图/清理函数用 |
+| `STORAGE_BUCKET` / `STORAGE_PUBLIC_BASE_URL` | 公有 bucket 与公开 URL 基址 | 服务端拼 `public_url`；前端只读结果 |
 | `DAILY_RELAY_BUDGET_CALLS` / `DAILY_RELAY_BUDGET_MS` | 单日预算熔断阈值 | 铁律① |
 | `SENTRY_DSN` | 错误上报 | 服务端 DSN |
 | `ADMIN_ALERT_WEBHOOK` | 告警出口（熔断/对账不平/队列积压） | 见 [10](10-ops-test.md) |
@@ -81,7 +81,7 @@ await sql`UPDATE redeem_codes SET status='redeemed' WHERE code=${code} AND statu
 
 ### 构建期断言（必做 · CI 拦截）
 
-`scripts/assert-no-secrets-in-bundle.ts`：`vite build` 后扫 `dist/` 全部产物，断言**不出现** `RELAY_API_KEY`/`RELAY_BASE_URL`/`DATABASE_URL`/`R2_SECRET_*`/`BETTER_AUTH_SECRET` 的值与名；命中即 `process.exit(1)`。挂进 GitHub Actions 的 build 步骤后，PR 无法合入泄露代码。
+`scripts/assert-no-secrets-in-bundle.ts`：build 后扫 `build/client/`，断言不出现真实 `RELAY_*`/`DATABASE_URL*`/`STORAGE_S3_*`/`BETTER_AUTH_SECRET`/任务加密主密钥值以及内部 schema 标记；命中即 `process.exit(1)`。本地命令必须加载 `.env` 真值，明确公开的 custom 固定 URL只允许精确 allowlist。
 
 ```ts
 // 伪代码
@@ -98,7 +98,7 @@ for (const file of walk('dist')) {
 - custom Key 是批准的唯一例外：按登录 user ID 明文存浏览器 `localStorage`，只在 custom 模式随 HTTPS `POST /api/generate` 请求体发送；固定 Base URL 不从客户端发送。
 - 服务端收到 custom Key 后立即加密为 generation-scoped 临时凭据；`generate-background` 载荷只含 `generationId`，普通 generation/job 字段不传 Key。
 - system 中转调用解析服务端 `app_config`/env；custom 中转调用解密本 generation 的临时 Key。两者都只在 Background Function 内使用明文。
-- 任何回前端/后台、落库或上报的中转响应和报错先用**本次实际 Key**脱敏；终态删除临时凭据，15 分钟仅作异常孤儿兜底。
+- 任何回前端/后台、落库或上报的中转响应和报错先用**本次实际 Key**脱敏；终态立即删除临时凭据。孤儿 TTL 为 10 分钟、cleanup 每 5 分钟，正常最迟 15 分钟物理删除。
 - 详细改造点见 [04-generation-pipeline.md §5.7](04-generation-pipeline.md) 与 [11-structure-roadmap.md](11-structure-roadmap.md)。
 
 ## 1.5 全局参数（运行时可调，存 DB 不写死）

@@ -1,31 +1,31 @@
 # 2 · 系统架构
 
 > 组件图 + 三大流程时序（生图 / 扣费 / 兑换）。阶段一 = DB-as-queue，第三步规模化才迁独立 worker（[§15 第三步](../redesign-requirements.md)，本期不展开）。
-> **2026-07-11 增补**：下方既有图展示 system-only 基线；目标模式化生图架构以 §2.6 为准，两种模式仍共用一个提交端点、一个状态机和一个中转客户端。
+> **2026-07-11 增补**：下方既有图展示 system-only 基线；目标模式化生图架构以 §2.7 为准，两种模式仍共用一个提交端点、一个状态机和一个中转客户端。
 
 ## 2.1 组件图
 
 ```mermaid
 flowchart TB
-  subgraph Client["浏览器（React Router 7 framework 模式）"]
+  subgraph Client["浏览器（React Router 8 framework 模式）"]
     UI["Composer 五态 / 资产库 / 充值 / 后台\nTanStack Query v5 + tokens.css"]
   end
 
   subgraph Netlify["Netlify"]
     direction TB
-    Loader["RR7 loader/action (SSR)\n直连 DB 读列表/余额"]
+    Loader["RR8 loader/action (SSR)\n直连 DB 读列表/余额"]
     FnSubmit["fn: generate (同步)\n入队 + 余额/并发校验"]
     FnStatus["fn: generate-status (同步)\n短轮询查 generations"]
     FnRedeem["fn: redeem (同步)\n兑换核销"]
     FnAuth["Better Auth handler\n注册/登录/会话"]
     FnAdmin["fn: admin/* (同步)\n后台 API"]
-    BG["fn: generate-background (15min)\n抢占→调中转→落R2→扣费事务"]
+    BG["fn: generate-background (15min)\n抢占→调中转→落对象存储→扣费事务"]
     Cron["Scheduled Fns (cron)\n超时重扫/过期/清理/对账/旧预算键清理"]
   end
 
   subgraph Data["数据与外部"]
     Neon[("Neon Postgres\n钱·码·会话·生成·审计·事件")]
-    R2[("Cloudflare R2\n公有 bucket + 自定义域")]
+    Storage[("Supabase Storage\nS3 兼容公有 bucket")]
     Relay["中转 api.tangguo.xin\n同步阻塞·无 webhook"]
   end
 
@@ -37,7 +37,7 @@ flowchart TB
   UI -.->|"首屏/导航 SSR"| Loader
 
   FnSubmit -->|"INSERT generations(status=queued)\nFOR UPDATE 校并发/余额"| Neon
-  FnSubmit -.->|"真后台触发(非 fetch)"| BG
+  FnSubmit -.->|"await 短触发请求\n不等待 relay/job"| BG
   FnStatus --> Neon
   FnRedeem -->|"UPDATE…RETURNING"| Neon
   FnAuth --> Neon
@@ -46,16 +46,16 @@ flowchart TB
 
   BG -->|"抢占 UPDATE…WHERE status='queued' RETURNING"| Neon
   BG -->|"Bearer RELAY_API_KEY"| Relay
-  BG -->|"PUT 结果图"| R2
+  BG -->|"PUT 结果图"| Storage
   BG -->|"扣费事务(FOR UPDATE/FIFO)"| Neon
 
   Cron --> Neon
-  Cron --> R2
-  UI -->|"读稳定 public_url"| R2
+  Cron --> Storage
+  UI -->|"读稳定 public_url"| Storage
 ```
 
 **要点**：
-- 前端**只读 R2 的稳定 `public_url`**，永不读中转临时 URL（否则历史/资产库整片裂图）。
+- 前端**只读对象存储的稳定 `public_url`**，永不读中转临时 URL（否则历史/资产库整片裂图）。
 - **job 态以 `generations` 表（Postgres）为准**，不再用 Netlify Blobs 存 job 态（Blobs 是 KV、最终一致、无原子操作）。
 - 钱/码事务只碰 `credit_lots / credit_ledger / credit_accounts / redeem_codes`；Better Auth 的 `user/session/account/verification` 同库各管各事务、互不干扰。
 - **解耦两层轮询**：前端 ↔ 本站 = 短轮询 `generate-status`；本站 ↔ 中转 = Background Function 内**长 await**（中转无 webhook，只能阻塞等）。
@@ -70,7 +70,7 @@ sequenceDiagram
   participant DB as Neon
   participant BG as fn:generate-background
   participant R as 中转
-  participant R2 as R2
+  participant Storage as Supabase Storage
 
   U->>S: POST /api/generate {prompt,size,quality,background}
   S->>DB: 事务: 校并发<max && 余额≥70mp\nINSERT generations(status=queued) RETURNING id
@@ -92,28 +92,28 @@ sequenceDiagram
   BG->>R: POST 生图 (Bearer RELAY_API_KEY, n=1, moderation=low)
   R-->>BG: 图(URL/base64) 或 错误
   alt 成功
-    BG->>R2: PUT 对象 → storage_key/public_url
+    BG->>Storage: PUT 对象 → storage_key/public_url
     BG->>DB: 扣费事务(见 2.3) → status=succeeded
   else 失败/超时
     BG->>DB: status=failed + error(归一化) + 不扣费
   end
 ```
 
-**图中旧 5min 基线**：现有 system-only 代码由前端计时停轮询、cron 收口。目标实现以创建时写入的 `deadline_at` 为权威：前端到期只做最后一次状态刷新，不自行伪造失败；状态读取与 cron 共用原子 helper，将过期 `queued/claimed/running` 置为 `failed/provider_timeout`（[03-money.md §4.6](03-money.md) / §2.6）。
+**图中旧 5min 基线**：现有 system-only 代码由前端计时停轮询、cron 收口。目标实现以 `deadline_at` 为权威，状态读取与 cron 共用原子 helper（[03-money.md §4.6](03-money.md) / §2.7）。
 
 ## 2.3 流程二 · 扣费（成功落图后的单事务）
 
-> **成功才扣**。判定标准 = **图落 R2 成功 + 写库成功**。先传 R2（事务外、结果存临时变量），再开单事务。完整可执行步骤与回滚见 [03-money.md §4.3](03-money.md)；此处给时序骨架。
+> **成功才扣**。判定标准 = **图落对象存储成功 + 写库成功**。先传 Supabase Storage（事务外、结果存临时变量），再开单事务。完整可执行步骤与回滚见 [03-money.md §4.3](03-money.md)；此处给时序骨架。
 
 ```mermaid
 sequenceDiagram
   autonumber
   participant BG as fn:generate-background
-  participant R2 as R2
+  participant Storage as Supabase Storage
   participant DB as Neon (Pool/WS 事务)
 
-  BG->>R2: PUT 结果图 (事务外)
-  R2-->>BG: storage_key, public_url
+  BG->>Storage: PUT 结果图 (事务外)
+  Storage-->>BG: storage_key, public_url
   BG->>DB: BEGIN
   DB->>DB: ① SELECT credit_lots FOR UPDATE\n   WHERE user_id=? AND remaining>0 AND 未过期\n   ORDER BY expires_at ASC NULLS LAST
   DB->>DB: ② 跨批次 FIFO 扣够 70mp（各批 remaining 不出负）
@@ -122,7 +122,7 @@ sequenceDiagram
   DB->>DB: ⑤ UPDATE credit_accounts.balance (物化余额)
   DB->>DB: ⑥ UPDATE generations status=succeeded, completed_at, duration_ms\n   + INSERT events(image_succeeded)
   BG->>DB: COMMIT
-  Note over BG,DB: 任一步失败→ROLLBACK；孤儿 R2 对象由 cron 异步清
+  Note over BG,DB: 任一步失败→ROLLBACK；孤儿存储对象由 cron 异步清
 ```
 
 这把「扣了图没存 / 图存了没扣 / 重复扣 / 余额负」四种错全堵死。幂等键 `uq_debit(ref_id=generation_id, WHERE entry_type='debit')`：平台重试重入到扣费步会撞唯一索引 → 该次扣费被吞、不重复扣。
@@ -153,17 +153,51 @@ sequenceDiagram
 
 单条 `UPDATE…WHERE status='active' RETURNING` 即防"一码多花/并发双击"——只有抢到那一次 `affected=1` 才入账。错误码区分见 [07-api.md §8.4](07-api.md)。
 
-## 2.5 三步演进（本期只做第一/第二步）
+## 2.5 流程四 · 灵感投稿（投稿队列与上架表分离）
+
+> 用户从自己的作品投稿灵感 → 落 `inspiration_submissions`(status=pending) → 后台审核 → 通过即建 `inspirations` 上架卡 + 署名、驳回填原因 → 给投稿人发站内通知。**投稿队列表与上架表 `inspirations` 物理分离**，用户端 `loadInspirations(active=true)` 零改动、永不读到 pending/rejected。**不扣积分**。完整设计/落地见 [INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)。
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant U as 前端(灵感库·投稿弹窗)
+  participant S as fn:api/inspiration-submissions (同步)
+  participant DB as Neon
+  participant Storage as Supabase Storage
+  participant A as fn:admin/inspiration-submissions (同步)
+  participant N as NotificationBell
+
+  U->>S: POST {imageId,title,prompt,category?,summary?}
+  S->>S: 限流(events 10/10min) + 待审上限(≤10)
+  S->>DB: 归属校验 images.user_id=$me 取权威 key/url/宽高\n+ 同图去重(pending 或仍在架 approved)
+  S->>Storage: 复制永久副本 → inspirations/submissions/<uid>/…(厂商中立 Get→Put)
+  S->>DB: 事务: INSERT inspiration_submissions(status=pending) + events\n  撞 uq_insp_sub_pending_src → 400(并发去重兜底)
+  S-->>U: 200 {id, status:pending}（不扣积分）
+  A->>DB: GET 队列(listSubmissions 按状态筛 + countPendingSubmissions 红点)
+  alt 通过
+    A->>DB: 事务: FOR UPDATE + status='pending' 校验\n  → INSERT inspirations(cover_key=投稿副本 key, submitter_name=掩码昵称, submitted_by)\n  → UPDATE 投稿 approved + published_inspiration_id + writeAudit\n  → 通知 inspiration_reviewed(dedupe inspiration_reviewed:<subId>)
+  else 驳回
+    A->>DB: 事务: status='rejected' + review_reason + writeAudit + 通知
+  end
+  N->>DB: 投稿人铃铛拉到 inspiration_reviewed → 点跳 /inspiration
+```
+
+**要点**：
+- **owner-scope**：服务端按 `images.user_id=$me` 取权威 `image_key/url/宽高`，绝不信客户端传来的字段。
+- **副本前缀以 `inspirations/` 开头** → `deriveCoverKey` 天然接受；通过事务把 `inspirations.cover_key` 设为同一对象、复用不再复制。孤儿清理 known-set 新增 `SELECT image_key FROM inspiration_submissions WHERE status='pending'`：pending 副本受保护、approved 由 `cover_key` 保护、rejected/废弃按孤儿(>1h)回收（[10-ops-test.md](10-ops-test.md)）。
+- 后台双守卫（`requireAdminPage` + `requireAdmin`）+ 通过/驳回二次确认 + 审计与状态变更同事务（审计动作 `approve_inspiration_submission` / `reject_inspiration_submission`）。
+
+## 2.6 三步演进（本期只做第一/第二步）
 
 | 步 | 内容 | 本期 |
 |---|---|---|
 | 第一步 | 修现状隐患：`generate.ts` 真后台 + `imageProxy.ts` 读 env key + 前端 5min 短轮询 | ✅ 阶段一 |
-| 第二步 | 上 Neon + R2 + DB-as-queue + 积分账本/批次 + 兑换码 + 后台 | ✅ 阶段二 |
+| 第二步 | 上 Neon + Supabase Storage S3 + DB-as-queue + 积分账本/批次 + 兑换码 + 后台 | ✅ 阶段二 |
 | 第三步 | 规模化：独立常驻 worker + Redis/BullMQ（或 Netlify Async Workloads / Upstash QStash） | ⬜ 延后 |
 
 > 升级路径**仍在 Netlify 内、不锁平台**：DB-as-queue 撑不住时，把"抢占消费"换成 QStash/Async Workloads 推送即可，`generations` 状态机不变。
 
-## 2.6 模式化生图架构（2026-07-11）
+## 2.7 模式化生图架构（2026-07-11）
 
 ```mermaid
 flowchart LR

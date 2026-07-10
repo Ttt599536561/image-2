@@ -17,9 +17,9 @@
 5. [03-money.md](03-money.md) — **钱/积分链路（核心，最详）**：可执行事务步骤 + 幂等键 + 抢占式状态机
 6. [04-generation-pipeline.md](04-generation-pipeline.md) — 生图管线：submit→后台→短轮询 + 5min 超时 + 预算熔断 + **v1 代码迁移**
 7. [05-auth.md](05-auth.md) — 鉴权与会话：Better Auth + 封禁/改密硬校验
-8. [06-storage.md](06-storage.md) — 对象存储与媒体：R2 + 清理 cron
+8. [06-storage.md](06-storage.md) — 对象存储与媒体：Supabase Storage（S3 兼容）+ 清理 cron
 9. [07-api.md](07-api.md) — API 契约：端点 + 状态码（402/409/410/429）+ Zod
-10. [08-frontend.md](08-frontend.md) — 前端架构：RR7 路由表 + TanStack Query + tokens 落地
+10. [08-frontend.md](08-frontend.md) — 前端架构：RR8 framework 路由 + TanStack Query + tokens 落地
 11. [09-admin.md](09-admin.md) — 后台管理
 12. [10-ops-test.md](10-ops-test.md) — cron / 可观测 / 测试
 13. [11-structure-roadmap.md](11-structure-roadmap.md) — 目录结构 + 分期任务清单（可勾选）+ v1 迁移清单
@@ -29,6 +29,7 @@
 > - **[2026-07-11-user-api-key-modes.md](../superpowers/plans/2026-07-11-user-api-key-modes.md) — 当前待实施功能计划**：系统/自定义 Key、临时凭据、多任务状态、统一 deadline。
 > - **[PHASE2-PLAN.md](PHASE2-PLAN.md) — 阶段二「账号+积分+存储」✅ 已完成并合并 `main`**（①–⑦ 全勾，对真 Neon 验证）。
 > - **[PHASE3-PLAN.md](PHASE3-PLAN.md) — 阶段三「增强」✅ 收官并合并 `main`**（`51f2b0b` 快进）：P3-S1 框选 + P3-S2 搜索 + P3-S4 灵感运营化 已做；**P3-S6 优化提示词跳过**（中转无 chat 模型，§6）；S3 RBAC/S5 客服 360 不做（站长：维持单管理员）。
+> - **[INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md) — 灵感库用户投稿与审核（UGC，§13.1）**：用户从自己作品投稿 → `inspiration_submissions` 待审 + 永久副本 → 后台「灵感投稿」队列通过（建上架卡 + 署名）/驳回（填原因）→ 站内通知；不扣积分（数据库 0004 / API 两条 + 后台子路由 / owner-scope / 孤儿保护）。
 > - **[cost-reconciliation.md](cost-reconciliation.md) — 成本对账上线闸（铁律②）**：方法论 + 对账表占位（真·毛利数待上线灰度跑量后填，毛利>0 才放量）。
 > - **[local-acceptance.md](local-acceptance.md) — 本地验收/运行指南**：`netlify dev`(8888) 跑通注册→登录→生图→兑换→后台的人工验收手册 + 无界面 smoke 清单。
 > - **[deploy.md](deploy.md) — 生产部署 Netlify runbook（怎么上线）**：Netlify CLI 部署步骤 + 生产现状（已上线 https://ai-image-workshop-612.netlify.app，生产=本地同一 Neon 库）+ 运维待办。

@@ -68,10 +68,10 @@ export const auth = betterAuth({
 });
 ```
 
-**handler 挂载（与 RR7 衔接）**：Better Auth 暴露一个 catch-all handler，挂到 RR7 的资源路由 `/api/auth/*`（无 UI、只回 JSON）。
+**handler 挂载（与 RR8 衔接）**：Better Auth 暴露一个 catch-all handler，挂到 RR8 framework 的资源路由 `/api/auth/*`（无 UI、只回 JSON）。
 
 ```ts
-// src/routes/api.auth.$.ts （RR7 资源路由，splat 捕获全部 /api/auth/* 子路径）
+// app/routes/api.auth.$.ts （RR8 资源路由，splat 捕获全部 /api/auth/* 子路径）
 import { auth } from '~/lib/auth';
 export const loader  = ({ request }: Route.LoaderArgs) => auth.handler(request);
 export const action  = ({ request }: Route.ActionArgs) => auth.handler(request);

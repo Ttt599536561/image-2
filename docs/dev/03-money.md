@@ -29,10 +29,10 @@
 
 ## 4.3 扣费事务（成功才扣 · 可执行步骤）
 
-**判定"成功" = 图落 R2 成功 + 写库成功。** 顺序：**先传 R2（事务外，结果存临时变量）→ 再开单事务**。
+**判定“成功” = 图落对象存储成功 + 写库成功。** 顺序：**先传 Supabase Storage（事务外，结果存临时变量）→ 再开单事务**。
 
 ```ts
-// —— 事务外：已从中转拿到图，先落 R2 ——
+// —— 事务外：已从中转拿到图，先落对象存储 ——
 // putToR2 签名以 [06-storage.md §7.3](06-storage.md) 为准：(userId, generationId, relayImage)；relayImage = 中转返回的 {b64_json?,url?}，函数内部自取字节
 const { storageKey, publicUrl, contentType, width, height, sizeBytes } = await putToR2(userId, generationId, relayImage);
 
@@ -43,7 +43,7 @@ try {
 
   // ⓪ 双守卫（必须是事务第一步 = 串行化点；缺它会同时踩 money-1 重复扣 与 pipe-1 失败仍扣）
   //   a) 锁该 generation 行 + 确认仍 running：挡「超时 cron 已把合法 >5min 的 running 置 failed」(§4.6)。
-  //      非 running（已 failed/succeeded/不存在）→ 不扣不插，整笔回滚；R2 孤儿交清理 cron（成功才扣的硬边界）。
+  //      非 running（已 failed/succeeded/不存在）→ 不扣不插，整笔回滚；存储孤儿交清理 cron（成功才扣的硬边界）。
   const g = await client.query(
     `SELECT status FROM generations WHERE id=$1 FOR UPDATE`, [generationId]);
   if (g.rowCount === 0 || g.rows[0].status !== 'running') {
@@ -117,7 +117,7 @@ try {
 
   await client.query('COMMIT');
 } catch (e) {
-  await client.query('ROLLBACK');   // 孤儿 R2 对象由清理 cron 扫掉（10 章）
+  await client.query('ROLLBACK');   // 孤儿存储对象由清理 cron 扫掉（10 章）
   throw e;
 } finally {
   client.release();
@@ -186,7 +186,7 @@ RETURNING id;
 - generation 创建成功时写 `deadline_at=created_at+5min`，system/custom 使用同一起点；排队时间也计入，不从 `started_at` 重新计时。
 - **权威超时收口**：状态读取与 cron 共用单一 helper，按 `status IN('queued','claimed','running') AND deadline_at<=now()` 做带状态谓词的原子更新。只有拿到 affected row 的调用方写 `failed/provider_timeout`、脱敏事件并删除临时凭据；cron 是无人轮询时兜底，不是唯一入口（[10-ops-test.md §11.11](10-ops-test.md)）。
 - Background 上游请求最迟在 `deadline_at-30s` 中止，把 30 秒留给响应解析、对象存储与终态事务；不得在 claim/running 后重置完整 5 分钟。
-- **失败不扣费**：失败/超时路径**从不进扣费事务**，`credits_charged_mp=0`，前端固定显示“请求超时，本次未扣积分，请重试”。
+- **失败不扣费**：失败/超时路径**从不进本站扣费事务**，`credits_charged_mp=0`，前端固定显示“请求超时，本站未扣积分，请重试”；custom 的第三方计费以服务商规则为准。
 - **退款仅用于"已扣后又判失败"的极端补偿**（正常流程用不到，因成功才扣）：若将来出现该情形，走 `refund` 流水（`uq_refund` 幂等）+ 回补对应批次 `remaining_mp` + 物化余额，写 `events`。本期主流程不触发。
 - 释放并发 = 状态进终态，自动反映到 `COUNT`，无双减/漏减。
 
@@ -259,9 +259,10 @@ WITH expired AS (
 
 ```ts
 await tx(async (c) => {
-  // 并发闸：COUNT 进行中 < max_concurrency
+  // system 并发闸：custom 不占 max_concurrency
   const inflight = await c.query(
-    `SELECT COUNT(*)::int n FROM generations WHERE user_id=$1 AND status IN('queued','claimed','running')`, [userId]);
+    `SELECT COUNT(*)::int n FROM generations
+     WHERE user_id=$1 AND credential_mode='system' AND status IN('queued','claimed','running')`, [userId]);
   if (inflight.rows[0].n >= user.max_concurrency) throw httpError(409, '超出并发数量');
 
   // 余额闸：可用批次之和 ≥ PRICE_MP（不足直接报错、不入队、不扣费）

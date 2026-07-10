@@ -5,7 +5,7 @@
 
 ## 0. 生产现状（2026-06-22 首发）
 - **站点 URL**：https://ai-image-workshop-612.netlify.app
-- **Netlify**：站点 `ai-image-workshop-612`，Project ID `8d1419c8-2ec3-49d9-936f-0f79df9643b5`，team `qkb964199910`（账号 `qkb964199910@gmail.com`）。
+- **Netlify**：站点 `ai-image-workshop-612`，Project ID 与 team 标识只从 Netlify 控制台/密码管理器读取；文档不记录操作方账号邮箱。
 - **后端复用现有云服务**（无需改）：Neon Postgres（us-east-1）/ Supabase Storage（ap-northeast-2 桶 `images`）/ 中转 `api.tangguo.xin`。**生产与本地是同一个 Neon 库**（管理员/套餐/历史数据共享）。
 - **部署方式**：Netlify CLI（**非** Git 连接）—— 本地 `netlify deploy --prod` 直传构建产物 + 函数。
 - **验证**：`/login` 200（SSR）· 真实管理员 `POST /api/auth/sign-in/email` 200+Set-Cookie（= SSR+Better Auth+Neon+env+Cookie 全链路）· `/api/me`(未登录) 401。
@@ -43,7 +43,7 @@ Remove-Item .env.production -Force
 ```
 **🔴 红线**：`BETTER_AUTH_URL` 必须是**生产域名**（不是 `localhost:8888`），否则登录/Cookie 全废。绑自定义域后要改这个 env 并重新部署。
 
-> **当前生产 = `69d585a`（2026-06-23，含全部优化波 + 后台素材库本地上传）**。本会话部署均用显式 `--site 8d1419c8-2ec3-49d9-936f-0f79df9643b5`（清过 `.netlify` 后不再有本地 link，靠它免交互选站）。
+> **当前生产 = `42d8a0b`（2026-06-23，含全部优化波 + 后台素材库本地上传 + 🆕 灵感库用户投稿与审核 UGC §13.1；deploy `6a3aa2bd`）**。本会话部署均用显式 `--site 8d1419c8-2ec3-49d9-936f-0f79df9643b5`（清过 `.netlify` 后不再有本地 link，靠它免交互选站）。
 
 ## 3. 部署 / 重新部署
 ```powershell
@@ -76,11 +76,17 @@ Invoke-WebRequest "$base/login" -UseBasicParsing                              # 
 
 ### 新增生产环境变量
 
-`CUSTOM_KEY_JOB_ENCRYPTION_KEY`：32 字节随机主密钥的 base64 表示，只供服务端 AES-256-GCM 加解密 generation-scoped 临时凭据。生成示例：
+`CUSTOM_KEY_JOB_ENCRYPTION_KEY`：32 字节随机主密钥的 base64 表示，只供服务端 AES-256-GCM 加解密 generation-scoped 临时凭据。`CUSTOM_KEY_MODES_ENABLED` 是缺省关闭的运维 kill switch；暗部署时必须为 `false`。
 
 ```powershell
-node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
-npx netlify env:set CUSTOM_KEY_JOB_ENCRYPTION_KEY '<上一条输出>' --site 8d1419c8-2ec3-49d9-936f-0f79df9643b5
+$bytes = New-Object byte[] 32
+$rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+$rng.GetBytes($bytes)
+$key = [Convert]::ToBase64String($bytes)
+npx netlify env:set CUSTOM_KEY_JOB_ENCRYPTION_KEY $key --site 8d1419c8-2ec3-49d9-936f-0f79df9643b5
+npx netlify env:set CUSTOM_KEY_MODES_ENABLED false --site 8d1419c8-2ec3-49d9-936f-0f79df9643b5
+$rng.Dispose()
+Remove-Variable bytes, rng, key
 ```
 
 - 不把真实值写进 `.env.example`、文档、终端录屏、提交或审计日志。本地 `.env` 只存本地/测试值并继续 gitignore。
@@ -91,14 +97,27 @@ npx netlify env:set CUSTOM_KEY_JOB_ENCRYPTION_KEY '<上一条输出>' --site 8d1
 
 1. 在维护窗口确认无长时间在途任务，备份数据库，应用 `0005`（新增列/表均向后兼容）。
 2. 运行 schema/迁移验证，确认存量 `credential_mode='system'`、`deadline_at` 回填正确、凭据表为空。
-3. 设置 `CUSTOM_KEY_JOB_ENCRYPTION_KEY`，部署完整代码；确认 Scheduled credential cleanup 已出现在 Netlify Functions。
-4. 先跑 system 冒烟：文生图/图生图、余额、预算、并发、一次扣费全部不回归。
-5. 再用专用测试 Key 跑 custom：零余额、连续 3 任务、t2i/i2i、失败映射、5 分钟虚拟/桩超时、图片历史、零 debit、终态凭据清空。
-6. 检查 Function logs/Sentry 桩/DB 普通表/用户和 admin 响应无测试 Key；确认 15 分钟孤儿清理与模式化看板。
-7. 完成后才更新 [PROGRESS.md](../PROGRESS.md) 的状态、生产 commit 和新测试基线。
+3. 设置主密钥并保持 `CUSTOM_KEY_MODES_ENABLED=false`，部署完整代码；确认 cleanup Scheduled Function 存在。
+4. 暗部署验证：system 文生图/图生图、余额、预算、并发、一次扣费不回归；custom 返回 503 且 generation/credential/background 均零写入。
+5. 设置 `CUSTOM_KEY_MODES_ENABLED=true` 并重新部署，再用专用测试 Key 跑 custom：零余额、连续 3 任务、t2i/i2i、失败映射、deadline、图片历史、零 debit、终态凭据清空。
+6. 检查 Function logs/Sentry 桩/DB 普通表/用户和 admin 响应无测试 Key；确认终态立即删除凭据，以及 10 分钟 TTL + 5 分钟 cron 的正常最迟 15 分钟孤儿清理边界。
+7. 演练一次关闭开关后的 UI/API 行为与 rollback dry-run；完成后才更新 [PROGRESS.md](../PROGRESS.md) 的里程碑 14、生产 commit 和新测试基线。
 
 ### 回滚
 
-- UI/API 回滚前先停 custom 新提交并等待在途 custom 终态；不要让旧代码接到它无法解密的 queued custom 行。
+- UI/API 回滚前先设置 `CUSTOM_KEY_MODES_ENABLED=false` 并部署，确认 custom 固定 503/零写入，再等待在途 custom 最多 5 分钟；不要让旧代码接到它无法解密的 queued custom 行。
 - migration 新列/表保持不删，旧 system 代码可忽略向后兼容结构；不要在紧急回滚中 `DROP` 数据结构。
-- 若 custom 已入队但必须立即回滚，使用受审计的运维脚本将其原子收口 failed、清凭据；不得把密文导出或手工解密到日志。
+- 主密钥在 `generation_credentials` 与 custom 非终态均确认归零前不得删除或轮换；否则在途 worker 无法解密并安全收口。
+- 若仍有在途任务，先执行默认 dry-run（无需 confirm）：
+
+```powershell
+node --env-file=.env --import tsx scripts/fail-custom-generations.ts --admin-id "<ADMIN_UUID>" --reason "rollback audit"
+```
+
+- 确认范围后才执行 apply：
+
+```powershell
+node --env-file=.env --import tsx scripts/fail-custom-generations.ts --admin-id "<ADMIN_UUID>" --reason "rollback containment" --apply --confirm FAIL_CUSTOM_GENERATIONS
+```
+
+- apply 原子收口 failed、清凭据并写审计；脚本不得 SELECT/export/decrypt ciphertext。复查 custom 非终态和凭据均为 0 后，才允许回滚应用代码及处理主密钥。

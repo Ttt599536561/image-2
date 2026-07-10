@@ -1,21 +1,37 @@
 # 进度与交接（PROGRESS.md）
 
-> 每次有实质进展就更新这里。新会话 / 中断恢复：先读 [CLAUDE.md](../CLAUDE.md) → 当前功能 [PRD](../tasks/prd-user-api-key-modes.md) → [实施计划](superpowers/plans/2026-07-11-user-api-key-modes.md) → 本文件，再动手。
-> 最近更新：2026-07-11（系统/自定义 Key、多任务与统一五分钟 deadline 需求批准；仅文档，尚未实施）。
+> 每次有实质进展就更新这里。新会话 / 中断恢复：先读 [CLAUDE.md](../CLAUDE.md) 当前快照 → 本文件顶部仓库/生产状态 → 当前 [PRD](../tasks/prd-user-api-key-modes.md) → [实施计划](superpowers/plans/2026-07-11-user-api-key-modes.md) → 涉及的技术章节。
+> 最近更新：2026-07-11（完成上次窗口 PRD/计划/记忆文档全面审查并修订；仍只有文档，Key 功能尚未实施）。
 
 ## 🆕 当前主线 / 新会话接手（2026-07-11）
 
-**状态：需求已批准，业务代码尚未实现，生产仍是 system-only 基线。** 不要根据本文档更新把功能误判为已上线；完成状态必须由后续代码、迁移、测试、部署和本段状态共同确认。
+**Key 功能状态：需求已批准并完成文档复审，业务代码、`0005` 迁移和生产环境变量尚未实现，生产仍是 system-only。** 不要把文档勾选误判为代码完成或已上线。
 
-- 产品真相源：[用户生图 Key 模式与多任务生成 PRD](../tasks/prd-user-api-key-modes.md)。
-- 实施顺序：[2026-07-11 实施计划](superpowers/plans/2026-07-11-user-api-key-modes.md)。新会话从 Task 1 开始，按测试先行逐项实施，不重新发明接口。
-- 统一入口：system/custom 都调用 `POST /api/generate`，不得新增 `/api/generate/custom`；custom Base URL 固定 `https://api.tangguo.xin/v1`。
-- 凭据：custom Key 按 user ID 明文保存在 `localStorage`，每次经 HTTPS 提交；服务端按任务加密暂存，终态删除，15 分钟只清孤儿。Key 不得进入普通 generation 字段、日志、事件、审计、Sentry、错误或响应。
-- 分流：system 保留余额、预算、并发和成功扣费；custom 跳过余额/预算/并发/提交限流，成功 `creditsChargedMp=0` 且不写 debit/不改余额，不自动回退 system。
-- 调度：custom 允许连续提交多个任务；当前会话所有非终态 generation 走 owner-scoped 批量状态轮询。
-- deadline：system/custom 均从创建起最多 5 分钟，上游在 `deadline_at - 30s` 前中止；过期原子收口为 `failed/provider_timeout`，文案“请求超时，本次未扣积分，请重试”。
-- 风险接受：浏览器明文 Key、custom 无并发/限流导致的平台计算/数据库/存储成本，均为本轮明确接受的产品决策。
-- 验证基线：下方 2026-06-23 测试数字只代表当前 system-only 代码；本次纯文档同步未重跑业务测试。实施完成后须以计划中的全量命令建立新基线。
+### 仓库与生产快照
+
+- 审查起点：当前分支 `deploy-6a3aa2b@34969f5`；`main` / `origin/main`=`0b4d442`，merge-base=`42d8a0b`，双方各有 2 个独有提交。
+- 当前分支独有 Key PRD/计划；`main` 独有 UGC 上线状态和 10 章设计同步。当前未提交工作树已整合两边文档事实，但 Git 分支/提交仍未合并；在形成单一功能分支前不得开始 Task 1。
+- 当前生产：代码 `42d8a0b`，Netlify deploy `6a3aa2bd`，已包含灵感库用户投稿与审核 UGC；Key 功能未上线。
+- 完成状态的事实证据依次为 Git/迁移记录/新鲜测试输出/Netlify production deploy；PROGRESS 是人工台账，不覆盖这些证据。
+
+### 实施前阻塞
+
+- **P0 安全**：跟踪文档曾误含真实管理员凭据，当前文本已脱敏；仍须轮换管理员密码并吊销现有会话。若仓库会共享，再单独决定是否清理 Git 历史。
+- **P0 分支**：把 `d8e71df` / `0b4d442` 与本轮修订后的 PRD/计划合入同一 `codex/*` 功能分支，解决冲突并重新核对路径锚点。
+- **P0 数据隔离**：money/migration/smoke/E2E 必须使用独立 Neon 测试分支；统一 test-env guard 在连接前拒绝缺确认、缺 URL 或与本地生产候选同指纹的配置；E2E `.env.test` 另需测试 Auth/主密钥与显式 custom=true。
+- Playwright 运行器当前不是直接 devDependency；实施计划必须先补依赖并验证 Chromium，再把 E2E 当门禁。
+
+### 已批准契约摘要
+
+- system/custom 共用 `POST /api/generate`；custom Base URL 固定 `https://api.tangguo.xin/v1`，不得新增第二端点。
+- custom Key 按 user ID 明文存在当前浏览器，经 HTTPS 提交；服务端只按 generation 加密暂存，终态立即删；TTL/过期判断使用数据库时钟，孤儿 TTL 10 分钟、cron 每 5 分钟，正常最迟 15 分钟物理删除。
+- system 保留余额、system-only 并发、预算和成功扣费；custom 不扣本站积分、不计 system 并发/预算、不做生成提交限流，也不自动回退 system。
+- custom 允许连续多任务，system 保持当前单项进行中交互；一个轮询控制器按每批不超过 50 IDs 分片；连续 `missingIds` 经权威刷新仍缺失时显示 UI-only“任务不存在或无权访问”，不伪造服务端终态。
+- system/custom 均使用服务端创建时间 + 5 分钟的权威 deadline；成功与超时只有一个终态。超时文案统一说明“本站未扣积分”。
+- “不扣积分”不代表第三方免费；用户自定义 Key 是否计费以第三方服务商规则为准。
+- system/custom 实际 Key 都必须在 relay 边界先脱敏，不得进入普通 generation 字段、日志、事件、审计、Sentry 或用户/admin 响应。
+- custom server-side kill switch 缺省关闭；关闭时 503/零写入、UI 不静默改走 system，已打开页面收到 503 后立即进入暂停态。生产回滚必须先关入口，再用受审计脚本收口在途任务和清凭据；清零前不得删除/轮换主密钥。
+- 本轮只改文档，未重跑业务测试；实施完成后必须以计划的完整命令建立新基线。
 
 ## 里程碑总览
 > 图例：✅ 完成 · 🚧 进行中 · ⬜ 未开始。**这是状态的一眼速查；每做完一项当场翻状态 + 同步下方「当前状态」段。**
@@ -34,9 +50,10 @@
 | 10 | 第二批需求（4 项）+ 验收反馈修复 | ✅ **全部完成**：③`c568008` + ①②`4cdf905` + ④a`a715b8f` + ④b`5f2bf6e`；兑换码复制`ac1c310` + 图生图提速 b64`0378d67` + 耗时日志`f6842c1` |
 | 11 | 🌐 生产上线（Netlify） | ✅ **已上线** → https://ai-image-workshop-612.netlify.app（runbook [dev/deploy.md](dev/deploy.md)）|
 | 12 | 生产优化波（2026-06-23） | ✅ **已上线 `5bd9ac8`**：单价用户端实时化 + 点击慢半拍提速 + 出图触发可靠性 + 后台换中转站 + 生成提交乐观立即跳转（详见下方「🆕 生产优化波」）|
-| 13 | 系统/自定义 Key + 多任务生成 + 统一 5 分钟 deadline | ⬜ **需求已批准、待实施**（[PRD](../tasks/prd-user-api-key-modes.md) / [计划](superpowers/plans/2026-07-11-user-api-key-modes.md)） |
+| 13 | 灵感库用户投稿与审核（UGC §13.1） | ✅ **已上线**：生产代码 `42d8a0b` / deploy `6a3aa2bd`；仅剩站长生产浏览器逐态验收 |
+| 14 | 系统/自定义 Key + 多任务生成 + 统一 5 分钟 deadline | ⬜ **文档复审完成、待满足前置后实施**（[PRD](../tasks/prd-user-api-key-modes.md) / [计划](superpowers/plans/2026-07-11-user-api-key-modes.md)） |
 
-## 生产优化波（2026-06-23 · 已全部上线，当前生产 = `69d585a`，历史基线）
+## 生产优化波（2026-06-23 · 历史优化基线；当前生产 = `42d8a0b`）
 > 本节记录当前功能实施前的生产代码与测试历史，仅供回归定位。新会话当前态与施工入口只看本文顶部“当前主线 / 新会话接手”。
 
 1. **单价用户端实时化** `6d7b6fe`：后台改 `price_per_image_mp` 用户端不生效——真因=前端写死常量 `PRICE_PER_IMAGE_MP=70`。修：`/api/me` 经 `loadMe` 下发 `pricePerImageMp`（`getConfigInt` 实时值），Composer/欢迎页/充值页/`canAfford` 改用 `me.data.pricePerImageMp`（常量降级首帧兜底）。旁证：后台写配置链路本身健康；站长把单价设 **0.06（60mp）**。
@@ -46,20 +63,19 @@
 
 5. **后续追加（2026-06-23）**：① 文生图强制 `response_format=b64_json`（`bf395fa`，探测 `relay-t2i-format-probe` 证实中转默认回 us-west url 需二次下载）；② 消耗提示+生成按钮保持一行（Composer 控制行 nowrap）+ QueryClient `staleTime`30s→5min/`gcTime`→1h（已加载数据切换/点击不重复拉取）+ 删灵感库副标题（`29e82fb`）；③ **后台素材库封面本地上传**：`POST /api/admin/inspirations/upload`（requireAdmin + 魔数嗅探 + ≤4MB）→ 存永久 `inspirations/<uuid>` → 回公有 URL；编辑表单加「上传图片」+预览+客户端读尺寸；**`cover_key` 服务端据 cover_url 派生**（剥 query/fragment）、孤儿清理 known-set UNION `inspirations.cover_key` 保护在用封面（删/换/废弃自动回收）。多代理对抗审查 37 findings→2 confirmed 已修。
 
-6. **🆕 灵感库用户投稿与审核（UGC，§13.1）—— 代码 + 多代理审查 + 修复全完成，⏳ 待迁移/部署**（设计 [INSPIRATION-UGC-PLAN.md](dev/INSPIRATION-UGC-PLAN.md)）：用户在灵感库选「我的作品」投稿（不扣积分）→ 落 `inspiration_submissions(pending)` + 复制永久副本 → 后台「灵感投稿」队列 通过（建 `inspirations` 上架卡 + 署名掩码昵称 + 通知）/ 驳回（原因 + 通知）。新表 + `inspirations` 两署名列（迁移 0004）；owner-scope（只投自己图、服务端取权威 key/url/宽高）；孤儿 cron 保护 pending 副本、approved 转 `cover_key` 保护、rejected 回收；后台双守卫 + 二次确认 + 审计 + 待审红点。**多代理对抗审查（63 agents / 28 发现 → 10 confirmed，去重后 4 个不同问题，全修）**：① 同图去重 TOCTOU → 加 `uq_insp_sub_pending_src` 部分唯一索引(pending) + catch 23505 → 400；② schema↔迁移 FK 漂移 → 0004 补 `user_id` FK(cascade，幂等 DO block)；③ 删上架卡后无法重投同图 → dup-check 放行「卡已删的 approved」；④ 选图仅最近 50 张 → `pageSize:200`。disputed 6 条均「copy-before-commit 孤儿」既有设计(WAD)/`window.alert` nit，未改。**测试基线：tsc 0 · test:run 78 · build 0 · assert-no-secrets PASS(116)**。⏳ **未做（gated 站长拍板）**：`.env` 当前缺 `DATABASE_URL`（仅有 `_UNPOOLED`）→ 两个对真 Neon smoke（inspiration-submissions-smoke 扩了 resubmit/唯一索引用例 + cron-smoke 7d 段）+ migrate 0004 + `netlify deploy --prod` 均待配 env + 授权后做。
+6. **灵感库用户投稿与审核（UGC，§13.1）—— 已上线生产**（设计 [INSPIRATION-UGC-PLAN.md](dev/INSPIRATION-UGC-PLAN.md)）：迁移 0004 已应用；inspiration-submissions smoke 16/16、cron smoke 39/39、test:money 39/39 全绿；生产代码 `42d8a0b` / deploy `6a3aa2bd`。仅剩站长生产浏览器逐态验收。
 
 **配置现状（站长有意设定，非默认）**：`price_per_image_mp`=60（0.06/张）、`signup_grant_mp`=70（注册送 0.07=1 张）。规格文里的 0.07/0.14 是初始默认值。
 
-**测试基线（本波后）**：tsc 0 · test:run 78 · **test:money 39/39** · **cron-smoke 37/37**（+灵感封面保护/派生剥 query）· build 0 · assert-no-secrets PASS(111)。
+**当前生产前最近完整基线**：tsc 0 · test:run 78 · **test:money 39/39** · **cron-smoke 39/39** · inspiration-submissions smoke 16/16 · build 0 · assert-no-secrets PASS(116)。
 
-### ⬜ 接下来未完成 / 可选任务（2026-06-23 视角）
-> 均为"可选/按需"——v2 主体 + 上线 + 本波优化都已完成，下面是锦上添花或运营动作，没有"必须马上做"的阻塞项。
+### 接下来未完成 / 可选任务
+> Key 功能的阻塞项已集中列在本文顶部；以下仅是现有生产的非阻塞运营与后续优化。
 
 **A. 运营 / 上线（非编码）**
 - ⬜ **成本对账真·毛利数**：灰度 ≥200 张跑量后用真 GB-hour compute 对 0.06 定价（毛利>0 才放量）。站长已确认方法论 OK，待跑量。
 - ⬜ **可选告警 env**：`SENTRY_DSN` / `ADMIN_ALERT_WEBHOOK` 未配（缺则 no-op）；要监控就 `netlify env:set` + redeploy。
 - ⬜ **自定义域 / 注册门槛**：按需绑域（改 `BETTER_AUTH_URL` + redeploy）；注册即送真钱、任何人可注册，按需加门槛。
-- ⬜ **本地仓无 remote、未 push**：可配一个私有 remote 做备份（目前仅本地 `main`）。
 
 **B. 性能"深做"（可选，按需；本波已把交互延迟压到很低）**
 - ⬜ **亚太区域迁移 / Neon -pooler / 国内 CDN 前置**：整站跨境延迟的"物理地板"杠杆（中国→美西 RTT）。收益大、成本/运维也大（Neon 换区=迁数据；CDN 需备案），属站长战略决策，**非出图速度所需**。当前 `DATABASE_URL` 与 `_UNPOOLED` 同一直连串、未配 `-pooler`——高并发前补一条池化串。
@@ -75,7 +91,7 @@
 **不做（已决策，非未完成）**：S3 RBAC / S5 客服 360（单管理员）、合规内容审核（站长风险自担）。
 
 ## 历史接手记录（2026-06-22；当前态见本文顶部，此段及以下为历史纪要）
-> 以下 2026-06-22 内容均为历史建设纪要；当前主线已上移到本文顶部的 2026-07-11 接手段。代码在 **`main`**（v2 主体全部已合并；本地仓无 remote、未 push）。
+> 以下 2026-06-22 内容均为历史建设纪要；当前主线、分支和 remote 状态只看本文顶部。
 
 **整体进度**：v2 主体（阶段一壳 + 阶段二接真后端 + 阶段三增强 S1/S2/S4）全部完成并合并 `main`（`51f2b0b`）。S6 跳过（中转无 chat 模型）、S3/S5 不做（单管理员）。
 
@@ -130,12 +146,12 @@
 
 **本地怎么跑**（见 [local-acceptance.md](dev/local-acceptance.md)）：
 - **`netlify dev`（8888）**，**不是** `npm run dev`。起前先 **`rm -rf build .netlify`**、`[dev]` 不设 framework（否则无样式）。
-- 管理员 **`599536561@qq.com` / `fefc8389`**（凭据在 `.env`，`scripts/seed-admin.ts`）。
+- 管理员凭据只从本地 `.env` 的 `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD` 或密码管理器读取；文档、日志和提交中不得记录实际值（初始化脚本：`scripts/seed-admin.ts`）。
 - ⚠️ **本机 Bash coreutils 偶发缺失（sleep/seq/tail）→ 跑 npm/长命令用 PowerShell**。会话 cookie 可经 `auth.api.signInEmail({asResponse:true})` 服务端铸造做 HTTP QA（绕路由层限流）。
 
 **测试基线**：tsc 0·test:run 72·test:money 33·build 0·assert-no-secrets PASS·cron/reads/admin/search/inspirations/deletes/account-reads/**rename/notifications** smoke 全绿（对真 Neon）。
 
-**待上线（非编码）**：成本对账真·毛利数（站长已确认 OK）、可选配 `SENTRY_DSN`/`ADMIN_ALERT_WEBHOOK`（缺则 no-op）；P3-S6 待中转开 chat 渠道（复跑 `scripts/relay-chat-probe.ts`）。本地仓无 remote、未 push。
+**历史待办快照（2026-06-22）**：成本对账真·毛利数（站长已确认 OK）、可选配 `SENTRY_DSN`/`ADMIN_ALERT_WEBHOOK`（缺则 no-op）；P3-S6 待中转开 chat 渠道（复跑 `scripts/relay-chat-probe.ts`）。当时的 remote/push 描述已经失效；当前分支、remote 与生产状态只看本文顶部。
 
 ## 历史归档（阶段一~三建设详情 · 当前状态看本文顶部，此段不必逐字读）
 > 以下为逐阶段建设纪要，留作追溯；逐项也在 git log + 各历史 PLAN 文件。新会话按顶部明确的 CLAUDE → PRD → 2026-07-11 实施计划 → PROGRESS 顺序接手。
@@ -143,6 +159,8 @@
 **需求 + 低保真原型（含 6 个二级页）+ UI 视觉风格 + 技术选型 + 开发文档（技术设计文档）均已定稿。** UI 风格落 `docs/prototypes/design-system.html`（同步进 §17）；二级页线框当时补齐后为 21 节，2026-07-11 再增 Key 模式弹窗为第 22 节；**技术选型已锁定**（见下方独立条目）；**开发文档已定稿** → `docs/dev/`（README 索引 + `00`–`11` 共 12 章），经**三轮**多代理审查（① 起草+对抗校验 → ② 单一真相源裁决修订 + 全局终审 → ③ 正确性/完整性对抗审查，3 blocker + 一批 major 全修）跨章口径收敛一致；**钱链路（03/04）已逐条向站长导读并签字**（成功才扣的慢图代价 D、预算软/硬闸过冲 E/F、callRelay 软超时+主备 Base G、adjust 红线 H 均经确认）。**阶段一已全部完成**：slice 1（铁律④·修 v1 真后台 + 代理读 env key + 全链路删 apiKey）+ **前端形态主体均已落地并验证**。前端形态主体把 v1 双栏 SPA 重构为 **React Router 8 framework 模式（SSR）** 的对话式三栏壳：`tokens.css` 落地 design-system（明/暗 + 不反相 `--cosmic-*`）；侧栏(nav+最近) ｜ 对话+Composer ｜ 「本次·N」面板（≥1024 常驻/<1024 抽屉/<768 折叠）；**Composer 五态**（欢迎/生成中=宇宙星空动效+`生成中 M:SS`/成功=成品图+5 操作/失败=504+未扣已退+重试/积分不足=拦截去充值）；尺寸 6 档 + 高级设置（质量/背景）药丸；灵感画廊（封面瀑布流+一键带回）；深色/暖色 cookie 主题（SSR 无闪烁）；全局 Lightbox/Toast/Skeleton；次级页 mock 占位（/billing 做实兑换）。**账号/积分全 mock**，未接 Neon/Better Auth/R2（阶段二）。**验证**：vitest 42/42、`react-router typegen && tsc` 0、`react-router build` 通过；preview 工具逐态实测（提交→星空→成功扣 0.07、失败未扣、积分不足拦截→/billing、兑换 +10「积分到账」、主题切换、lightbox、灵感带回均通过）。**git 隔离**：环境非 git 仓库且 worktree 工具不可用 → 改用 `git init` + `main`(v1 基线 8667d04) + `phase1-frontend` 分支隔离。**阶段一已签字并快进合并进 `main`（`4f81022`）**，`phase1-frontend` 分支作里程碑标记保留（同一提交）。**阶段二施工计划已批准并落库** → [docs/dev/PHASE2-PLAN.md](dev/PHASE2-PLAN.md)（7 阶段可勾选清单 + 钱链路红线 + 外部密钥清单 §0；基于 5 路多代理精读 docs/dev 02–11 综合）。**阶段二已开工（`phase2` 分支，从 `main`）：① 地基 + ② 鉴权已完成并对真 Neon 验证**（迁移/13 表/7-7 索引谓词/FOR UPDATE/seed 幂等 + Better Auth 注册→送 140mp 幂等；tsc 0·vitest 45·build 绿·客户端 0 泄露 + 多轮多代理对抗校验，修真库 42P08）。**Neon 已开通**（站长给 direct 串，存 `.env` 已 gitignore；用 `node --env-file=.env …` 跑迁移/seed/`scripts/*`）；**R2/中转/告警密钥待开通**（仅 ④ 落图/生图与 ① putToR2 往返需要，**不挡 ③**）。**③ 钱链路（命门）已完成并对真 Neon 验证**：8 个文件（budget 软闸+硬上限 TOCTOU / 入队三闸 / 抢占 / debit 双守卫+FIFO / redeem 原子核销+首兑顺延 / expire 幂等 / adjust 同事务动 lots+余额+audit / reconcile 对账）；**28 例真库测试全绿**（`tests/money/`，10 文件，`npm run test:money`，`Promise.all` 真并发/重入）。后续阶段二历史和验证记录见下文；当前开发主线只看本文件顶部。
 
 > **阶段一前端落地要点（研发须知）**：① **栈用 RR8 不是 RR7**——RR7(7.x) 仅支持 vite≤7，而本仓 vite 已是 8.0.11（v1 42 测试基线），RR8.0.1 的 framework 模式与 RR7 同构（loader/action/SSR/`routes.ts`/`+types`/`react-router.config.ts`），且原生支持 vite 8，故用 RR8 + `@netlify/vite-plugin-react-router@4`（React 钉到 19.2.7 满足 RR8 peer）；docs/dev 文中「RR7」即指 framework 模式，版本以此为准。② **vitest 与 RR 插件分离**：`vitest.config.ts` 只挂 `@vitejs/plugin-react`，不加 `reactRouter()`（同时加载冲突）。③ **目录**：`app/`(root+routes+路由模块) + `src/`(components/hooks/lib/mocks/contracts/styles/server)，与 11 §12.1 一致；mock 客户端态在 `src/mocks/store.tsx`(MockProvider)，job 轮询 hook 在 `src/hooks/`。④ **短轮询 `refetchIntervalInBackground:true`**（比 08 §9.3 示例的 false 更贴合「提交后切走等结果」，且修复隐藏标签页不轮询）。⑤ 删了 v1 SPA 入口（index.html/main.tsx/App.tsx/styles.css/GeneratorForm/ResultPanel）；`src/lib/storage.ts` **保留**（`imageProxy.ts` 仍依赖其 `DEFAULT_API_CONFIG`，阶段二随真生成链路再清模型 localStorage 残留）。⑥ preview 截图工具对 vite dev（HMR 长连不 idle）超时，故用 snapshot + eval 驱动逐态验证。⑦ **已做一轮多代理 QA 体检（39 项）并修复**：尺寸浮层改向下弹（欢迎态不再遮标题）+ 选项内描边环零回流不溢出、充值套餐卡可点选中（陶土环，默认推荐档）、灵感跨路由带回走受控 gating、抽屉/弹窗统一锁背景滚动 + ESC、本次面板 <768 底部抽屉、三栏列改 CSS 门控消除水合闪烁、z-index 统一令牌（toast 恒在 lightbox 上）、通知铃铛改占位、删 storage 死代码（保留 DEFAULT_API_CONFIG）等；唯一驳回：放宽兑换码正则（dev 文档锁 18 位去 I/L/O，现状已符）。vitest 45/45。⑧ **两轮站长走查反馈已并入并验收**：尺寸浮层向下弹（欢迎态不遮标题）+ 选项内描边环、充值套餐卡可点选中、账号信息改**只读「标签+值」横排**（非输入框、邮箱不断词）、高级设置选完即关浮层（与尺寸一致）、灵感「用此提示词」不再弹「替换当前输入?」、删演示码提示；并按 **Apple HIG「在用户操作处反馈」**把表单校验（改密/兑换）从右上角 toast 改为**表单内联**、瞬时 toast 从右上角移到**顶部居中**。vitest 45/45、tsc 0、build 通过、preview 逐项实测。
+
+> **2026-07-11 校正**：上段“docs/dev 用 RR7 代称”的说法已失效；当前 00–11 章已直接统一为 RR8。对象存储当前为 Supabase Storage S3，`R2` 只在历史记录和兼容 helper 名中保留。
 
 ## 已完成
 - v1 文档对齐了实际实现（development / requirements / test-cases，顶部加了指向 v2 的 banner）。
@@ -157,19 +175,19 @@
 - 建立长期记忆机制：本文件 + `CLAUDE.md` + 项目 memory。
 - **UI 视觉风格已定稿确认**：产出 `docs/prototypes/design-system.html`（v2 设计令牌真相源，亮色默认/暗色可切、柔和现代、系统字体栈、陶土 `#C26A3D` 点缀；明暗两套 + 12 节组件样例）。用户确认的关键决策：① 亮色默认 ② 柔和现代（卡片 16/输入 12/药丸·按钮 full） ③ 系统字体栈 ④ 主操作暗色反相为浅底 ⑤ **生成中占位 = 宇宙星空动效**（跑了 4 方案设计赛选出「深空银河·旋转极光」+ 嫁接强化） ⑥ **灵感卡改封面为主体 + 渐变浮层 + 瀑布流保留原比例**。已同步进规格 §17，并据④的"套餐描述"诉求给 `packages` 表补 `description` 字段（§16/§9）。
 - **二级页线框已补齐**（`wireframes.html` 第 16–21 节；2026-07-11 再增第 22 节 Key 模式弹窗，全文件共 22 节）：用户详情（概要+操作栏、积分流水、积分批次、最近生成、调积分弹窗）、灵感卡新增/编辑表单、生成兑换码弹窗、账号设置、删除确认弹窗、忘记密码占位页与 Key 配置。低保真灰块、复用现有 class；实现细节以当前 PRD 为准。
-- **技术选型已定稿确认**（跑了 8 方向并行深研 + 架构师综合 + 对抗评审）。**锁定栈**：部署 Netlify（演进现状，Background Functions 15min 承载 5min 生图、Scheduled Functions 跑 cron、阶段一 DB-as-queue）；数据库 **Neon Postgres**（钱/码走 `@neondatabase/serverless` Pool/WS 交互式事务 + `FOR UPDATE`，看板走 HTTP）；ORM **Drizzle**+drizzle-kit（关键幂等约束手写校对 SQL）；前端 **React Router 7 framework 模式**+Vite+React 19；鉴权 **Better Auth**（DB 可吊销会话+admin 插件+bcryptjs，钉版避 multi-session CVE）；存储 **R2 公有 bucket+不可枚举 URL+自定义域**；API 手写 REST(202+短轮询)+**TanStack Query v5**+**Zod4/drizzle-zod**（`src/contracts`）；样式 tokens.css+CSS Modules；质量 Vitest(真 Neon 分支测钱链路)+Playwright 冒烟+**Biome**+Sentry+GitHub Actions。后台自建贴 design-system（不引 Refine）。**已排除**：Next.js/TanStack Start、MySQL/PlanetScale（缺部分唯一索引+RETURNING、serverless 生态弱）、Supabase（鉴权/存储已另选、多带不用的）。
+- **技术选型已定稿确认**（历史决策经落地校正后的当前值）：Netlify + Neon Postgres + Drizzle；前端 **React Router 8.0.1 framework + Vite 8 + React 19**；Better Auth；对象存储 **Supabase Storage S3** + 厂商中立 `STORAGE_*`（`r2.server.ts` 仅历史名）；手写 REST + TanStack Query v5 + Zod 4；Vitest/Playwright/Sentry/GitHub Actions。Supabase Auth/Database 未采用，但 Supabase Storage 已采用。
   - **因「中转 api.tangguo.xin = 同步阻塞」升级为铁律（用户已拍板按最坏设计）**：① **单日预算熔断**（应用层硬上限，Netlify 无全局消费帽 → 这同时澄清 CLAUDE.md① vs §14/§19 的不一致：**确认做「单日中转/compute 预算熔断」**）；② 上线前实测单图 GB-hour compute 成本对账 0.07 积分确认毛利；③ generations **抢占式状态机**（`claimed/processing` + `UPDATE WHERE status='queued' RETURNING`）挡平台自动重试/cron 重扫的重复扣费/重复下单；④ 先修现存硬伤 generate.ts 真后台 + imageProxy.ts 阻塞 fetch 搬进后台读 env key。
   - **开发文档需定清的遗留**：Neon direct vs pooled endpoint（压测验证 FOR UPDATE 真锁不撞 max_connections）；Better Auth 封禁/改密敏感路径每请求查 DB 硬校验（不走 cookieCache 300s 窗口）+ 密码限长防 bcrypt 72 字节截断；毫积分跨 JSON（单笔 number、看板 SUM 走 string codec）；构建期断言 env(apiKey/baseUrl) 永不进前端 bundle。
   - 完整选型分析存盘：会话工作流输出（架构师综合 + 对抗评审）。
 - **开发文档（技术设计文档）成稿**：落 `docs/dev/`（拆文件结构，README 索引 + `00-overview`/`01-architecture`/`02-database`/`03-money`/`04-generation-pipeline`/`05-auth`/`06-storage`/`07-api`/`08-frontend`/`09-admin`/`10-ops-test`/`11-structure-roadmap` 共 12 章；文件 `NN-name.md` 对应标题 `(NN+1) ·`）。其中 00–03 由更早会话写就，本次补齐 04–11 八章并做一致性收敛。
   - **流程**：① 多代理工作流并行起草 04–11（各章先读 README+00–03+规格再落笔）+ 逐章对抗校验（锚点齐全/交叉引用不断链/全局约定一致/不与规格矛盾）；② 据校验把跨章冲突收敛成「单一真相源裁决」（D1–D29），亲手修已定稿的 02/03 + 工作流按裁决精修 04–11 + 全局终审复核；③ 收敛核验确认关键 token 全统一。
-  - **当时 system-only 的跨章口径（历史记录）**：失败模型曾使用六值 `generations.error_code`（`insufficient_quota/relay_5xx/provider_timeout/content_rejected/relay_unreachable/unknown`）+ `error` + `http_status`；2026-07-11 新任务已批准改用顶部当前主线所述十值契约，旧六值仅保留读取兼容。其余当时裁决：`generate-status` 判别联合三态；`putToR2(userId,generationId,relayImage)` / `retentionExpiry(user,cfg)` 以 06 为准；`credit_lots.source` 加 `adjust`；system 单日预算使用 date-in-key；Better Auth 用户 UUID、会话硬校验和 `REDEEM_ALPHABET` 口径不变。
+  - **当时 system-only 的跨章口径（历史记录）**：system 失败模型实际为七值 `insufficient_quota/relay_5xx/provider_timeout/content_rejected/invalid_request/relay_unreachable/unknown` + `error` + `http_status`；2026-07-11 批准 custom 使用顶部十值集合，system 继续既有语义，读取接受并集。其余当时裁决保持不变。
   - **第三轮：正确性 + 完整性对抗审查**（6 维度并行评审 12 章终态 + 逐条对抗核实滤假阳性）。坐实并已修：**3 个 blocker**——① 扣费事务重构为「⓪ 双守卫（锁 generation 行断言 running + 探 debit）」一举防住"重入重复扣 lots"与"超时翻 failed 后仍扣钱"（违背成功才扣）；② `EXTRACT(MILLISECONDS…)` 是 PG 陷阱（只返回秒分量、≥1min 截断）→ 全改 `(EXTRACT(EPOCH…)*1000)::int`；③ 单日预算「软闸/硬上限」分离——硬上限做成与递增同一原子条件 `UPDATE…WHERE calls<阈值 RETURNING`（防 TOCTOU 击穿）。**major**：补站内通知整链（`notifications` 表 + 清理 cron 过期前 1 天预扫 + `/api/notifications` 端点 + 顶栏铃铛 UI）；`/api/me` 增 `expiringSoon` 字段（积分过期实时提示数据源）；`callRelay` 补 AbortController 软超时 + 主/备 Base + 退避重试；bcrypt 72 字节在 `password.hash` 内强制断言（Better Auth 的 maxPasswordLength 只按字符）；Better Auth `generateId:'uuid'`（原生 uuid 列可建外键）；RR7 依赖补 `@netlify/vite-plugin-react-router`。**minor/nit**：FK `ON DELETE RESTRICT`、FIFO 索引加 created_at、429 归一化、触发 fire-and-forget + queued 兜底、孤儿账号登录惰性补发等。**money-3（adjust 调积分）已落实**：09 §10.3 加红线——adjust 必同事务改 `credit_lots`(增建批次/减 FIFO 扣) + 物化余额（否则对账 cron 以 lots 为准会反转调整）；并修两处真 bug——减额账本/事件记**真扣量 moved**(非请求量)、增/减分别记 `credit_granted`/`credit_consumed`(不再都记发放、污染看板口径)。
 
 - **阶段一 slice 1（铁律④）已落地并验证**：第一段 v2 真代码。`imageProxy.ts` 从 `process.env.RELAY_API_KEY`/`RELAY_BASE_URL` 注入（缺 Key 返 500）；`ImageProxyInput` 删 apiKey/baseUrl；`generate.ts` 触发改 fire-and-forget + 本地 URL 回退；前端删密钥 UI（删 `ApiConfigModal.tsx`/`useApiConfig.ts`、`storage.ts` 去 apiKey 存取、`proxyGeneration` 只发 `{request}`）。**保留 Blobs job 态、未上 Neon**（§15 第一步）。验证：`vitest 42/42`、`tsc -b 0`、grep 确认真实 app 路径无 apiKey。残留小尾巴：死代码 `generateImage`(直连)/`curl.ts` 仍带 apiKey 参（应用不调用、§12.2 curl 可留 dev），无 Key 流经应用。
 
 ## 下一步（按顺序；做完把 `[ ]` 改 `[x]` + 翻里程碑总览）
-- [x] **编写开发文档（技术设计文档）** → 已成稿 `docs/dev/`（README + `00`–`11` 共 12 章）：技术栈/env·密钥红线、系统架构（组件图+生图/扣费/兑换三时序）、数据库 DDL+索引+5 部分唯一索引、钱链路事务（可执行 SQL+幂等键+抢占式状态机）、生图管线（含 5min 双层超时+单日预算熔断+v1 迁移）、鉴权（Better Auth+封禁/改密硬校验）、R2 存储+清理 cron、API 契约（状态码+Zod 判别联合）、前端架构（RR7 路由表+TanStack+tokens）、后台管理、cron/可观测/测试、目录结构+分期清单。经两轮多代理审查收敛跨章口径（失败模型/函数签名/枚举/预算计数/路由命名等一致）。
+- [x] **编写开发文档（技术设计文档）** → 已成稿 `docs/dev/`（README + `00`–`11` 共 12 章），覆盖当前技术栈、Supabase Storage S3、RR8 前端、钱链路、管线、API、后台与运维。2026-07-11 审查再次统一 mode/error/deadline/TTL/触发语义。
 - [x] **阶段一·前端形态**（✅ 完成）：
   - [x] **铁律④·修真后台 + 读 env key + 全链路删 apiKey**（§15 第一步，保留 Blobs、未上 Neon）：`imageProxy.ts` 从 `process.env.RELAY_API_KEY`/`RELAY_BASE_URL` 注入（缺 Key 返 500）；`ImageProxyInput` 删 apiKey/baseUrl；`generate.ts` 触发改 fire-and-forget + 本地 URL 回退；前端删密钥 UI（删 `ApiConfigModal.tsx`/`useApiConfig.ts`、`storage.ts` 去掉 apiKey 存取、`proxyGeneration` 只发 `{request}`）。**验证：vitest 42/42 通过 + `tsc -b` 0**。残留小尾巴：死代码 `generateImage`(直连)/`curl.ts` 仍带 apiKey 参（应用不调用、§12.2 curl 可留），无 Key 流经应用。
   - [x] 前端形态主体：**RR8** framework 骨架（非 RR7，vite8 兼容，见上「落地要点」①）+ `tokens.css` 落地 + App.tsx 双栏→Composer 三栏壳 + 五态（宇宙星空动效）+ 尺寸/参数药丸 + 灵感画廊 + 深色/暖色（mock 账号/积分跑通体验）。**验证 vitest 42/42 + typegen/tsc 0 + build 通过 + preview 逐态实测**。隔离用 `phase1-frontend` 分支（worktree 工具因仓库非 git 不可用）。
@@ -178,7 +196,7 @@
   - [x] **① 地基（离线代码）**：`phase2` 分支；装依赖(drizzle-orm/kit·@neondatabase/serverless·ws·@aws-sdk/client-s3·zod4·drizzle-zod·tsx)；`src/db/schema.ts`(13 表+全 CHECK+FK onDelete+全索引+**5 部分唯一索引**)、`drizzle/0000_phase2_foundation.sql`(已人工核对 5 WHERE 谓词 + 补 pgcrypto)、`src/db/db.server.ts`(getPool/getSql)、`src/db/seed.ts`、`src/server/r2.server.ts`；④ 离线件 `src/contracts/*`(10 文件 Zod+barrel)、`src/server/relay.ts`、`src/server/generation/failure.ts`。**验证 tsc 0 · vitest 45 · build · 客户端 0 密钥泄露 · 7 维多代理对抗校验（schema/钱红线/failure 零发现，5 条 minor 已修）**。**接真：已对真 Neon(PG18.4) 跑通迁移 + 13/13 表 + 7/7 关键索引 WHERE 谓词在库校验 + FOR UPDATE 交互式事务冒烟 + seed(2 套餐/8 config，幂等) ✅**（`scripts/db-smoke.ts`/`db-verify.ts`，`.env` 存 Neon direct 串、已 gitignore）；**putToR2 往返已对真 Supabase Storage 验证**（存储后端 R2→Supabase，`scripts/storage-smoke.ts` PASS，见 ④/§0）。pooled(-pooler)串 + 每 PR test branch 仍待补。
   - [x] **② 鉴权（核心，接真已验）**：`better-auth@1.6.20`(钉版/不启 multi-session)+`bcryptjs` → `src/lib/auth.ts`(email+pwd/不验邮箱/autoSignIn/`password.hash` 内 72 字节断言/session 7d·300s/`generateId:'uuid'`/admin 插件/databaseHooks)、`@better-auth/cli migrate` 建 user/session/account/verification(user.id=uuid)、catch-all `app/routes/api.auth.$.ts`、守卫 `src/lib/guard.ts`(requireUser/Strict/Admin，ban 双源 fail-closed)、钩子 `src/lib/auth-hooks.ts`、契约 `src/contracts/auth.ts`。**桥接 ③**：`src/server/tx.server.ts`+`config.server.ts`+`money/grant.server.ts`(注册原子发放，credit_accounts PK 串行化闸幂等，修真库 42P08)。**真 Neon 验：注册→送 140mp(1 lot/1 grant/events)→重发幂等 + 6 维多代理对抗校验(零 blocker，1 doc-drift minor 已修)**。封禁/改密 route 归 ⑥。
   - [x] **③ 钱链路（命门，已对真 Neon 验）**：`budget.server.ts`(软闸+硬上限 TOCTOU)/`generation/enqueue.ts`(三闸 402·409·429)/`money/preempt.server.ts`(抢占)/`money/debit.server.ts`(⓪双守卫+FIFO+EXTRACT-EPOCH)/`money/redeem.server.ts`(原子核销+首兑顺延+限流)/`money/expire.server.ts`(幂等)/`money/adjust.server.ts`(同事务动 lots+余额+audit，减额只扣未过期防对账反转)/`money/reconcile.server.ts`(SUM::text+BigInt)。**28 例真库测试全绿**(`tests/money/`，10 文件，`npm run test:money`，`Promise.all` 真并发/重入) + **多代理对抗审查**(7 维+逐条证伪，10 agents，0 blocker/1 confirmed major 已修：adjust 减额漏过滤过期批→会被对账反转，补谓词+同步修 09 §10.3 规格+加回归)。tsc 0·vitest 45·build。**`assert-no-secrets-in-bundle.ts`(CI 密钥断言) + 每 PR Neon test branch 自动化留 ⑦**。
-  - [x] **④ 生图管线（后端，已对真验证）**：3 端点 v2 Request——`netlify/functions/generate.ts`(requireUserStrict→三闸→`triggerBackground`→202，绝不 await relay)/`generate-background.ts`(-background=15min→`runGenerationJob`)/`generate-status.ts`(requireUser owner-scoped→判别联合三态，失败也 200)；编排 `src/server/generation/process.ts`(claim→running→预算硬闸→callRelay→putToR2→debit；catch→failed 不扣；finally→incMs；callRelay/putToR2 可注入桩)+`trigger.ts`(fire-and-forget 不抛)；`netlify.toml` 补 `/api/generate-status` 重写。**清死代码**：删 `src/server/{jobStore,asyncImageJob,imageProxy}.ts`+2 测试(v1 Blobs 前身)。**验证**：`tests/money/pipeline.test.ts` 5 例真库+中转真生图端到端冒烟(`scripts/relay-smoke.ts`)+3 维对抗审查 0 finding；tsc 0·vitest 37·test:money 33·build。
+  - [x] **④ 生图管线（后端，已对真验证）**：`generate.ts` 入队后 **await `triggerBackground` 的短受理请求但绝不等待 relay/job**；`generate-background.ts` 跑长任务，`generate-status.ts` owner-scoped。`trigger.ts` 吞触发错误并由 queued cron 兜底，禁止恢复 `void fetch`。编排仍为 claim→running→预算硬闸→callRelay→putToR2→debit；失败不进本站扣费事务。**验证历史基线**：pipeline 真库测试、relay smoke、tsc/vitest/money/build 均通过；当前数字只看顶部。
   - [x] **⑤ 前端接真（换 mock 不换壳，已对真 Neon 端到端验）**：**A** 读端点 11 个 RR 资源路由 `app/routes/api.*.ts`(server-only 同 `api.auth.$`，调 `src/server/reads.server.ts` HTTP 单语句 owner-scoped)；写走 action(`api.redeem` 调既有 `redeemCode`+限流、`api.images`(DELETE)/`api.images.save` requireUserStrict)。**B** auth 页接 Better Auth client(`src/lib/auth-client.ts`：login/register/改密/登出+`?next=`回跳+错误映射)。**C** 生成接真(`src/hooks/{useGeneration,useGenerationStatus}`→真 fetch `/api/generate`(202 含 conversationId)+`/api/generate-status`；**轮询由会话详情进行中轮驱动**=跨 "/"→"/c/:id" unmount 不丢)。**D** 全页 SSR loader 换 mock(`_app` 父 loader=requireUserPage+loadMe+loadConversations 作 initialData→TanStack Query 同 key；成功 invalidate 余额/面板/资产)；**删 `src/mocks/*`+`src/api/proxyGeneration.*`**。**E** 资产库批量管理(切换+单击/Shift 连选+吸底操作条+store-mode zip `src/lib/zip.ts`(失败退化逐张)+`ConfirmDialog` 删除确认)。**F** `src/server/rateLimit.ts`(events `rate_fail` 计数窗口，收口 redeem 5/10min + 挂 sign-in 10/10min/sign-up 5/hr，只计失败)。契约小增(均向后兼容)：`GenerateAccepted+conversationId`/`ConversationGeneration.image+{id,savedToLibrary}`/`MeResponse.user+createdAt`/`InspirationItem cover→string+width/height`。**验证**：tsc 0·test:run 30(删 mock 测试)·test:money 33·build 0·客户端 0 密钥泄露·`scripts/reads-smoke.ts` **25 检查全绿**(注册→送140→兑换→生成→详情/资产回流→存入→删除→限流，对真 Neon)·多代理对抗审查(1 major 已修：package.ts value-import db/schema 泄露整套钱 schema 进客户端→改手写 Zod，queries chunk 332KB→84KB)。commit `76dcad5`。
   - [x] **⑥ 后台 `/admin/*`（已对真 Neon 验）**：12 RR 资源路由 `app/routes/api.admin.*.ts`(各自 requireAdmin) + 8 `src/server/admin/*.server.ts` 逻辑层 + `_admin` 布局(requireAdminPage 守卫)6 页 UI(`Admin.module.css` 贴令牌)。**双守卫**(布局 loader + 每 API)；兑换码(CSPRNG+套餐快照+CSV-BOM+作废只动 active+对账 SUM string)；用户(搜索/详情/封禁[业务 is_banned 权威+Better Auth 吊销会话]/改密[Better Auth+吊销+不记明文]/并发；**调积分调 ③ adjustCredit**)；灵感库(**建 inspirations 表** 0001 迁移已对真应用 + CRUD + reads.loadInspirations 改查表种子 fallback)；生成记录(近7天/失败直显三列)；套餐(软删 active=false 禁 CASCADE)+参数(每键 min 校验即时生效)+审计(只追加)；看板(三口径 events/lots/generations 14 指标，**SUM string codec**)；敏感写**二次确认**(ConfirmDialog)。`admin-smoke.ts` **27 检查全绿** + 多代理对抗审查。`scripts/promote-admin.ts <email>` 提权(双写 users.role+Better Auth user.role)。commit `fa2a4e9`(后端)+`520837a`(UI)。
   - [x] **⑦ cron / 可观测 / CI / 成本对账上线闸（已对真 Neon 验，阶段二收官）**：**A** 5 Scheduled `netlify/functions/cron-*.ts` + `netlify.toml` 错峰(rescan `*/1`、budget-cleanup `0 16`、expire `10 16`、reconcile `30 16`、clean-images `0 17` UTC)。钱 cron(expire/reconcile)走 Pool/WS、扫描(rescan/clean/budget)走 HTTP；各 try/catch→`alert(cron_failed)`+`captureException` 不静默。逻辑：`src/server/generation/scan.server.ts`(rescanTimeouts 收 queued/claimed/running>5min→failed/provider_timeout `EXTRACT(EPOCH…)*1000`+`COALESCE(started_at,updated_at)` 兜底僵尸 + dispatchStaleQueued 补派发 1–5min queued)、`src/server/maintenance.server.ts`(⓪prescan 通知 dedupe ON CONFLICT/①renewPaid 顺延/②deleteExpired 先删 R2 再删 DB 行+image_cleaned/③sweepOrphan 1h 保护窗)、`budget.server.cleanupBudgetKeys`(删 7 天前旧键+gen.duration_ms 之和重算 ms+近阈/熔断告警)。**B** 可观测 `src/server/{sentry,alert}.server.ts`(SENTRY_DSN/ADMIN_ALERT_WEBHOOK 缺→no-op；@sentry/node 变量 specifier 动态 import 免静态解析未装包；捕获/告警永不抛+console 兜底；AlertKind 9 类)。**C** 密钥断言 `scripts/assert-no-secrets-in-bundle.ts`(扫 build/client 无密钥值[env 取真值≥8]+无 schema 结构标记 8 个)。**D** CI `.github/workflows/ci.yml`(npm ci→biome 若装→typecheck→test:run→build→assert-no-secrets；每 PR Neon test branch+test:money 进 CI 留 TODO 需 Neon API)。**E** Playwright `tests/e2e/smoke.spec.ts`+`playwright.config.ts`+`npm run test:e2e`(@smoke 注册→生图→兑换；@playwright/test 未装、选跑、不入 tsc/默认单测)。**F** 成本对账 `docs/dev/cost-reconciliation.md`(方法论+p50/p95/成功率取数 SQL+对账表占位+上线 checklist；真·毛利数待上线跑量)。**验证**：tsc 0·test:run 30·test:money 33·build 0·`scripts/cron-smoke.ts` **27 检查全绿**(超时重扫/过期幂等/对账修正/清图⓪①②③/预算清理+昨日 ms 重算+熔断告警去重/编排/派发，注入 R2 桩免烧 Supabase)·`assert-no-secrets` PASS·客户端 0 密钥+0 schema·**多代理对抗校验 cron 链路(6 维：错峰/连接类型/告警/通知幂等/清图孤儿/成本口径，14 agents)：0 blocker / 1 confirmed major 已修**——「预算硬上限命中即告警」原结构性失效(process.ts 硬上限分支不告警、唯一 daily_budget_exhausted 在 0 点 cron 评估当日 fresh 键恒假=死代码)→ process.ts 补 markBudgetAlertedOnce(每天首次去重)+alert，cron 改评估昨天作回溯日报，同步修 10 §11.8(7 假阳性已证伪)。
@@ -188,7 +206,7 @@
   - [x] **P3-S2 搜索（会话标题 + 资产提示词）**：`loadConversations(q?)`/`loadImages(q?)` owner-scoped ILIKE + `likePattern()` 转义 `\%_`；contracts/路由透传 q；侧栏搜索入口（替占位）+ 资产搜索框 + `useDebouncedValue` 250ms；点结果跳 `/c/:id`。**验证**：tsc 0·test:run 44·build 0·`scripts/search-smoke.ts` **13 检查全绿**(对真 Neon：命中/owner-scoped/`%` 转义/ILIKE 大小写)·assert-no-secrets PASS。暂 ILIKE 顺序扫（量大才上 pg_trgm，§0 Q6）。
   - [x] **P3-S4 灵感库运营化**：`loadInspirations` category/q 下沉 SQL（`EXISTS(active)` 判表空才回种子，非筛空误回）+ 动态品类（DISTINCT active category，前端补「全部」）+ 瀑布流原比例（**新增 `inspirations.width/height` 列**，`drizzle/0002_inspirations_dims.sql` 已应用真库 + admin 表单可填/「从封面探测」自动回填）+ 前台 250ms debounce + keepPreviousData。后台排序体验：**上/下移**（reorder op 相邻互换 + sort 规整 0..N-1）+ **一键上下架**（复用 update op）。`contracts/{inspiration+categories,admin+reorder/width/height}`、`hooks/queries.useInspirations`(gate initialData+keepPreviousData)。**红线**：前台读 requireUser、admin 写 requireAdmin、只展示 active、只回 cover_url（无 storage_key）、ILIKE 参数化+likePattern 转义。**验证**：tsc 0·test:run 53(+9 `inspirations-reads.test.ts` 种子回退/品类/搜索/转义/红线)·build 0·assert-no-secrets PASS·`scripts/inspirations-smoke.ts` **20/20**(对真 Neon)·`netlify dev` 浏览器 live **15/15**(登录→种子回退渲染→admin 建卡→前台可见+品类 Tab→筛选/搜索→下架隐藏→删除回种子)·reads/search-smoke 回归绿。修了 `reads-smoke` 潜伏 bug（`loadInspirations()` 漏 await）。
   - 🚫 **P3-S6 优化提示词激活——本会话跳过**：探测确认中转 `api.tangguo.xin` 仅 `gpt-image-2`、无任何 chat/文本模型（`/models` 只列 1 个，候选全 503「无渠道」；`gpt-image-2` 走 chat 返 400「streaming Responses not supported」=代理识别它、503 非端点死）。S6 规格要求「非 gpt-image-2 的 chat 模型」无可用 → **站长拍板本期跳过**，Composer「优化提示词」药丸保持 disabled 占位。诊断脚本 `scripts/relay-chat-probe.ts` 保留（中转开 chat 渠道后复跑确认模型名再做）。
-  - [x] **本地验收启用 + 验收驱动修复（2026-06-22 本会话后半段，浏览器对真实测）**：装 `netlify-cli` + `netlify.toml [dev] port=8888`(=BETTER_AUTH_URL) → `netlify dev` 跑通**注册→登录→生图→兑换→后台**全链路 live 验证。**写死管理员** `scripts/seed-admin.ts`(env 驱动建号+提权，凭据进 `.env` 不进 git；已建 `599536561@qq.com`) + 应急解封 `scripts/unban.ts`。**坑（已记 local-acceptance.md）**：① `netlify dev` 起前须 `rm -rf build .netlify`、且 `[dev]` 不可设 `framework=#custom`，否则服务旧构建产物→页面无样式(commit `d76abc7`)。**修复**：① 生图 `size="auto"` 被中转拒(rix「size must use WIDTHxHEIGHT」)→ `relay.ts toRelaySize` 边界落 1024x1024(`ec1b207`) ② **管理员能封禁自己→自锁后台漏洞**：`setBanned` 守卫 `adminId===userId` 抛 400 + UI 本人行禁用 + admin-smoke 回归(`a5153ab`) ③ 失败卡片按 error_code 显友好中文(原直显中转英文)(`07c76ad`)。**生图全链路 live 验证通过**(注册送 0.14→生图 1024x1024 扣 0.07→失败不扣已退)。
+管理员凭据只从本地 `.env` 的 `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` 或密码管理器读取；任何跟踪文档、日志和示例不得出现真实值。
   - ℹ️ **中转并发（已澄清，不做并发闸）**：会话内一度怀疑中转 `api.tangguo.xin` 单 Key 并发挂起（隔离单请求所有尺寸 90-120s 正常）。**站长确认中转并发足够**——之前超时是同会话内我并发跑诊断生图把它挤的，正常单人用不复现。诊断工具 `scripts/relay-debug.ts` 保留。**生图代码/参数/尺寸全对。** 高并发方案存档于 [PHASE3-PLAN 上线前置](dev/PHASE3-PLAN.md)，日后多用户再议。
 
 ## 未决项 / 待确认（不阻塞起步；解决了打 `[x]`）

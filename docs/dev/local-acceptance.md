@@ -78,9 +78,16 @@ npx netlify dev           # 自动探测 React Router → 跑 vite dev（CSS Mod
 - [ ] 侧栏**搜索框**搜会话标题 → 结果点选跳对应会话
 - [ ] `/inspiration`：灵感画廊瀑布流；「用此提示词」一键带回 Composer
 
+### ✅ 灵感投稿 / 审核（UGC，详见 [INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)）
+
+- [ ] `/inspiration` 标题行点「投稿」→ 从「我的作品」选图 → 填标题/提示词/分类/简介 → 提交（不扣积分）→「我的投稿」出现待审记录。
+- [ ] 重复投稿同一张仍待审或已在架的图时，明确提示已投稿且不重复入队。
+- [ ] 后台 `/admin/inspiration-submissions` 出现待审记录和导航红点；通过时可编辑字段并二次确认，驳回时必须填写原因。
+- [ ] 投稿人收到 `inspiration_reviewed` 铃铛通知，点通知跳回 `/inspiration`；通过卡显示掩码署名，站长自建卡不显示署名。
+
 ## 3a. Key 模式与多任务验收（2026-07-11，实施后执行）
 
-> 当前仅完成需求/文档，以下项目**尚未通过**，不得据此声称生产已有功能。实现后先在独立测试账号和测试 Key 上验收；本地 `.env` 需新增有效的 `CUSTOM_KEY_JOB_ENCRYPTION_KEY`，格式见 [deploy.md §6](deploy.md)。
+> 当前仅完成需求/文档，以下项目**尚未通过**，不得据此声称生产已有功能。实现后只用 `npm run dev:netlify:test` 启动本地 custom 验收，并只读 gitignored `.env.test`：disposable Neon 双 URL、mutation ack、测试 Auth URL/secret、测试主密钥及 `CUSTOM_KEY_MODES_ENABLED=true`。guard 必须拒绝与 `.env` 生产候选同指纹的数据库；本地手工验收也不得绕过 guard 直读 `.env`。真实环境验证仅按 [deploy.md §6](deploy.md) 的受控发布步骤执行。
 
 ### 顶栏与本地配置
 
@@ -89,26 +96,27 @@ npx netlify dev           # 自动探测 React Router → 跑 vite dev（CSS Mod
 - [ ] 保存空白/超长 Key 只做本地校验，不发请求；保存有效 Key 自动切 custom。切 system 后 Key 仍在；清除后 Key 删除并切 system。
 - [ ] 刷新和重新登录恢复该 user ID 的模式/Key；同浏览器账号 A/B 配置隔离。退出登录不删除；浏览器 DevTools 可确认是已接受的明文 localStorage，不存在伪加密文案。
 - [ ] Network 面板确认 system 请求只含 `credentialMode:"system"`，custom 请求含 `credentialMode:"custom"` + `customApiKey`，两者都不含 Base URL；两者 URL 都是本站同一个 `/api/generate`。
+- [ ] `CUSTOM_KEY_MODES_ENABLED=false` 时 custom 控件禁用/提示暂停，已存 Key 不删除，API 503 且零写入；system 仍可用，UI 不得静默把 custom 改成 system。
 
 ### system 回归
 
 - [ ] 余额不足仍 402、不入队；达到账户并发仍 409；system 预算满仍 429。
 - [ ] system t2i/i2i 只使用后台 system Key；成功只扣一次，失败/超时不扣；后台换中转站能力不变。
-- [ ] system 可在 `max_concurrency` 内连续提交，超出由服务端拒绝；Composer 不因第一张未终态而永久锁住。
+- [ ] system 保留同会话单项交互锁，第一张终态后 Composer 恢复；服务端并发只统计 system 行，custom 行不占 `max_concurrency` 槽。
 
 ### custom 生成与多任务
 
 - [ ] 测试账号余额为 0、system 预算/并发已满时，custom 仍可 202 入队。
 - [ ] 连续提交至少 3 个不同提示词，不等前一张完成；3 张卡同时保持各自 prompt、比例、elapsed/status，不串图、不覆盖。
-- [ ] 一次批量状态请求追踪当前会话全部非终态 generation；任一项成功/失败后，其余继续轮询。刷新/离开再回来仍恢复。
+- [ ] 一个轮询控制器把当前会话非终态 generation 按每批 `<=50` 分片；用 51+ 项验证自动分片与合并。`missingIds` 不区分不存在/非 owner，连续两次缺失会刷新会话；权威刷新后仍缺失则显示“任务不存在或无权访问”并停止只轮询该 ID，不伪造服务端终态；任一项终态后其余继续轮询，刷新/离开再回来仍恢复。
 - [ ] custom 文生图和图生图都成功；图片进入同一会话、右侧面板、资产库和对象存储，下载/删除/保留期与 system 相同。
 - [ ] 每个 custom 成功项显示“不扣积分”/`creditsChargedMp=0`；余额、lots、ledger 前后完全不变，后台生成记录 mode=custom、扣费 0。
 
 ### 失败、超时与秘密
 
 - [ ] 分别用无效 Key、无配额 Key/桩、普通 429、内容拒绝、断网/上游不可达、坏响应和存储失败，核对批准版错误码与文案；失败后仍保持 custom 模式/Key，不自动调用 system。
-- [ ] 用可控桩/虚拟时钟验证 system/custom 均从创建起 5 分钟收口，fetch 预留 30 秒；状态读取可在 cron 前得到 `provider_timeout`，文案“请求超时，本次未扣积分，请重试”。
-- [ ] 成功、失败、超时后 `generation_credentials` 立即无对应行；人为制造孤儿后 15 分钟清理。queued/claimed/running 都能超时，不留卡死并发。
+- [ ] 用可控桩/虚拟时钟验证 system/custom 均从创建起 5 分钟收口，fetch 预留 30 秒；状态读取可在 cron 前得到 `provider_timeout`，文案“请求超时，本站未扣积分，请重试”，custom 同时说明第三方计费边界。
+- [ ] 成功、失败、超时后 `generation_credentials` 立即无对应行；人为制造孤儿，验证 10 分钟 TTL 与 5 分钟 cron 的正常最坏 15 分钟物理清理边界。queued/claimed/running 都能超时，不留卡死并发。
 - [ ] 用高熵测试 Key 搜索普通 DB 字段、events、audit、Function logs、Sentry 桩、用户/admin 响应和错误；不得命中明文。凭据表只见密文/IV/tag，后台 UI/API 不可读取。
 
 ## 3b. 阶段三+ 验收反馈 20 条（本轮新增/改动，重点看这些）
@@ -160,7 +168,7 @@ node --env-file=.env --import tsx scripts/promote-admin.ts <你的邮箱>
 
 ## 5. 无界面验收（不开浏览器，对真后端跑脚本）
 
-每条都 `node --env-file=.env --import tsx scripts/<x>.ts`，自建测试数据→断言→清理：
+实施 Key 计划 Task 0 后，所有会写库的 smoke 都必须通过 `node --import tsx scripts/test-env-guard.ts scripts/<x>.ts`，只连接已确认的 disposable `.env.test`，再自建测试数据→断言→清理。禁止继续用 `node --env-file=.env` 对共享/生产候选库跑这些脚本；真实环境只执行 deploy runbook 明确列出的受控 smoke。
 
 | 脚本 | 验什么 |
 |---|---|
@@ -174,7 +182,7 @@ node --env-file=.env --import tsx scripts/promote-admin.ts <你的邮箱>
 | `inspirations-smoke.ts` | **P3-S4 灵感运营化**（SQL 过滤/动态品类 DISTINCT/宽高回流/LIKE 转义/reorder 互换规整还原/上下架/红线无 storage_key，20 检查）|
 | `relay-chat-probe.ts` | **中转 chat 模型探测**（P3-S6 前置）：列 `/models` + 试打候选 chat 模型。**当前中转只有 `gpt-image-2`、无 chat 模型 → S6 跳过**；中转开 chat 渠道后复跑确认模型名 |
 | `relay-format-probe.ts` | **#9 中转 `output_format` 透传探测**（花 2 张图）：分别请求 png/jpeg 解码魔数。**实测中转不透传、jpeg 仍返 PNG → #9 只保留 png**；中转支持后复跑再做 |
-| `cron-smoke.ts` | cron（超时重扫/过期/对账/清图/预算，27 检查，注入 R2 桩）|
+| `cron-smoke.ts` | cron（超时重扫/过期/对账/清图/预算，27 检查，注入对象存储桩）|
 | `db-verify.ts` / `db-smoke.ts` / `storage-smoke.ts` | 种子/迁移 / FOR UPDATE / 存储往返 |
 | `npm run test:money` | 钱链路 33 例真库（并发/重入/幂等）|
 

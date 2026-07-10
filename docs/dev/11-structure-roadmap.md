@@ -6,11 +6,11 @@
 
 ## 12.1 目标 v2 目录结构
 
-> 前端走 **React Router 7 framework 模式**（路由即文件、走下划线 pathless 约定、`app/routes.ts` 集中声明，loader/action 直连 DB，[08-frontend.md §9.1](08-frontend.md) / [§9.2](08-frontend.md)）；后端逻辑分两处：RR7 的 server loader/action（读列表/余额等 SSR）与 `netlify/functions/*`（提交/轮询/兑换/后台/cron 等显式 REST 端点，[07-api.md §8.3](07-api.md)）。`src/server/*` 是**只在服务端**运行的纯逻辑层（中转代理 / R2 / 事务封装），被两处共用；服务端纯逻辑文件统一 `*.server.ts` 后缀，RR7 编译期把它们从前端 bundle 剔除（server-only 边界，[08 §9.1](08-frontend.md)），不靠"src/server 不被前端 import"软约定。
+> 前端走 **React Router 8 framework 模式**，`app/routes.ts` 集中声明路由，loader/action 可直连 DB；显式 REST/Background/cron 走 `netlify/functions/*`。`src/server/*` 是 server-only 逻辑层（中转、对象存储、事务），RR8 编译边界与静态 secrets 断言共同防止进入客户端。
 
 ```
 ai-image-workshop/
-├─ app/                        # RR7 framework 模式根（routes 即路由树；也可叫 src/routes，全工程统一其一）
+├─ app/                        # RR8 framework 模式根
 │  ├─ root.tsx                 #   HTML 壳 + 全局 Provider（TanStack Query、主题、Toast）
 │  ├─ routes.ts                #   集中路由表（声明全部路由模块，路由真相源 08 §9.2）
 │  ├─ routes/                  #   路由文件（下划线 pathless 约定；loader/action = server 端，直连 DB 读余额/列表）
@@ -24,7 +24,10 @@ ai-image-workshop/
 │  │  ├─ _auth.login.tsx       #     登录（_auth pathless 布局）
 │  │  ├─ _auth.register.tsx    #     注册
 │  │  ├─ _auth.forgot.tsx      #     忘记密码
-│  │  └─ _admin.*.tsx          #     后台（独立 _admin 布局，RBAC=admin，§10.1）
+│  │  ├─ api.inspiration-submissions.ts       # 灵感库 UGC：POST 投稿 / GET 我的投稿（requireUserStrict，不扣积分，见 INSPIRATION-UGC-PLAN.md）
+│  │  ├─ api.admin.inspiration-submissions.ts # 后台投稿：GET 队列 / POST 审核（requireAdmin，同上）
+│  │  ├─ _admin.inspiration-submissions.tsx   # 后台「灵感投稿」队列页（状态筛 Tab + 通过/驳回，§10.1）
+│  │  └─ _admin.*.tsx          #     其余后台（独立 _admin 布局，RBAC=admin，§10.1）
 │  └─ entry.server.tsx / entry.client.tsx
 │
 ├─ src/
@@ -35,17 +38,21 @@ ai-image-workshop/
 │  ├─ contracts/              # Zod4 + drizzle-zod，前后端单一真相源（07 §8.5）
 │  │  ├─ generate.ts          #   提交/状态/列表 请求·响应 schema
 │  │  ├─ redeem.ts            #   兑换 请求·响应·错误码
-│  │  └─ admin.ts             #   后台各端点 schema
+│  │  ├─ inspirationSubmission.ts #  灵感库 UGC 投稿/我的投稿/审核 schema（client-safe 手写 Zod，见 INSPIRATION-UGC-PLAN.md）
+│  │  └─ admin.ts             #   后台各端点 schema（含投稿审核 SubmissionReviewAction）
 │  ├─ server/                 # ★只在服务端运行的纯逻辑层（无 React、被 functions + loader 共用；文件统一 *.server.ts，编译期剔除前端 bundle）
 │  │  ├─ relay/               #   中转代理：调用 + 响应解析（复用 v1 imageGeneration.ts）+ 脱敏 + 失败归一化
-│  │  ├─ r2.server.ts         #   R2 上传/删除（@aws-sdk/client-s3 或 aws4fetch，07 章）
+│  │  ├─ r2.server.ts         #   对象存储上传/删除（历史文件名）+ 灵感投稿副本复制（buildInspirationSubmissionKey/copyToInspirationSubmission，07 章）
+│  │  ├─ inspirationSubmissions.server.ts # 灵感库 UGC 投稿：submitInspiration（限流/上限/归属/去重/复制副本/事务）+ listMySubmissions（见 INSPIRATION-UGC-PLAN.md）
 │  │  ├─ money/               #   钱事务封装：扣费/兑换/注册发放/过期/对账（03 章 SQL 落 TS）
+│  │  ├─ admin/              #   后台服务端逻辑（双守卫 + 审计同事务）
+│  │  │  └─ inspirationReview.server.ts #  投稿审核：listSubmissions/countPendingSubmissions/approveSubmission/rejectSubmission（建上架卡+署名+通知，见 INSPIRATION-UGC-PLAN.md）
 │  │  ├─ tx.server.ts        #   tx() 事务助手（开 client→BEGIN→…→COMMIT/ROLLBACK→release，00 §1.3）
 │  │  ├─ budget.server.ts    #   单日预算熔断读写（铁律①，04 §5.6）
 │  │  └─ auth.server.ts      #   Better Auth 实例 + admin 鉴权守卫（05 章）
 │  ├─ components/            # 复用组件（Composer 五态 / 尺寸药丸 / 资产网格 / Toast，§9.6）
 │  ├─ hooks/                 # TanStack Query hooks（余额 / job 短轮询 / 列表，§9.3）
-│  ├─ lib/                   # 跨端纯工具：redaction.ts（复用）/ 金额换算 mp↔小数 / 格式化
+│  ├─ lib/                   # 跨端纯工具：redaction.ts（复用）/ 金额换算 mp↔小数 / 格式化 / publicHandle.ts（投稿署名掩码昵称 qk***，见 INSPIRATION-UGC-PLAN.md）
 │  └─ styles/
 │     └─ tokens.css          # 从 design-system.html 落地的设计令牌（明暗两套，§9.5）
 │
@@ -66,8 +73,11 @@ ai-image-workshop/
 │     └─ scheduled-budget-cleanup.ts # cron：清理/归档旧预算键 + 近阈告警（当日键 date-in-key 自动归零，10 §11.8）
 │
 ├─ drizzle/                   # drizzle-kit 生成的迁移 SQL（入库；部分唯一索引人工核对，02 §3.4）
+│  └─ 0004_inspiration_submissions.sql # 灵感库 UGC：建 inspiration_submissions 表 + inspirations 加 submitted_by/submitter_name（见 INSPIRATION-UGC-PLAN.md）
 ├─ scripts/
-│  └─ assert-no-secrets-in-bundle.ts # ★构建期断言：扫 dist/ 不含任何密钥（00 §1.4，CI 拦截）
+│  ├─ assert-no-secrets-in-bundle.ts # ★构建期断言：扫 dist/ 不含任何密钥（00 §1.4，CI 拦截）
+│  ├─ inspiration-submissions-smoke.ts # 灵感库 UGC 真 Neon 冒烟（投稿/去重/越权/审核建卡署名+通知/重投/唯一索引兜底）
+│  └─ migrate-inspiration-submissions.ts # 应用 0004 迁移
 ├─ tests/
 │  ├─ money/                  # 钱链路事务测试（对真 Neon 分支库，含并发双击/重试重入，10 §11.10）
 │  └─ e2e/                    # Playwright 冒烟（登录→生图→兑换，10 §11.10）
@@ -84,10 +94,10 @@ ai-image-workshop/
 | 目录/文件 | 职责 |
 |---|---|
 | `app/routes.ts` | 集中路由表，声明全部路由模块（路由真相源，[§9.2](08-frontend.md)） |
-| `app/routes` | RR7 路由树（下划线 pathless 约定）；loader/action 跑在服务端，直连 DB 读余额/列表（[§9.1](08-frontend.md)） |
+| `app/routes` | RR8 路由树；loader/action 跑在服务端，直连 DB 读余额/列表（[§9.1](08-frontend.md)） |
 | `src/db/schema.ts` | Drizzle schema，逐列对齐 [02 §3.2](02-database.md)；钱的部分唯一索引人工核对 |
 | `src/contracts` | Zod 请求/响应契约，前后端复用（[07 §8.5](07-api.md)） |
-| `src/server`（`*.server.ts`） | 服务端纯逻辑：中转代理 / R2 / 钱事务封装 / 预算 / 鉴权守卫（被 functions+loader 共用；`*.server.ts` 编译期剔除前端 bundle，[§9.1](08-frontend.md)） |
+| `src/server`（`*.server.ts`） | 服务端纯逻辑：中转代理 / 对象存储 / 钱事务封装 / 预算 / 鉴权守卫（被 functions+loader 共用；`*.server.ts` 编译期剔除前端 bundle，[§9.1](08-frontend.md)） |
 | `src/styles/tokens.css` | design-system.html 落地的设计令牌（[§9.5](08-frontend.md)） |
 | `netlify/functions` | 显式 REST + Background + Scheduled 端点（[07 §8.3](07-api.md) / [10 §11.1](10-ops-test.md)） |
 | `drizzle/` | 迁移 SQL 真相源（[02 §3.5](02-database.md)）；部分唯一索引 `WHERE` 谓词人工核对（[02 §3.4](02-database.md)） |
@@ -106,7 +116,7 @@ ai-image-workshop/
 | `src/server/asyncImageJob.ts` | **重构** | 异步代理骨架保留思路；`JobRecord`（status/时间/原始 response）→ **`generations` 表**，补 userId/model/size/duration/失败原因（[02 §3.2](02-database.md)） |
 | `src/server/jobStore.ts`（Netlify Blobs） | **删除** | job 态改以 `generations` 表为准（Blobs 是 KV、最终一致、无原子操作；[01 §2.1](01-architecture.md)） |
 | `netlify/functions/generate.ts` | **重构** | 现状用 `fetch` 主动调后台 = 假后台、会超时 → 改真后台触发 + 入队双闸（[§5.2](04-generation-pipeline.md) / [§5.7](04-generation-pipeline.md)） |
-| `netlify/functions/generate-background.ts` | **重构** | 加抢占式状态机（[03 §4.5](03-money.md)）+ 落 R2 + 扣费事务（[03 §4.3](03-money.md)）+ 读 env key |
+| `netlify/functions/generate-background.ts` | **重构** | 加抢占式状态机（[03 §4.5](03-money.md)）+ 落对象存储 + 扣费事务（[03 §4.3](03-money.md)）+ 读 env key |
 | `netlify/functions/generate-status.ts` | **重构** | 查 `generations` 表（非 Blobs）；返回 status + 成功 `public_url` / 失败 error+code（[§5.4](04-generation-pipeline.md)） |
 | `src/App.tsx` | **重构** | 双栏工具版 → Composer **三栏壳**（左会话 / 中对话 / 右本次面板，[§9.2](08-frontend.md)） |
 | `src/components/ApiConfigModal.tsx` | **v1 历史删除** | 删除未按用户隔离的旧密钥 UI；新弹窗按 §12.6 另建 |
@@ -126,7 +136,7 @@ ai-image-workshop/
 
 ### 阶段一 · 前端形态 + 修现存隐患（mock 账号/积分跑通体验）
 
-- [ ] 建 RR7 framework 模式工程骨架 + `tokens.css` 从 design-system.html 落地（[§9.1](08-frontend.md) / [§9.5](08-frontend.md)）
+- [ ] 建 RR8 framework 模式工程骨架 + `tokens.css` 从 design-system.html 落地（[§9.1](08-frontend.md) / [§9.5](08-frontend.md)）
 - [ ] App.tsx 双栏 → Composer 三栏壳 + 五态（[§9.2](08-frontend.md) / [§9.4](08-frontend.md)）
 - [ ] 尺寸/参数药丸 + 高级设置（复用 GeneratorForm 的 `SIZE_OPTIONS`，[§12.2](#122-v1-迁移清单现状文件--处置--去向)）
 - [ ] 灵感画廊静态版 + 深色/暖色主题切换（[§9.5](08-frontend.md)）
@@ -140,7 +150,7 @@ ai-image-workshop/
 - [ ] 接 Neon：`src/db/db.server.ts` 两种连接（HTTP + Pool/WS），跑通 `FOR UPDATE`（[00 §1.3](00-overview.md)）
 - [ ] Drizzle schema + 迁移：建全部业务表 + 索引 + **部分唯一索引人工核对**（[02 §3.2](02-database.md)/[§3.3](02-database.md)/[§3.5](02-database.md)）
 - [ ] 种子数据：admin / 默认 packages / app_config（[02 §3.5](02-database.md)）
-- [ ] 接 Cloudflare R2：`src/server/r2.server.ts` 上传/删除 + `public_url` 拼接（[06 §7.1](06-storage.md)/[§7.2](06-storage.md)/[§7.3](06-storage.md)）
+- [ ] 接 Supabase Storage S3：沿用历史名 `src/server/r2.server.ts` 上传/删除 + `public_url` 拼接，配置用 `STORAGE_*`（[06 §7.1](06-storage.md)）
 
 **鉴权**
 - [ ] Better Auth：email+password + admin 插件 + bcryptjs + 业务 `users` 对齐（[05 §6.1](05-auth.md)/[§6.2](05-auth.md)）
@@ -151,13 +161,13 @@ ai-image-workshop/
 - [ ] 积分账本 + 批次模型（FIFO + 过期，[03 §4.1](03-money.md)/[§4.8](03-money.md)）
 - [ ] 入队双闸：余额(402) + 并发(409) + 预算熔断(429)（[03 §4.9](03-money.md)）
 - [ ] 抢占式状态机 `UPDATE…WHERE status='queued' RETURNING`（铁律③，[03 §4.5](03-money.md)）
-- [ ] 成功才扣单事务（先 R2 后扣费，`uq_debit` 幂等，[03 §4.3](03-money.md)）
+- [ ] 成功才扣单事务（先对象存储后扣费，`uq_debit` 幂等，[03 §4.3](03-money.md)）
 - [ ] 兑换码核销事务 + 错误码 404/410/400/429（[03 §4.7](03-money.md) / [07 §8.4](07-api.md)）
 - [ ] 单日预算熔断（应用层硬上限，铁律①，[04 §5.6](04-generation-pipeline.md)）
 
 **生图管线**
 - [ ] DB-as-queue 全链路打通：submit→background→status（[04 §5.1](04-generation-pipeline.md)~[§5.4](04-generation-pipeline.md)）
-- [ ] system-only 历史基线：5min cron 重扫 + 六值失败归一化（[04 §5.5](04-generation-pipeline.md)/[§5.8](04-generation-pipeline.md)）；当前目标按 §12.6 改为 `deadline_at` 状态读/cron 共用收口 + 十值新写入契约
+- [ ] system 基线：5min cron 重扫 + 七值失败归一化；当前目标按 §12.6 改为 `deadline_at` 共用收口，system 七值不回归、custom 十值精确分类、读取取并集
 - [ ] v1 代码迁移：删 apiKey 链路 / jobStore→generations（[04 §5.7](04-generation-pipeline.md) / [§12.2](#122-v1-迁移清单现状文件--处置--去向)）
 
 **前端业务页**
@@ -187,24 +197,25 @@ ai-image-workshop/
 - [x] **P3-S4 灵感库运营化**：category/q 下沉 SQL + 动态品类 DISTINCT + 瀑布流宽高回填（新增 `inspirations.width/height`）+ 后台上下移/上下架（[07 §8.3](07-api.md)/[09 §10.4](09-admin.md)）
 - 🚫 **P3-S6 优化提示词**：本期跳过——中转 `api.tangguo.xin` 只配 `gpt-image-2`、无 chat/文本模型（[PHASE3-PLAN §6](PHASE3-PLAN.md)）；药丸保持占位，中转开 chat 渠道后再做
 - 🚫 **P3-S3 RBAC / P3-S5 客服 360**：本期不做（站长：维持单管理员）
+- **灵感库用户投稿与审核（UGC）**：新需求（规格 [§13.1](../redesign-requirements.md)）——用户从作品投稿 → `inspiration_submissions(pending)` → 后台审核通过上架/驳回 + 站内通知，不扣积分；详细设计/落地见 [INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)
 - [ ] （更远）图生图 / 一次多图 / 单图编辑 / 订阅与真实支付（本期明确不做，规格 §21）
 - [ ] （规模化）DB-as-queue → 独立 worker + Redis/BullMQ 或 QStash，`generations` 状态机不变（[01 §2.5](01-architecture.md)）
 
 ## 12.4 依赖清单
 
-> 基于现状 `package.json`（已有 react19 / vite / typescript / vitest / @netlify/blobs / lucide-react）。下面是**阶段二要加 / 要删**的依赖；阶段一基本只用现有栈 + RR7。
+> 当前实际版本以 `package.json` 为准：React 19、Vite 8、React Router 8、TypeScript、Vitest 等。
 
 ### dependencies（生产）
 
 | 包 | 用途 | 引自 |
 |---|---|---|
-| `react-router` `@react-router/node` `isbot` | RR7 framework 模式运行/SSR 配套（`@react-router/dev` 与 Vite 插件在 devDeps） | [08 §9.1](08-frontend.md) |
+| `react-router` `@react-router/node` `isbot` | RR8 framework 模式运行/SSR 配套 | [08 §9.1](08-frontend.md) |
 | `drizzle-orm` | ORM / schema | [02 §3.4](02-database.md) |
 | `@neondatabase/serverless` | Neon 驱动（HTTP + Pool/WS） | [00 §1.3](00-overview.md) |
 | `ws` | Node 运行时注入 WebSocket 给 Neon Pool | [00 §1.3](00-overview.md) |
 | `better-auth` | 鉴权（admin 插件；Drizzle adapter 为 better-auth 内置，无需额外包） | [05 §6.1](05-auth.md) |
 | `bcryptjs` | 密码哈希（Better Auth 配套） | [05 §6.4](05-auth.md) |
-| `@aws-sdk/client-s3`（或 `aws4fetch`） | R2 S3 兼容上传/删除（aws4fetch 更轻，二选一） | [06 §7.1](06-storage.md) |
+| `@aws-sdk/client-s3` | 当前 Supabase Storage S3 兼容上传/删除 | [06 §7.1](06-storage.md) |
 | `@tanstack/react-query` | 查询缓存 + 短轮询 | [08 §9.3](08-frontend.md) |
 | `zod` | 契约校验（Zod 4） | [07 §8.5](07-api.md) |
 | `drizzle-zod` | 由 schema 推 Zod，前后端单一真相源 | [07 §8.5](07-api.md) |
@@ -215,8 +226,8 @@ ai-image-workshop/
 
 | 包 | 用途 | 引自 |
 |---|---|---|
-| `@react-router/dev` | RR7 framework 模式构建/路由约定（Vite 插件 + `routes.ts`） | [08 §9.1](08-frontend.md) / [§9.2](08-frontend.md) |
-| `@netlify/vite-plugin-react-router` | Netlify 跑 RR7 framework 模式必需的 Vite 插件；装上后**默认产出 Netlify Serverless Functions(Node)**，需 Edge 才设 `edge:true`（替代旧"按 preset 文档增减"措辞） | [08 §9.1](08-frontend.md) |
+| `@react-router/dev` | RR8 framework 模式构建/路由约定 | [08 §9.1](08-frontend.md) |
+| `@netlify/vite-plugin-react-router` | Netlify 跑 RR8 framework 模式的 Vite 插件 | [08 §9.1](08-frontend.md) |
 | `drizzle-kit` | 迁移生成/应用 | [02 §3.5](02-database.md) |
 | `@biomejs/biome` | lint + format | [00 §1.1](00-overview.md) |
 | `@playwright/test` | E2E 冒烟 | [10 §11.10](10-ops-test.md) |
@@ -229,12 +240,12 @@ ai-image-workshop/
 |---|---|
 | `@netlify/blobs` | **job 态迁 `generations` 表后即可删**（[§12.2](#122-v1-迁移清单现状文件--处置--去向)）；若无其他 KV 用途则从 deps 移除 |
 
-> **依赖红线**：含密钥的客户端绝不进前端 bundle（Neon / R2 / Better Auth secret / **`RELAY_API_KEY` / `RELAY_BASE_URL`**（中转密钥与地址，全套见 [00 §1.4](00-overview.md)）只在 server 侧 import）；`assert-no-secrets-in-bundle.ts` 在 CI 兜底（[00 §1.4](00-overview.md)）。版本钉死 Better Auth 以避 multi-session CVE（[05 §6.1](05-auth.md)）。
+> **依赖红线**：Neon、`STORAGE_*`、Better Auth secret、`RELAY_*` 与任务加密主密钥只在 server 侧；`assert-no-secrets-in-bundle.ts` 在 CI 兜底。
 
 ## 12.5 落地红线清单
 
 - [ ] 工程统一一套路由根（`app/routes` 或 `src/routes`，二选一不混用），路由模块走下划线 pathless 约定并在 `app/routes.ts` 集中声明（[08 §9.2](08-frontend.md)）。
-- [ ] 服务端纯逻辑统一 `*.server.ts` 后缀，靠 RR7 编译期 server-only 边界剔除前端 bundle（非仅"src/server 不被前端 import"软约定，[08 §9.1](08-frontend.md)）；密钥客户端仅 server 侧使用 + 构建期断言（[00 §1.4](00-overview.md)）。
+- [ ] 服务端纯逻辑统一 `*.server.ts` 后缀，靠 RR8 server-only 边界与构建期断言阻止密钥进入客户端（[08 §9.1](08-frontend.md)）。
 - [ ] `netlify/functions` 里生图后台触发真 Background 二者其一：`-background` 文件名后缀，**或**（Functions v2）函数内 `export const config = { background: true }`；官方推荐后者，后缀仍受支持（[00 §1.2](00-overview.md)）。
 - [ ] Scheduled 函数全部在 `netlify.toml` 配 cron（[10 §11.1](10-ops-test.md)）。
 - [ ] Drizzle 迁移生成后**人工核对** `drizzle/*.sql` 含部分唯一索引的 `WHERE` 谓词（[02 §3.4](02-database.md)）。
@@ -262,7 +273,7 @@ netlify/functions/
 ├─ generate.ts                                 # 唯一提交端点
 ├─ generate-background.ts                      # 只接 generationId
 ├─ generate-status.ts                          # 单 ID 兼容 + 批量查询
-└─ cron-clean-generation-credentials.ts        # 15min 密文孤儿兜底
+└─ cron-clean-generation-credentials.ts        # 10min TTL + 5min cron，正常最迟 15min
 drizzle/
 └─ 0005_user_generation_credentials.sql         # mode/deadline/credential 表
 ```

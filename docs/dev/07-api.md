@@ -2,13 +2,13 @@
 
 > 本章定**契约**：端点清单、语义化状态码、统一错误信封、Zod schema。规则真相源：规格 [§5](../redesign-requirements.md)（五态）/[§6](../redesign-requirements.md)（计费）/[§7](../redesign-requirements.md)（兑换）/[§10](../redesign-requirements.md)–[§13](../redesign-requirements.md)（历史/面板/资产库/灵感库）/[§24](../redesign-requirements.md)（交互默认值）。
 > **前端怎么消费**见 [08-frontend.md §9.3](08-frontend.md)；**后台 admin API** 见 [09-admin.md §10.1](09-admin.md)；**事务实现**见 [03-money.md](03-money.md)。
-> RR7 下读路径多走 **loader**（[08-frontend.md §9.2](08-frontend.md)），写/动作走**手写 REST `netlify/functions/*` 或 RR7 action**。本章给两者统一的**输入/输出/状态码/校验**约定。
+> RR8 framework 下读路径多走 **loader**（[08-frontend.md §9.2](08-frontend.md)），写/动作走**手写 REST `netlify/functions/*` 或 RR8 action**。本章给两者统一的输入/输出/状态码/校验约定。
 
 ## 8.1 约定
 
 | 项 | 约定 |
 |---|---|
-| 协议 | REST + JSON（`Content-Type: application/json`）；二进制（图）走 R2 `public_url`，不经本站 API |
+| 协议 | REST + JSON（`Content-Type: application/json`）；二进制（图）走 Supabase Storage `public_url`，不经本站 API |
 | 鉴权 | **Better Auth cookie 会话**（HttpOnly）；不把本站鉴权 Key 发给前端。custom 中转 Key 仅作为用户输入随已鉴权 HTTPS 生成请求提交，不替代站内会话鉴权 |
 | 时间 | 一律 ISO-8601 UTC 字符串（`2026-06-21T08:30:00Z`），展示层本地化 |
 | 金额 | 跨 JSON 用**整数 mp / 分**，字段带 `_mp` / `_cash` 后缀；前端展示才 `/1000`、`/100`（[02-database.md §3.6](02-database.md)） |
@@ -57,13 +57,13 @@ export function httpError(status: number, code: string, message: string, details
 | **409** | 冲突 | **超出并发数量**；注册邮箱已存在 | `CONCURRENCY_LIMIT` / `EMAIL_TAKEN` |
 | **410** | Gone（资源已失效） | 兑换码**已被使用** / **已作废** | `CODE_USED` / `CODE_DISABLED` |
 | **429** | 限流 / 熔断 | 兑换/登录/注册超频；**单日预算熔断**拦生成入口（[04-generation-pipeline.md §5.6](04-generation-pipeline.md)） | `RATE_LIMITED` / `BUDGET_EXHAUSTED` |
-| **500** | 服务端错误 | DB/中转/R2 不可控异常（**已脱敏**后返回通用文案） | `INTERNAL` |
+| **500** | 服务端错误 | DB/中转/对象存储不可控异常（**已脱敏**后返回通用文案） | `INTERNAL` |
 
 > 失败的生成本身**不是 HTTP 错误**：`generate-status` 用 **200** 返回 `status:'failed' + errorCode/error/httpStatus`（业务态在响应体里，不用 HTTP 码表达，见 §8.3）。
 
 ## 8.3 端点清单
 
-> 「读」标 **loader** 的走 RR7 server loader（SSR 直连 DB，[08-frontend.md §9.2](08-frontend.md)）；标 **REST** 的是 `netlify/functions/*` 或 RR7 action。所有端点默认需登录（除 Better Auth 注册/登录本身）。请求/响应 schema 名指向 §8.5 的 `src/contracts/*`。
+> 「读」标 **loader** 的走 RR8 server loader（SSR 直连 DB，[08-frontend.md §9.2](08-frontend.md)）；标 **REST** 的是 `netlify/functions/*` 或 RR8 action。所有端点默认需登录（除 Better Auth 注册/登录本身）。请求/响应 schema 名指向 §8.5 的 `src/contracts/*`。
 
 ### 会话 / 鉴权
 
@@ -72,7 +72,7 @@ export function httpError(status: number, code: string, message: string, details
 | POST | `/api/auth/sign-up` | `{email,password}` | `{user}` + Set-Cookie | 200/400/409/429 | Better Auth |
 | POST | `/api/auth/sign-in` | `{email,password}` | `{user}` + Set-Cookie | 200/400/401/429 | Better Auth |
 | POST | `/api/auth/sign-out` | — | `{ok:true}` | 200 | Better Auth |
-| GET | `/api/me` | — | `MeResponse`（user + `balance_mp` + `max_concurrency` + `has_paid` + `expiringSoon`） | 200/401 | loader |
+| GET | `/api/me` | — | `MeResponse`（user + 余额/单价/并发/付费/到期提示 + `customKeyModesEnabled`） | 200/401 | loader |
 
 > 注册成功**原子发放 0.14**（[03-money.md §4.4](03-money.md)）；邮箱已注册 → **409 `EMAIL_TAKEN`** 文案"该邮箱已注册，请直接登录"（[§24-1](../redesign-requirements.md)）。封禁账号在 `/api/me` 与任何受保护端点返回 **403 `BANNED`**（[05-auth.md §6.5](05-auth.md)）。
 >
@@ -83,6 +83,8 @@ export function httpError(status: number, code: string, message: string, details
 > WHERE user_id = $1 AND remaining_mp > 0
 >   AND expires_at IS NOT NULL AND expires_at < now() + interval '3 days';
 > ```
+>
+> `MeResponse.customKeyModesEnabled` 是 server-only kill switch 的布尔投影，不包含 env 原值或任何 Key。缺失/false 一律视为 custom 暂停；已打开页面若提交收到 `503 CUSTOM_KEY_MODES_DISABLED`，必须立即失效并刷新 `/api/me` cache，不得静默改发 system。
 
 ### 生成（现有 system-only 基线；目标契约见 §8.7）
 
@@ -107,7 +109,7 @@ export function httpError(status: number, code: string, message: string, details
 ```jsonc
 // 进行中（queued|claimed|running）—— 不含 creditsChargedMp
 { "status":"running", "startedAt":"…", "elapsedMs": 12000 }
-// succeeded —— 只给 R2 稳定 public_url，绝不给中转临时 URL（[01 §2.1]）
+// succeeded —— 只给对象存储稳定 public_url，绝不给中转临时 URL（[01 §2.1]）
 { "status":"succeeded",
   "image": { "publicUrl":"https://img.example.com/…", "width":1024, "height":1024 },
   "creditsChargedMp": 70, "durationMs": 38000 }
@@ -116,7 +118,7 @@ export function httpError(status: number, code: string, message: string, details
   "errorCode":"provider_timeout", "error":"504 中转网关超时", "httpStatus": 504 }
 ```
 
-> 上述响应是现有 system-only 单项基线：进行中态没有 `creditsChargedMp`，历史失败行使用 [04 §5.8](04-generation-pipeline.md) 六值。目标响应与新错误集合以 §8.7 为准；读取层仍兼容历史六值。成功态 `durationMs` 由扣费事务库内算出（[03-money.md §4.3](03-money.md)）。
+> 上述响应是现有 system-only 单项基线：进行中态没有 `creditsChargedMp`，system 失败使用 [04 §5.8](04-generation-pipeline.md) 七值。目标响应以 §8.7 为准；读取层接受 system 七值与 custom 十值并集。
 
 ### 会话（ChatGPT 式历史，[§10](../redesign-requirements.md)）
 
@@ -145,7 +147,7 @@ export function httpError(status: number, code: string, message: string, details
 | POST | `/api/images/save` | `{ generationId }` | `{ id, savedToLibrary:true }` | 200/401/404 | REST |
 | DELETE | `/api/images` | `{ ids: uuid[] }`（批量） | `{ deleted: number }` | 200/400/401 | REST |
 
-> 仅本人图（`user_id=session.userId`）；`range ∈ {all,today,7d,30d,custom}`，custom 配 `from/to`（[§24-8](../redesign-requirements.md)）；分组「今天/昨天/具体日期」由前端按 `createdAt` 渲染（[§12](../redesign-requirements.md)）。删除**不可恢复**（同时异步删 R2 对象，[06-storage.md §7.5](06-storage.md)），前端弹确认（[§24-9](../redesign-requirements.md)）。「存入资产库」= 置 `saved_to_library=true`（[§5.2](../redesign-requirements.md)/[§24-6](../redesign-requirements.md)），已存按钮置灰。
+> 仅本人图（`user_id=session.userId`）；`range ∈ {all,today,7d,30d,custom}`，custom 配 `from/to`（[§24-8](../redesign-requirements.md)）；分组「今天/昨天/具体日期」由前端按 `createdAt` 渲染（[§12](../redesign-requirements.md)）。删除**不可恢复**（同时异步删对象存储对象，[06-storage.md §7.5](06-storage.md)），前端弹确认（[§24-9](../redesign-requirements.md)）。「存入资产库」= 置 `saved_to_library=true`（[§5.2](../redesign-requirements.md)/[§24-6](../redesign-requirements.md)），已存按钮置灰。
 
 ### 灵感库（只读，站长后台维护，[§13](../redesign-requirements.md)）
 
@@ -153,8 +155,26 @@ export function httpError(status: number, code: string, message: string, details
 |---|---|---|---|---|---|
 | GET | `/api/inspirations?category=&q=` | 品类筛选 + 关键词搜索（服务端 ILIKE，匹配 title/summary/prompt） | `{ items:[{id,cover,title,summary,prompt,category,width,height}], categories:[string] }` | 200 | loader |
 
-> 仅返回**已上架**(`active=true`)卡；「用此提示词」纯前端回填 Composer（[§13](../redesign-requirements.md)/[§24-10](../redesign-requirements.md)），无独立端点。CRUD 是后台能力（[09-admin.md §10.4](09-admin.md)）。
+> 仅返回**已上架**(`active=true`)卡；「用此提示词」纯前端回填 Composer（[§13](../redesign-requirements.md)/[§24-10](../redesign-requirements.md)），无独立端点。CRUD 是后台能力（[09-admin.md §10.4](09-admin.md)）。`InspirationItem` 含 `submitter:string|null`（用户投稿卡显「由 X 投稿」掩码昵称、站长自建为 `null` 不显署名，来源 `inspirations.submitter_name`）。
 > **P3-S4**：`category`/`q` 下沉为 SQL（`likePattern` 转义 `\%_` + 参数化绑定防注入），**仅当表无 active 卡时**回退服务端种子（`EXISTS(active)` 判定，非「筛选后为空」误回）；`categories` = `DISTINCT category`（active、排除 NULL/''，独立于当前筛选）供前台动态品类 Tab（前端补「全部」首位）；`width/height` = 封面原始宽高（瀑布流原比例，可空）。
+
+### 灵感库用户投稿与审核（UGC，[§13.1](../redesign-requirements.md)，详细设计见 [INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)）
+
+| 方法 | 路径 | 入参 | 响应 | 码 | 通道 |
+|---|---|---|---|---|---|
+| POST | `/api/inspiration-submissions` | `InspirationSubmitRequest`（`{imageId,title,prompt,category?,summary?}`） | `InspirationSubmitResponse`（`{id,status:'pending'}`） | 200/400/401/404/429 | REST |
+| GET | `/api/inspiration-submissions` | — | `MySubmissionsResponse`（我的近 50 条投稿 + 状态/驳回原因） | 200/401 | REST |
+
+> 用户在灵感库点「投稿」→ 从**自己的作品**选一张图 + 填标题/提示词/分类/简介 → 落 `inspiration_submissions(status='pending')` + 复制一份**永久副本**（与上架表 `inspirations` 分离，保证用户端 `loadInspirations(active=true)` 零改动、不泄露 pending/rejected）。**不扣积分**（`requireUserStrict`）。POST 入口**服务端取权威字段**（按 `imageId` 校 `images.user_id=$me` 取 key/url/宽高，**绝不信客户端**）、非本人图 → **404**；**待审上限 10**（`INSPIRATION_SUBMISSION_MAX_PENDING`）+ 限流 **10 次 / 10 分钟**（`INSPIRATION_SUBMISSION_RATE_PER_WINDOW`，[§8.6](#86-限流)）超出 → **429**；**同图去重**（pending 或仍在架 approved）→ **400**；唯一索引 `uq_insp_sub_pending_src` 并发兜底 `23505` → **400**。表结构 / 副本键 `inspirations/submissions/<uid>/…` / 厂商中立复制见 [INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)。
+
+**后台审核**（`requireAdmin`，[09-admin.md §10.4](09-admin.md)）：
+
+| 方法 | 路径 | 入参 | 响应 | 码 | 通道 |
+|---|---|---|---|---|---|
+| GET | `/api/admin/inspiration-submissions?status=&page=&pageSize=` | 状态筛 + 分页 | `{ items, page, pageSize, total, pendingCount }`（队列 + 导航待审红点数） | 200/401/403 | REST |
+| POST | `/api/admin/inspiration-submissions` | `SubmissionReviewAction`（判别联合 `op:'approve'|'reject'`） | `{ ok:true }` | 200/400/401/403/404 | REST |
+
+> `op='approve'` → 事务内 `FOR UPDATE` 锁 + 校 `status='pending'` → 建 `inspirations` 上架卡（`cover_key`=投稿副本键、`submitter_name`=`publicHandleFromEmail` 掩码昵称、`submitted_by`=投稿人 id）→ 投稿置 `approved` + `published_inspiration_id` → 同事务 `writeAudit` + 站内通知 `inspiration_reviewed`（`dedupe_key=inspiration_reviewed:<subId>`）；`op='reject'` 同上置 `rejected` + `review_reason` + 审计 + 通知。审计动作 `approve_inspiration_submission` / `reject_inspiration_submission`（`targetType=inspiration_submission`）。**双守卫**（页 `requireAdminPage` + API `requireAdmin`）+ 通过编辑弹窗二次确认见 [09-admin.md §10.4](09-admin.md)。
 
 ### 充值 / 兑换（[§7](../redesign-requirements.md)）
 
@@ -174,7 +194,7 @@ export function httpError(status: number, code: string, message: string, details
 
 > 改密走 Better Auth（密码 ≥6 位、字节限长在 `password.hash` 内强制断言防 bcrypt 72 字节截断，[05-auth.md §6.4](05-auth.md)）；改密后吊销其它会话（[05-auth.md §6.5](05-auth.md)）。**忘记密码本期占位**（提示联系站长，无端点，[§24-1](../redesign-requirements.md)）。
 
-### 站内通知（[10-ops-test.md §11.7](10-ops-test.md) cron 预扫产出，目前仅「图片到期前 1 天」）
+### 站内通知（[10-ops-test.md §11.7](10-ops-test.md) cron 预扫产出「图片到期前 1 天」+ 业务事件触发「灵感投稿审核」）
 
 | 方法 | 路径 | 入参 | 响应 | 码 | 通道 |
 |---|---|---|---|---|---|
@@ -182,6 +202,7 @@ export function httpError(status: number, code: string, message: string, details
 | POST | `/api/notifications/read` | `{ ids?: uuid[] }`（缺省全标） | `{ marked: number }` | 200/400/401 | REST |
 
 > 仅本人通知（`user_id=session.userId`）。图片到期前 1 天由 cron 预扫 `images` 写 `notifications`（`type='image_expiring'`、`dedupe_key=image_expiring:<图id>`、`ON CONFLICT DO NOTHING` 防重发），表结构见 [02-database.md §3.2](02-database.md)；前端顶栏铃铛 + 未读红点见 [08-frontend.md §9.2](08-frontend.md)/[§9.6](08-frontend.md)，走 TanStack Query。**积分到期**走 `/api/me` 的 `expiringSoon` 实时字段（不入此表）。`POST /read` 缺 `ids` 即标记该用户全部未读为已读。
+> **灵感投稿审核结果**：后台 approve/reject 在审核事务内写 `type='inspiration_reviewed'`（`payload:{status,title,reason?,inspirationId?}`、`dedupe_key=inspiration_reviewed:<subId>`）通知投稿人，铃铛 `Lightbulb` 图标 + 通过/驳回文案、点跳 `/inspiration`（[INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)）。
 
 ## 8.4 兑换错误码（与 [03-money.md §4.7](03-money.md) 对齐）
 
@@ -202,7 +223,7 @@ export function httpError(status: number, code: string, message: string, details
 
 **组织**：按域分文件，前后端 `import` 同一 schema 校验（请求体在函数入口 `.parse()`，前端提交前 `.parse()` 预校验、TanStack Query 解响应 `.parse()`）。
 
-> 本节代码块记录当前 system-only schema；实施 Key 模式时按 §8.7 扩展。下方 `ERROR_CODES` 是存量六值，不再作为新 generation 写入集合。
+> 本节代码块记录当前 system-only schema；实施 Key 模式时按 §8.7 扩展。下方 `ERROR_CODES` 是 system 继续使用的七值。
 
 ```
 src/contracts/
@@ -212,11 +233,14 @@ src/contracts/
   image.ts          # ImagesResponse / SaveRequest / DeleteRequest
   redeem.ts         # RedeemRequest / RedeemResponse + REDEEM_ALPHABET + REDEEM_CODE_RE（字母表真相源，09 §10.2 共用）
   package.ts        # PackageItem（drizzle-zod 派生）
-  inspiration.ts    # InspirationItem
+  inspiration.ts    # InspirationItem（含 submitter:string|null）
+  inspirationSubmission.ts  # InspirationSubmitRequest/Response + MySubmissionItem/MySubmissionsResponse + 上限/限流常量（灵感库 UGC，§13.1）
   account.ts        # ChangePasswordRequest / LedgerItem
   me.ts             # MeResponse（含 expiringSoon）
   notification.ts   # NotificationItem / NotificationListResponse / MarkReadRequest
 ```
+
+> `src/contracts/admin.ts` 另含审核动作 `ApproveSubmissionAction` / `RejectSubmissionAction` / `SubmissionReviewAction`（按 `op` 判别联合），供后台审核 API 入口 `.parse()`（[09-admin.md §10.4](09-admin.md)）。
 
 **派生 + 手写并用**：响应/实体 schema 用 **drizzle-zod** 从 `src/db/schema.ts` 派生（保持与表对齐），**请求 schema 手写**（含业务约束）：
 
@@ -237,7 +261,7 @@ export const GenerateRequest = z.object({
 export type GenerateRequest = z.infer<typeof GenerateRequest>;
 
 // 按 status 的判别联合（与 04 §5.4 逐字段一致）：进行中无 creditsChargedMp，succeeded/failed 字段各异
-export const ERROR_CODES = ['insufficient_quota','relay_5xx','provider_timeout','content_rejected','relay_unreachable','unknown'] as const;
+export const ERROR_CODES = ['insufficient_quota','relay_5xx','provider_timeout','content_rejected','invalid_request','relay_unreachable','unknown'] as const;
 export const GenerateStatusResponse = z.discriminatedUnion('status', [
   // 进行中：queued | claimed | running
   z.object({
@@ -276,10 +300,12 @@ export const RedeemResponse = z.object({ balanceMp: z.number().int(), creditsVal
 // src/contracts/me.ts —— /api/me（含积分过期实时提示数据源 expiringSoon）
 import { z } from 'zod';
 export const MeResponse = z.object({
-  user: z.object({ id: z.uuid(), email: z.string(), role: z.string() }),
+  user: z.object({ id: z.uuid(), email: z.string(), role: z.string(), createdAt: z.string() }),
   balanceMp: z.number().int(),          // 单笔/余额安全用 number（§8.5 codec 表）
   maxConcurrency: z.number().int(),
+  pricePerImageMp: z.number().int(),    // app_config.price_per_image_mp 实时值
   hasPaid: z.boolean(),
+  customKeyModesEnabled: z.boolean(),  // 仅暴露开关结果；不暴露 env/Key
   // 3 天内即将过期的剩余毫积分：mp 走 string codec（SUM 聚合，避免精度风险），来源 SQL 见 §8.3
   expiringSoon: z.object({
     mp: z.string(),                     // string codec（与看板 SUM 同规则，§8.5）
@@ -290,12 +316,12 @@ export type MeResponse = z.infer<typeof MeResponse>;
 ```
 
 ```ts
-// src/contracts/notification.ts —— 站内通知（目前仅 image_expiring）
+// src/contracts/notification.ts —— 站内通知
 import { z } from 'zod';
 export const NotificationItem = z.object({
   id: z.uuid(),
-  type: z.enum(['image_expiring']),     // 后续新增类型在此扩枚举
-  payload: z.record(z.string(), z.unknown()).nullable(),  // image_expiring: { imageId, expiresAt }
+  type: z.enum(['image_expiring','announcement','inspiration_reviewed']),  // 后续新增类型在此扩枚举
+  payload: z.record(z.string(), z.unknown()).nullable(),  // image_expiring:{imageId,expiresAt}｜inspiration_reviewed:{status,title,reason?,inspirationId?}
   readAt: z.string().nullable(),
   createdAt: z.string(),
 });
@@ -348,7 +374,7 @@ export const generateRequestSchema = z.object({
   conversationId: z.string().uuid().optional(),
   generationId: z.string().uuid().optional(),
   inputImageKey: z.string().max(512).optional(),
-  credentialMode: z.enum(["system", "custom"]),
+  credentialMode: z.enum(["system", "custom"]).default("system"),
   customApiKey: z.string().min(1).max(500).optional(),
 }).superRefine((value, ctx) => {
   if (value.credentialMode === "custom" && !value.customApiKey?.trim()) {
@@ -364,23 +390,24 @@ export const generateRequestSchema = z.object({
 - 保存时/提交时只检查 Key 非空与最大 500 字符，不发探测请求。`customApiKey` 不得回显在 Zod issue、错误 details 或响应。
 - 202 响应保持统一：`{ generationId, conversationId, status:"queued", credentialMode, deadlineAt }`。不得返回 credential ID、Key hint 或密文。
 - custom 无 Key 在入队前返回统一错误信封 `400 CUSTOM_KEY_REQUIRED`；不创建 generation，也不写临时凭据。
+- system/缺 mode 请求携 Key 固定 `400 SYSTEM_MODE_FORBIDS_CUSTOM_KEY`；custom 功能开关关闭固定 `503 CUSTOM_KEY_MODES_DISABLED`。两者都不创建 generation、不写凭据、不触发后台。
 
 ### `GET /api/generate-status`
 
 - 保留 `?id=<uuid>` 单项兼容；新增 `?ids=<uuid>,<uuid>...`，去重后最多 50 个。两者互斥，空列表/超限返回 400。
-- 服务端始终加 `user_id=$me`；某 ID 不属于当前用户时按 404/不暴露原则处理。批量响应：`{ items: GenerationStatus[] }`，输入顺序不作为关联依据，客户端按 `generationId` 合并。
+- 服务端始终加 `user_id=$me`；某 ID 不存在或不属于当前用户时不得区分原因。批量响应：`{ items: GenerationStatus[], missingIds: string[] }`；客户端把任意数量 ID 分成 `<=50` 的请求并按 `generationId` 合并。`missingIds` 连续出现时刷新 owner-scoped 会话权威数据；权威刷新后仍缺失的乐观项显示 UI-only“任务不存在或无权访问”并停止只轮询该 ID，不写伪终态，不能永久 pending。
 - 每项都含 `generationId,status,credentialMode,deadlineAt`；running 可含 `startedAt,elapsedMs`；succeeded 含 `image,creditsChargedMp,durationMs`；failed 含 `errorCode,error,httpStatus,creditsChargedMp:0`。
-- 读取时先调用统一 deadline 收口 helper，再查询返回。到期文案固定“请求超时，本次未扣积分，请重试”。
+- 读取时先调用统一 deadline 收口 helper，再查询返回。到期文案固定“请求超时，本站未扣积分，请重试”；custom 同时提示第三方计费以服务商规则为准。
 
 ### 错误码
 
-入队错误新增 `CUSTOM_KEY_REQUIRED`。新 generation 写入错误限定为：`custom_key_invalid`、`custom_key_quota`、`relay_rate_limited`、`provider_timeout`、`relay_unreachable`、`invalid_request`、`content_rejected`、`invalid_response`、`storage_failed`、`unknown`。这是当前唯一的新写入集合；契约读取兼容历史行的 `insufficient_quota` / `relay_5xx`，但新 mapper 不再写它们。system 既有入口错误 `INSUFFICIENT_CREDITS`、`CONCURRENCY_LIMIT`、`BUDGET_EXHAUSTED` 保持不变。
+入队错误新增 `CUSTOM_KEY_REQUIRED`、`SYSTEM_MODE_FORBIDS_CUSTOM_KEY`、`CUSTOM_KEY_MODES_DISABLED`。custom generation 写 `custom_key_invalid`、`custom_key_quota`、`relay_rate_limited`、`provider_timeout`、`relay_unreachable`、`invalid_request`、`content_rejected`、`invalid_response`、`storage_failed`、`unknown`；system 继续写既有 `insufficient_quota`、`relay_5xx` 等任务错误，并保留 `INSUFFICIENT_CREDITS`、`CONCURRENCY_LIMIT`、`BUDGET_EXHAUSTED` 入队语义。读取契约接受两组并集。
 
 ---
 
 ### API 红线清单（落地必守）
 
-- [ ] 所有回前端响应**先脱敏**；`generate-status` 成功只给 R2 `public_url`，永不给中转临时 URL。
+- [ ] 所有回前端响应**先脱敏**；`generate-status` 成功只给对象存储 `public_url`，永不给中转临时 URL。
 - [ ] `POST /api/generate` 只在 `credentialMode=custom` 接收 `customApiKey`；system 携带即拒。两种模式都不收 Base URL、model/n/moderation。
 - [ ] system 保持并发 409 / 余额 402 / 预算 429；custom 显式绕过这些闸且始终零扣费。
 - [ ] 生成失败用 **200 + body `status:'failed'`** 表达，不用 HTTP 错误码；`creditsChargedMp=0` 即"未扣"。
