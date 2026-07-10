@@ -78,6 +78,39 @@ npx netlify dev           # 自动探测 React Router → 跑 vite dev（CSS Mod
 - [ ] 侧栏**搜索框**搜会话标题 → 结果点选跳对应会话
 - [ ] `/inspiration`：灵感画廊瀑布流；「用此提示词」一键带回 Composer
 
+## 3a. Key 模式与多任务验收（2026-07-11，实施后执行）
+
+> 当前仅完成需求/文档，以下项目**尚未通过**，不得据此声称生产已有功能。实现后先在独立测试账号和测试 Key 上验收；本地 `.env` 需新增有效的 `CUSTOM_KEY_JOB_ENCRYPTION_KEY`，格式见 [deploy.md §6](deploy.md)。
+
+### 顶栏与本地配置
+
+- [ ] 顶栏 KeyRound 图标在欢迎页/会话页等共用 TopBar 页面可见，有 tooltip 和键盘可访问名称；360px 与桌面均不挤压积分、通知、主题按钮。
+- [ ] 首次打开默认 system；弹窗 system/custom 只能单选。custom 区有密码输入、显隐、保存、清除；URL 固定显示 `https://api.tangguo.xin/v1` 且不可编辑。
+- [ ] 保存空白/超长 Key 只做本地校验，不发请求；保存有效 Key 自动切 custom。切 system 后 Key 仍在；清除后 Key 删除并切 system。
+- [ ] 刷新和重新登录恢复该 user ID 的模式/Key；同浏览器账号 A/B 配置隔离。退出登录不删除；浏览器 DevTools 可确认是已接受的明文 localStorage，不存在伪加密文案。
+- [ ] Network 面板确认 system 请求只含 `credentialMode:"system"`，custom 请求含 `credentialMode:"custom"` + `customApiKey`，两者都不含 Base URL；两者 URL 都是本站同一个 `/api/generate`。
+
+### system 回归
+
+- [ ] 余额不足仍 402、不入队；达到账户并发仍 409；system 预算满仍 429。
+- [ ] system t2i/i2i 只使用后台 system Key；成功只扣一次，失败/超时不扣；后台换中转站能力不变。
+- [ ] system 可在 `max_concurrency` 内连续提交，超出由服务端拒绝；Composer 不因第一张未终态而永久锁住。
+
+### custom 生成与多任务
+
+- [ ] 测试账号余额为 0、system 预算/并发已满时，custom 仍可 202 入队。
+- [ ] 连续提交至少 3 个不同提示词，不等前一张完成；3 张卡同时保持各自 prompt、比例、elapsed/status，不串图、不覆盖。
+- [ ] 一次批量状态请求追踪当前会话全部非终态 generation；任一项成功/失败后，其余继续轮询。刷新/离开再回来仍恢复。
+- [ ] custom 文生图和图生图都成功；图片进入同一会话、右侧面板、资产库和对象存储，下载/删除/保留期与 system 相同。
+- [ ] 每个 custom 成功项显示“不扣积分”/`creditsChargedMp=0`；余额、lots、ledger 前后完全不变，后台生成记录 mode=custom、扣费 0。
+
+### 失败、超时与秘密
+
+- [ ] 分别用无效 Key、无配额 Key/桩、普通 429、内容拒绝、断网/上游不可达、坏响应和存储失败，核对批准版错误码与文案；失败后仍保持 custom 模式/Key，不自动调用 system。
+- [ ] 用可控桩/虚拟时钟验证 system/custom 均从创建起 5 分钟收口，fetch 预留 30 秒；状态读取可在 cron 前得到 `provider_timeout`，文案“请求超时，本次未扣积分，请重试”。
+- [ ] 成功、失败、超时后 `generation_credentials` 立即无对应行；人为制造孤儿后 15 分钟清理。queued/claimed/running 都能超时，不留卡死并发。
+- [ ] 用高熵测试 Key 搜索普通 DB 字段、events、audit、Function logs、Sentry 桩、用户/admin 响应和错误；不得命中明文。凭据表只见密文/IV/tag，后台 UI/API 不可读取。
+
 ## 3b. 阶段三+ 验收反馈 20 条（本轮新增/改动，重点看这些）
 
 > 全部完成：A(8) `59a09c7` · B(图片操作 5) `5c1e5b8` · C(新能力 4) `8aa24ec` · D(大重构 3) `af62860`。下表是 B/C/D 的浏览器验收点（A 多为 CSS/文案，随手看）。
@@ -150,6 +183,6 @@ node --env-file=.env --import tsx scripts/promote-admin.ts <你的邮箱>
 ## 6. 验收须知
 
 - **真生图花真钱**：每张走真中转（成本对账 0.07 定价的实测见 [cost-reconciliation.md](cost-reconciliation.md)，**毛利数待你灰度 ≥200 张跑量后填**）。验收少量即可。
-- 生图 **5 分钟超时**兜底；**一旦开始不可取消**。
-- 失败/超时**不扣费**；成功（落图）才扣 0.07。
+- system/custom 生图都以创建后 **5 分钟 deadline** 兜底；**一旦开始不可取消**。
+- 两种模式失败/超时都不扣费；system 成功按配置扣费，custom 成功固定零扣费。
 - 阶段三 P3-S1（资产框选/长按）的**手势交互**建议在真浏览器点一遍（headless 难自动验）。

@@ -10,6 +10,14 @@
 - **部署方式**：Netlify CLI（**非** Git 连接）—— 本地 `netlify deploy --prod` 直传构建产物 + 函数。
 - **验证**：`/login` 200（SSR）· 真实管理员 `POST /api/auth/sign-in/email` 200+Set-Cookie（= SSR+Better Auth+Neon+env+Cookie 全链路）· `/api/me`(未登录) 401。
 
+### 0.1 2026-07-11 待部署功能说明
+
+系统/自定义 Key、多任务和统一五分钟 deadline **只有需求与实施计划，当前生产尚未支持**。在代码、`0005` 迁移、测试和本节部署闸全部完成前：
+
+- 不要给生产设置 `CUSTOM_KEY_JOB_ENCRYPTION_KEY` 后就宣称功能可用；当前代码不会读取它。
+- 不要单独部署前端 Key 弹窗或只部署 migration。前端、统一 API、凭据加密、Background 分流、零扣费事务、状态收口必须作为一套兼容发布。
+- 当前 system relay 后台配置和 `RELAY_*` env 保持原样；custom 固定 URL 不新增后台参数。
+
 ## 1. 前置（一次性）
 1. **Netlify 账号** + 一个 **Personal Access Token**（User settings → Applications → Personal access tokens）。
 2. token 放进 `.env`（gitignored）：`NETLIFY_AUTH_TOKEN=nfp_…`。后续所有 `netlify` 命令前先从 `.env` 读到环境：
@@ -63,3 +71,34 @@ Invoke-WebRequest "$base/login" -UseBasicParsing                              # 
 - **图生图速度**：生产在美西机房、跨境下载快，i2i 比本地（国内跨境）明显快；管线已强制 `response_format=b64_json` 免二次下载（见 [04-generation-pipeline.md](04-generation-pipeline.md)），并有 `[gen-timing]` 日志（Netlify Function logs 可查）。
 - **🆕 换中转站不用改 env / 不用重部署**（2026-06-23）：后台「套餐 / 参数」页 → **「中转站配置」区**可改 `relay_base_url` + `relay_api_key`（存 `app_config`，`relay.ts` 读时**优先 app_config、回退 env**，即时生效）。Key **写后即焚**（GET 只回末 4 位 hint、绝不回明文）。env 的 `RELAY_*` 仍作回退兜底，可保留。
 - **🆕 出图触发已改 `await`**（2026-06-23 `e41d4d5`）：`triggerBackground` 由 fire-and-forget 改 await（serverless 返回后会冻结掐死未 await 的 fetch，导致任务干等兜底 cron）。若再遇"出图久等"先查 Netlify Function logs 的 `[triggerBackground]` / `[gen-timing]`；兜底 cron `dispatchStaleQueued` 阈值 45s。
+
+## 6. Key 模式功能部署闸（实施完成后执行）
+
+### 新增生产环境变量
+
+`CUSTOM_KEY_JOB_ENCRYPTION_KEY`：32 字节随机主密钥的 base64 表示，只供服务端 AES-256-GCM 加解密 generation-scoped 临时凭据。生成示例：
+
+```powershell
+node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+npx netlify env:set CUSTOM_KEY_JOB_ENCRYPTION_KEY '<上一条输出>' --site 8d1419c8-2ec3-49d9-936f-0f79df9643b5
+```
+
+- 不把真实值写进 `.env.example`、文档、终端录屏、提交或审计日志。本地 `.env` 只存本地/测试值并继续 gitignore。
+- `key_version=1` 随密文保存。首版轮换前先排空/清理全部 `generation_credentials`；若未来要无损轮换，改成按 version 同时持有新旧主密钥后再轮换。
+- 改 env 后重新部署。缺失/长度错误时 custom 入队应 fail closed 且不返回 202；system 必须不受影响。
+
+### 发布顺序
+
+1. 在维护窗口确认无长时间在途任务，备份数据库，应用 `0005`（新增列/表均向后兼容）。
+2. 运行 schema/迁移验证，确认存量 `credential_mode='system'`、`deadline_at` 回填正确、凭据表为空。
+3. 设置 `CUSTOM_KEY_JOB_ENCRYPTION_KEY`，部署完整代码；确认 Scheduled credential cleanup 已出现在 Netlify Functions。
+4. 先跑 system 冒烟：文生图/图生图、余额、预算、并发、一次扣费全部不回归。
+5. 再用专用测试 Key 跑 custom：零余额、连续 3 任务、t2i/i2i、失败映射、5 分钟虚拟/桩超时、图片历史、零 debit、终态凭据清空。
+6. 检查 Function logs/Sentry 桩/DB 普通表/用户和 admin 响应无测试 Key；确认 15 分钟孤儿清理与模式化看板。
+7. 完成后才更新 [PROGRESS.md](../PROGRESS.md) 的状态、生产 commit 和新测试基线。
+
+### 回滚
+
+- UI/API 回滚前先停 custom 新提交并等待在途 custom 终态；不要让旧代码接到它无法解密的 queued custom 行。
+- migration 新列/表保持不删，旧 system 代码可忽略向后兼容结构；不要在紧急回滚中 `DROP` 数据结构。
+- 若 custom 已入队但必须立即回滚，使用受审计的运维脚本将其原子收口 failed、清凭据；不得把密文导出或手工解密到日志。

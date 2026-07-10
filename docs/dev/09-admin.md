@@ -294,7 +294,7 @@ LIMIT $pageSize OFFSET $offset;
 
 - 列：**缩略图 + 用户邮箱 + 生图时长(`duration_ms` → `M:SS`) + 提示词 + 状态 + 时间**。
 - 点缩略图 → **全局 lightbox**（[08-frontend.md §9.6](08-frontend.md) 通用浮层，仅「下载」，[§19](../redesign-requirements.md) 通用 lightbox）。
-- **失败行直显三列 `error_code` / `error` / `http_status`**，无需点开——`error_code` 是 [§5.8](04-generation-pipeline.md) 归一化枚举六值（`insufficient_quota` / `relay_5xx` / `provider_timeout` / `content_rejected` / `relay_unreachable` / `unknown`），`error` 是脱敏人读串（可含状态码原文如「504 中转网关超时」），`http_status` 是中转 HTTP 状态码（可空）。
+- **失败行直显三列 `error_code` / `error` / `http_status`**，无需点开。存量行兼容 [§5.8](04-generation-pipeline.md) 六值，新任务展示 [07 §8.7](07-api.md) 十值；`error` 是脱敏人读串，`http_status` 是上游 HTTP 状态码（可空）。
 - 缩略图走 R2 `public_url`（前端只读，[06 §7.6](06-storage.md)），失败行无图占灰位。
 
 ---
@@ -375,7 +375,7 @@ async function writeAudit(c, e: {
 | 卡 | 指标 | 聚合 SQL 思路（events） |
 |---|---|---|
 | ① 今日注册 | 今日新号 | `count(*) WHERE type='user_registered' AND today` |
-| ② 今日成功/失败 + 失败 Top | 成败计数 + 失败原因排行 | 成功 `count WHERE type='image_succeeded' AND today`；失败 `count WHERE type='image_failed' AND today`；Top: `SELECT payload->>'reason' r, count(*) FROM events WHERE type='image_failed' AND today GROUP BY r ORDER BY 2 DESC`（归一化枚举六值：`insufficient_quota`/`relay_5xx`/`provider_timeout`/`content_rejected`/`relay_unreachable`/`unknown`，[04 §5.8](04-generation-pipeline.md)） |
+| ② 今日成功/失败 + 失败 Top | 成败计数 + 失败原因排行 | 成功 `count WHERE type='image_succeeded' AND today`；失败 `count WHERE type='image_failed' AND today`；Top: `SELECT payload->>'reason' r, count(*) FROM events WHERE type='image_failed' AND today GROUP BY r ORDER BY 2 DESC`；新任务按 [07 §8.7](07-api.md) 十值统计，历史六值保留兼容，并按 `credential_mode` 下钻。 |
 | ③ 累计总图 | 历史成功图 | `count(*) WHERE type='image_succeeded'` |
 | ④ 今日/累计收入（面值现金） | 兑换面值之和（分） | `sum((payload->>'cashValue')::bigint)::text WHERE type='code_redeemed' [AND today]`（展示 `/100`） |
 | ⑤ 积分发放 vs 消耗 + 账面负债 | grant/credit 分列、消耗、负债 | 发放 `sum((payload->>'amountMp')::bigint)::text WHERE type='credit_granted'`（按 `payload->>'source'` 分 signup/code/adjust）；消耗 `(sum(creditsChargedMp WHERE image_succeeded) + sum(amountMp WHERE credit_consumed))::text`（**口径修正**：生图扣费走 `image_succeeded`(payload.creditsChargedMp)、`credit_consumed` 仅 adjust 减额发——消耗=生图扣费+管理员减额；原写"仅 credit_consumed"会漏掉占绝大多数的生图消耗）；**账面负债 = 全站未过期 `credit_lots.remaining_mp` 之和**（直接查 lots：`sum(remaining_mp)::text WHERE remaining_mp>0 AND (expires_at IS NULL OR expires_at>now())`） |
@@ -395,6 +395,15 @@ async function writeAudit(c, e: {
 
 ---
 
+## 10.8 Key 模式的后台可见性
+
+- 生成记录新增 `credential_mode` 列/筛选。custom 成功显示扣费 `0`，system 继续显示实际 `credits_charged_mp`；不得把 custom 计入“积分消耗”，但成功图计数、失败率和时长仍计入总体。
+- 失败枚举展示升级为 [07 §8.7](07-api.md) 全集。错误列只显示脱敏的人读文案与上游状态码，不显示 credential ID、Key hint、ciphertext、IV 或 auth tag。
+- 管理员**无读取 custom Key 的能力**。`generation_credentials` 不提供列表/详情 API；运维最多看到密文孤儿数量、最老年龄与清理结果的聚合指标。
+- 看板成本/可靠性按 `credential_mode` 拆分：system 观察预算、扣费、毛利；custom 观察 compute、DB、存储、失败率和并发任务量。全局队列健康可合计，但必须可按 mode 下钻。
+- 现有“中转站配置”仍只管理 system 的 `app_config` URL/Key。custom 固定 URL 不是后台参数，不得增加可编辑入口。
+- 审计日志可记录“管理员改 system relay 配置”，但任何 custom Key 的保存/切换是浏览器本地行为，不写审计或事件。
+
 ## 后台落地红线清单
 
 - [ ] `/admin/*` 双重守卫：布局 loader + 每个 admin API 各自 `requireAdmin`（每请求查 DB，[05 §6.7](05-auth.md)）。
@@ -405,4 +414,5 @@ async function writeAudit(c, e: {
 - [ ] **所有敏感写**：二次确认 + 同事务写 `audit_log`(before/after/ip/reason)；改密类不落明文。
 - [ ] `audit_log` 只追加，**无删改端点**（管理员不可改自己的记录）。
 - [ ] 看板全从 `events` 聚合（队列健康例外查实时表）；**所有 `SUM` 走 string codec 换 BigInt**（[10-ops-test.md §11.4](10-ops-test.md)）。
-- [ ] 生成记录默认近 7 天/50 条、倒序、失败行直显三列 `error_code`/`error`/`http_status`（§24-3 / [04 §5.8](04-generation-pipeline.md) 六值枚举 / [02 §3.2](02-database.md)）；缩略图全局 lightbox。
+- [ ] 生成记录默认近 7 天/50 条、倒序、失败行直显三列 `error_code`/`error`/`http_status`；新任务使用 [07 §8.7](07-api.md) 十值，历史六值只读兼容；缩略图全局 lightbox。
+- [ ] 生成列表/看板可区分 system/custom；后台所有 API 与页面均不得返回 custom credential 行或任何可推导 Key 的材料。

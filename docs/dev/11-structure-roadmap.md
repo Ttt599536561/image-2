@@ -2,6 +2,7 @@
 
 > 把前 11 章的设计落成**一棵可建的目录树 + 一张 v1→v2 迁移台账 + 可勾选的分期任务清单 + 要装/要删的依赖**。研发起步时照此建工程、按阶段推进。
 > 分期路线真相源：规格 [§20](../redesign-requirements.md)；与现有衔接 [§18](../redesign-requirements.md)。**进度状态只在 [PROGRESS.md](../PROGRESS.md) 维护，本章只列"要做什么"，不写"做没做"。**
+> **2026-07-11 说明**：§12.2 中“删除 ApiConfig/localStorage/apiKey 链路”是 v1→v2 时删除无身份隔离的旧实现，仍是正确历史记录；新 custom 模式必须按 §12.6 的 user-scoped 本地配置 + 统一入口 + 任务级密文重新实现，不能复活旧链路。
 
 ## 12.1 目标 v2 目录结构
 
@@ -101,21 +102,21 @@ ai-image-workshop/
 | `src/components/GeneratorForm.tsx` | **复用（拆分）** | 尺寸选择器（`SIZE_OPTIONS` 6 档）抽进 Composer 尺寸药丸；质量/背景/审核进高级设置（[§9.4](08-frontend.md)） |
 | `src/api/imageGeneration.ts` | **复用** | 中转响应解析逻辑搬 `src/server/relay/`；**删请求体里的 apiKey** |
 | `src/lib/redaction.ts`(+test) | **复用** | 搬 `src/lib/`，所有回前端的中转报错先过脱敏（[00 §1.4](00-overview.md)） |
-| `src/server/imageProxy.ts` | **重构** | `ImageProxyInput` **删 `apiKey` 字段**；Key 只从 `process.env.RELAY_API_KEY` 注入；阻塞 fetch 搬进 `generate-background.ts`（[§5.7](04-generation-pipeline.md)） |
+| `src/server/imageProxy.ts` | **v1 历史重构** | 删除无身份隔离的 `input.apiKey`；system Key 攥回服务端。新 custom 不复活该字段，走 §12.6 |
 | `src/server/asyncImageJob.ts` | **重构** | 异步代理骨架保留思路；`JobRecord`（status/时间/原始 response）→ **`generations` 表**，补 userId/model/size/duration/失败原因（[02 §3.2](02-database.md)） |
 | `src/server/jobStore.ts`（Netlify Blobs） | **删除** | job 态改以 `generations` 表为准（Blobs 是 KV、最终一致、无原子操作；[01 §2.1](01-architecture.md)） |
 | `netlify/functions/generate.ts` | **重构** | 现状用 `fetch` 主动调后台 = 假后台、会超时 → 改真后台触发 + 入队双闸（[§5.2](04-generation-pipeline.md) / [§5.7](04-generation-pipeline.md)） |
 | `netlify/functions/generate-background.ts` | **重构** | 加抢占式状态机（[03 §4.5](03-money.md)）+ 落 R2 + 扣费事务（[03 §4.3](03-money.md)）+ 读 env key |
 | `netlify/functions/generate-status.ts` | **重构** | 查 `generations` 表（非 Blobs）；返回 status + 成功 `public_url` / 失败 error+code（[§5.4](04-generation-pipeline.md)） |
 | `src/App.tsx` | **重构** | 双栏工具版 → Composer **三栏壳**（左会话 / 中对话 / 右本次面板，[§9.2](08-frontend.md)） |
-| `src/components/ApiConfigModal.tsx` | **删除** | 前端不再配 Key（密钥红线，[00 §1.4](00-overview.md)） |
-| `src/hooks/useApiConfig.ts` | **删除** | 删 localStorage 存 Key；连同所有 `apiKey` 上送链路一并删（[§18](../redesign-requirements.md)） |
+| `src/components/ApiConfigModal.tsx` | **v1 历史删除** | 删除未按用户隔离的旧密钥 UI；新弹窗按 §12.6 另建 |
+| `src/hooks/useApiConfig.ts` | **v1 历史删除** | 删除全局 localStorage/apiKey 上送链路；新 helper 必须 user-scoped、只上送统一 endpoint |
 | `src/api/proxyGeneration.ts`(+test) | **重构** | 删 POST body 里的 apiKey；前端只发 `{prompt,size,quality,background}`（[07 §8.5](07-api.md)） |
 | `src/components/ResultPanel.tsx` | **复用（重构）** | 结果展示并入 Composer 成功态 + 本次面板（[§9.4](08-frontend.md)） |
 | `src/lib/validation.ts` `curl.ts` `storage.ts` | **酌情** | 校验逻辑迁 `src/contracts`（Zod）；curl 调试件可留 dev；storage（localStorage 草稿）保留与否看 §9 |
 | `src/styles.css` | **重构** | 拆成 `src/styles/tokens.css`（令牌）+ CSS Modules（[§9.5](08-frontend.md)） |
 
-> **全链路删 apiKey 红线**：现状泄露点 = `imageProxy.ts` 从 `input.apiKey` 取 Key、`proxyGeneration.ts` 放进 POST body、`generate.ts`/`runImageJob` 又把含 Key 的 `input` 传后台与 jobStore。改后：前端不上送、`generate→generate-background→generations` 链路**不传不持久化任何 Key**、代理只在 Background 内从 env 注入。详见 [04-generation-pipeline.md §5.7](04-generation-pipeline.md)。
+> **v1 全链路删 apiKey 红线**：旧 `imageProxy → proxyGeneration → jobStore` 明文链路永久禁止。2026-07-11 custom 例外仅允许 user-scoped localStorage → HTTPS 统一提交 → generation-scoped 密文；Background payload 与普通 generation 字段仍不传 Key。详见 [04-generation-pipeline.md §5.9](04-generation-pipeline.md)。
 
 ## 12.3 分期任务清单（可勾选）
 
@@ -156,7 +157,7 @@ ai-image-workshop/
 
 **生图管线**
 - [ ] DB-as-queue 全链路打通：submit→background→status（[04 §5.1](04-generation-pipeline.md)~[§5.4](04-generation-pipeline.md)）
-- [ ] 5min 超时 cron 重扫 + 失败原因归一化（[04 §5.5](04-generation-pipeline.md)/[§5.8](04-generation-pipeline.md)）
+- [ ] system-only 历史基线：5min cron 重扫 + 六值失败归一化（[04 §5.5](04-generation-pipeline.md)/[§5.8](04-generation-pipeline.md)）；当前目标按 §12.6 改为 `deadline_at` 状态读/cron 共用收口 + 十值新写入契约
 - [ ] v1 代码迁移：删 apiKey 链路 / jobStore→generations（[04 §5.7](04-generation-pipeline.md) / [§12.2](#122-v1-迁移清单现状文件--处置--去向)）
 
 **前端业务页**
@@ -237,5 +238,39 @@ ai-image-workshop/
 - [ ] `netlify/functions` 里生图后台触发真 Background 二者其一：`-background` 文件名后缀，**或**（Functions v2）函数内 `export const config = { background: true }`；官方推荐后者，后缀仍受支持（[00 §1.2](00-overview.md)）。
 - [ ] Scheduled 函数全部在 `netlify.toml` 配 cron（[10 §11.1](10-ops-test.md)）。
 - [ ] Drizzle 迁移生成后**人工核对** `drizzle/*.sql` 含部分唯一索引的 `WHERE` 谓词（[02 §3.4](02-database.md)）。
-- [ ] 迁移期间凡删 apiKey：前端、`proxyGeneration`、`imageProxy`、后台触发链路一处不漏（[04 §5.7](04-generation-pipeline.md)）。
+- [ ] v1 迁移期间删旧 apiKey 链路一处不漏；新 custom 例外只按 [04 §5.9](04-generation-pipeline.md) 进入统一请求并立即转 generation-scoped 密文，后台 payload 不携 Key。
 - [ ] 阶段推进按 §12.3 顺序：地基→鉴权→钱链路→管线→页面→后台→cron/测试；钱链路上线前必须对真库跑事务测试（[10 §11.10](10-ops-test.md)）。
+
+## 12.6 当前功能目标结构（2026-07-11）
+
+逐步施工以 [实施计划](../superpowers/plans/2026-07-11-user-api-key-modes.md) 为准；预期新增/修改边界如下：
+
+```text
+src/
+├─ lib/userApiConfig.ts                         # user-scoped localStorage，纯客户端
+├─ components/shell/ApiKeyModal.tsx             # system/custom 单选与 Key 输入
+├─ components/shell/TopBar.tsx                  # KeyRound 入口
+├─ contracts/generate.ts                        # credentialMode/customApiKey + 批量状态
+├─ server/relay.ts                              # 同一 callRelay，显式 credential context
+└─ server/generation/
+   ├─ credential.server.ts                     # AES-GCM 加解密/取用/终态删除
+   ├─ enqueue.ts                               # system/custom 原子分流
+   ├─ finalizeCustom.server.ts                 # custom 零扣费成功事务
+   ├─ deadline.server.ts                       # status/cron 共用原子收口
+   └─ process.server.ts                        # 按 mode 解析凭据
+netlify/functions/
+├─ generate.ts                                 # 唯一提交端点
+├─ generate-background.ts                      # 只接 generationId
+├─ generate-status.ts                          # 单 ID 兼容 + 批量查询
+└─ cron-clean-generation-credentials.ts        # 15min 密文孤儿兜底
+drizzle/
+└─ 0005_user_generation_credentials.sql         # mode/deadline/credential 表
+```
+
+约束：
+
+- 尽量沿用仓库现有文件名；实施前以 `rg --files` 确认真实路径。计划中的新 helper 只有在能隔离密钥/事务或消除真实重复时才建立。
+- 不新增 `/api/generate/custom`、第二个 relay client、第二套图片存储或用户级服务端 custom Key 配置表。
+- 加密使用 Node `crypto`/Web Crypto 标准能力，不为 AES-GCM 新增第三方依赖。`CUSTOM_KEY_JOB_ENCRYPTION_KEY` 仅在实现/部署时加入 env 模板。
+- 新增测试紧邻现有契约、生成、钱、cron 和组件测试；必须对真 Neon 验 system/custom 事务分流，对浏览器做本地配置/多任务可视验收。
+- 完成功能后再更新 [PROGRESS.md](../PROGRESS.md) 状态、测试基线与生产提交；本章不提前勾成已完成。

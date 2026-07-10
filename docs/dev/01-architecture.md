@@ -1,6 +1,7 @@
 # 2 · 系统架构
 
 > 组件图 + 三大流程时序（生图 / 扣费 / 兑换）。阶段一 = DB-as-queue，第三步规模化才迁独立 worker（[§15 第三步](../redesign-requirements.md)，本期不展开）。
+> **2026-07-11 增补**：下方既有图展示 system-only 基线；目标模式化生图架构以 §2.6 为准，两种模式仍共用一个提交端点、一个状态机和一个中转客户端。
 
 ## 2.1 组件图
 
@@ -98,7 +99,7 @@ sequenceDiagram
   end
 ```
 
-**5min 超时兜底**：前端轮询满 5min 无终态即前端判失败（释放 UI）；**权威判定在服务端** cron —— 把 `status IN(claimed,running) AND started_at < now()-5min` 的行置 `failed/provider_timeout`（[03-money.md §4.6](03-money.md)）。
+**图中旧 5min 基线**：现有 system-only 代码由前端计时停轮询、cron 收口。目标实现以创建时写入的 `deadline_at` 为权威：前端到期只做最后一次状态刷新，不自行伪造失败；状态读取与 cron 共用原子 helper，将过期 `queued/claimed/running` 置为 `failed/provider_timeout`（[03-money.md §4.6](03-money.md) / §2.6）。
 
 ## 2.3 流程二 · 扣费（成功落图后的单事务）
 
@@ -161,3 +162,36 @@ sequenceDiagram
 | 第三步 | 规模化：独立常驻 worker + Redis/BullMQ（或 Netlify Async Workloads / Upstash QStash） | ⬜ 延后 |
 
 > 升级路径**仍在 Netlify 内、不锁平台**：DB-as-queue 撑不住时，把"抢占消费"换成 QStash/Async Workloads 推送即可，`generations` 状态机不变。
+
+## 2.6 模式化生图架构（2026-07-11）
+
+```mermaid
+flowchart LR
+  UI["TopBar Key 弹窗 + Composer"] -->|"POST /api/generate\ncredentialMode"| G["generate 同步入口\n严格鉴权/归属校验"]
+  G -->|"system"| SE["现有入队事务\n余额 + 并发 + 预算"]
+  G -->|"custom"| CE["custom 入队事务\n跳过钱/预算/并发\n加密临时 Key"]
+  SE --> DB[("generations")]
+  CE --> DB
+  CE --> CRED[("generation_credentials\n仅密文")]
+  DB --> BG["generate-background\n按 generationId 抢占"]
+  BG --> RESOLVE{"credential_mode"}
+  RESOLVE -->|"system"| SYSKEY["app_config / RELAY env"]
+  RESOLVE -->|"custom"| DECRYPT["解密本任务凭据"]
+  SYSKEY --> RELAY["同一 callRelay"]
+  DECRYPT --> RELAY
+  RELAY -->|"t2i /images/generations\ni2i /images/edits"| STORE["对象存储"]
+  STORE -->|"system"| CHARGE["现有成功扣费事务"]
+  STORE -->|"custom"| FREE["幂等零扣费成功事务"]
+  CHARGE --> CLEAN["终态 + 清凭据"]
+  FREE --> CLEAN
+  UI -->|"批量状态查询"| STATUS["owner-scoped status"]
+  STATUS --> DB
+```
+
+关键边界：
+
+- `generate` 只在严格鉴权、会话/参考图归属和请求契约通过后分流。custom 的 generation 与密文凭据必须同事务创建，或失败时有等价补偿；没有凭据不得返回 202。
+- Background 只接 `generationId`，claim 后从 DB 读取 mode/deadline。system 解析全局配置，custom 只解密当前 generation 的 Key；Base URL 始终由服务端决定。
+- `callRelay` 继续统一构造、超时、解析与错误脱敏；只有凭据来源不同。失败不跨模式回退。
+- 两种模式共享图片、会话、资产、存储和状态表；成功终态按计费事务分流。custom 不触碰任何账户/批次/账本行。
+- 每个 generation 在创建时写 5 分钟 `deadline_at`。上游调用最迟 `deadline_at - 30s` 中止，状态读与 cron 均可用状态谓词原子收口超时。

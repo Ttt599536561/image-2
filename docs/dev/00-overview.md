@@ -14,7 +14,7 @@
 | 前端框架 | **React Router 7** | **framework 模式**（loader/action/SSR）+ Vite + React 19 | 路由即文件；server loader 直连 DB |
 | 鉴权 | **Better Auth** | email+password + **admin 插件** + bcryptjs；钉版避 multi-session CVE | DB 可吊销会话；敏感路径每请求查 DB（不吃 cookieCache） |
 | 对象存储 | **Cloudflare R2** | 公有 bucket + 不可枚举 key + 自定义域 | S3 兼容、零出口费；DB 存 `storage_key + public_url` |
-| API 风格 | **手写 REST** | 提交 `202 + jobId` → 前端**短轮询**；语义化状态码 | 不上 SSE/WebSocket（对话式每次只等一张） |
+| API 风格 | **手写 REST** | 提交 `202 + generationId` → 前端**批量短轮询当前会话非终态任务**；语义化状态码 | 不上 SSE/WebSocket；允许多任务 |
 | 数据获取 | **TanStack Query v5** | 查询缓存 + 短轮询 `refetchInterval` | 余额/job 态/列表统一走它 |
 | 校验/契约 | **Zod 4** + **drizzle-zod** | 放 `src/contracts`，前后端单一真相源 | 请求/响应 schema 复用 |
 | 样式 | **tokens.css** + **CSS Modules** | tokens 从 design-system.html 落地 | 取色/间距/圆角一律引 CSS 变量，不硬编码 |
@@ -59,7 +59,7 @@ await sql`UPDATE redeem_codes SET status='redeemed' WHERE code=${code} AND statu
 
 | 变量 | 用途 | 备注 |
 |---|---|---|
-| `RELAY_API_KEY` | 中转 Bearer Key | **一把共享 Key**（子 Key 待确认中转是否支持）；只在 Background Function 注入 |
+| `RELAY_API_KEY` | system 中转 Bearer Key | **system 共享 Key**；只在 Background Function 注入。custom 用户 Key 走 §1.6 的受控链路 |
 | `RELAY_BASE_URL` | 中转 base（`https://api.tangguo.xin/v1`） | 后台可切**备用 Base**（§22 故障兜底）→ 后续可移 DB 配置 |
 | `DATABASE_URL` | Neon **pooled**（看板/只读） | PgBouncer endpoint |
 | `DATABASE_URL_UNPOOLED` | Neon **direct**（钱/码事务） | direct endpoint，跑 `FOR UPDATE` |
@@ -92,12 +92,13 @@ for (const file of walk('dist')) {
 }
 ```
 
-### 密钥流向红线（全链路删 apiKey，§18）
+### 密钥流向红线（v1 清理基线 + 2026-07-11 受控例外）
 
-- 前端**永不**上送任何 Key（删 v1 的 `apiKey` 字段、密钥 UI、`localStorage` 存储）。
-- `generate`（提交）→ `generate-background`（生图）链路**不传、不持久化任何 Key**。
-- 中转调用**只在 Background Function 内**从 `process.env.RELAY_API_KEY` 注入。
-- 任何回前端的中转响应/报错先过**脱敏**（复用 [redaction.ts](../../src/lib/redaction.ts)，把 Key 串替换掉）。
+- v1 无用户隔离的 `apiKey` 全链路必须保持删除；system Key、数据库/存储/鉴权 secret 仍**永不**上送、永不进 bundle。
+- custom Key 是批准的唯一例外：按登录 user ID 明文存浏览器 `localStorage`，只在 custom 模式随 HTTPS `POST /api/generate` 请求体发送；固定 Base URL 不从客户端发送。
+- 服务端收到 custom Key 后立即加密为 generation-scoped 临时凭据；`generate-background` 载荷只含 `generationId`，普通 generation/job 字段不传 Key。
+- system 中转调用解析服务端 `app_config`/env；custom 中转调用解密本 generation 的临时 Key。两者都只在 Background Function 内使用明文。
+- 任何回前端/后台、落库或上报的中转响应和报错先用**本次实际 Key**脱敏；终态删除临时凭据，15 分钟仅作异常孤儿兜底。
 - 详细改造点见 [04-generation-pipeline.md §5.7](04-generation-pipeline.md) 与 [11-structure-roadmap.md](11-structure-roadmap.md)。
 
 ## 1.5 全局参数（运行时可调，存 DB 不写死）
@@ -111,7 +112,20 @@ for (const file of walk('dist')) {
 | 新用户赠送有效期（天） | `30` | `≥1` 或永久 |
 | 免费保留期（天） | `7` | `≥1` |
 | 付费保留期（天） | `60` | `≥1` |
-| 默认并发 | `2` | `≥1`（逐用户可在 `users.max_concurrency` 覆盖） |
-| 单日预算阈值 | env 起始、后续可移 DB | `>0` |
+| 默认并发（仅 system） | `2` | `≥1`（逐用户可在 `users.max_concurrency` 覆盖） |
+| 单日预算阈值（仅 system） | env 起始、后续可移 DB | `>0` |
 
 > 改这些参数属管理员敏感操作，**二次确认 + 写 `audit_log`**（[09-admin.md](09-admin.md) §10.6）。
+
+## 1.6 2026-07-11 Key 模式配置增补
+
+| 配置 | 所在位置 | 约束 |
+|---|---|---|
+| system Base URL / Key | 现有 `app_config`，`RELAY_*` env 兜底 | 仅服务端；管理员读取只回 Key hint |
+| custom Base URL | 服务端常量 `https://api.tangguo.xin/v1` | UI 可只读显示；客户端请求不得携带/覆盖 |
+| custom 用户 Key | `localStorage`，键名包含稳定 user ID | 明文、无跨设备同步；保存仅校验非空/最大长度 |
+| `CUSTOM_KEY_JOB_ENCRYPTION_KEY` | Netlify env，仅服务端 | **实施时新增**；32 字节随机主密钥（建议 base64），用于 AES-256-GCM 任务临时凭据，不用于浏览器存储 |
+
+- 不在当前文档同步阶段改 `.env.example`：业务代码尚未读取新变量。实现 Task 完成时再同步 env 模板、部署站点和密钥轮换说明。
+- 加密结果必须包含 `key_version`、随机 IV、ciphertext 与 auth tag；不得用固定 IV，不得把加密主密钥写入 DB。
+- `assert-no-secrets` 继续验证静态 bundle；custom Key 需要额外运行时哨兵，因为它按设计会短暂存在于请求内存，不能靠静态扫描证明不泄露。

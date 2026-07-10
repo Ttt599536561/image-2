@@ -95,7 +95,7 @@ export async function requireAdmin(request: Request) {
 
 loader 取到的首屏数据可作为对应 query 的 `initialData`（用同一 query key），避免「SSR 渲染一份 → 客户端再拉一份」抖动。
 
-**job 态短轮询**（核心，串 [04-generation-pipeline.md §5.4](04-generation-pipeline.md)）：
+**现有 system-only job 态短轮询**（迁移基线；目标批量轮询见 §9.8）：
 
 ```ts
 function useGenerationStatus(generationId: string | null) {
@@ -115,7 +115,7 @@ function useGenerationStatus(generationId: string | null) {
 }
 ```
 
-> 前端满 5min 仅释放 UI 判失败；**权威终态判定在服务端 cron**（[03-money.md §4.6](03-money.md) / [04-generation-pipeline.md §5.5](04-generation-pipeline.md)）。
+> 上述 hook 记录当前单 ID 行为。目标实现不由前端自行判失败：到 `deadlineAt` 后做最后一次状态读取，由状态接口与 cron 共用的 deadline helper 返回权威终态（[03-money.md §4.6](03-money.md) / [04-generation-pipeline.md §5.9](04-generation-pipeline.md)）。
 
 **query keys 约定**（统一收在 `app/queries/keys.ts`，分页用游标/页码入 key）：
 
@@ -229,7 +229,7 @@ sequenceDiagram
 
 | 组件 | 要点 | 真相源 |
 |---|---|---|
-| **尺寸浮层** | 复用 [GeneratorForm.tsx](../../src/components/GeneratorForm.tsx) 的 6 场景选项（`auto / 1024×1024 / 1024×1536 / 1536×1024 / 1088×1920 / 1920×1088`），选中态线框→实心黑边（[§17](../redesign-requirements.md)）；点比例药丸弹浮层（`--shadow-md`）| wireframes §Composer，[§5.1](../redesign-requirements.md) |
+| **尺寸浮层** | 复用 [sizeOptions.ts](../../src/components/composer/sizeOptions.ts) 的 6 场景选项（`auto / 1024×1024 / 1024×1536 / 1536×1024 / 1088×1920 / 1920×1088`），选中态线框→实心黑边（[§17](../redesign-requirements.md)）；点比例药丸弹浮层（`--shadow-md`）| wireframes §Composer，[§5.1](../redesign-requirements.md) |
 | **高级设置浮层** | 仅质量 + 背景两项（审核固定 low、不出现）| [§5.1](../redesign-requirements.md) |
 | **全局 lightbox** | 屏幕居中模态 + `--scrim` 全屏遮罩，点遮罩/× 关闭；**浮层内仅「下载」**（不放再生成）；对话流/本次面板/资产库/灵感库/后台记录通用 | design-system 第 11 节（图片放大预览 lightbox），[§17](../redesign-requirements.md) |
 | **通知铃铛** | 顶栏铃铛 + 红点 badge（**只计未读** read_at IS NULL）；点开下拉**拉全部近 50 条（含已读，看完仍保留）**，已读灰显、未读淡陶土高亮；`image_expiring`（payload `{imageId,expiresAt}`）点跳资产库、`announcement`（payload `{title,body,link?}`）**点弹详情 Modal**（完整正文 + link 内站 navigate/外链 window.open + 知道了，关闭不删通知）；数据 + 标记已读走 TanStack Query（`GET /api/notifications`〔缺省全部，loader 仍兼容 `?unread=1`〕、`POST /api/notifications/read`，[07-api.md §8.3](07-api.md)），打开下拉即 `POST .../read`（缺省全标）→ invalidate 消红点但**条目保留可反复点开**。**②（2026-06-22）**：`image_expiring` 在 cron 删图时连带删除（`deleteExpiredImages`），避免到期提醒滞留 | [§9.2](#92-路由表)，[10-ops-test.md §11.7](10-ops-test.md) |
@@ -296,14 +296,52 @@ function useGeneration(conversationId: string) {
 | `<1024px` | 右侧面板收**抽屉**（头部「本次·N」开关触发）|
 | `<768px` | **侧栏也折叠**为图标栏 / 底部抽屉，单列对话 |
 
+## 9.8 Key 弹窗、本地配置与多任务（2026-07-11）
+
+### 本地配置
+
+新增纯客户端 helper（建议 `src/lib/userApiConfig.ts`）：
+
+```ts
+export type CredentialMode = "system" | "custom";
+export interface UserApiConfig {
+  mode: CredentialMode;
+  customApiKey: string;
+}
+
+const storageKey = (userId: string) => `image-workshop:api-config:v1:${userId}`;
+export function loadUserApiConfig(userId: string): UserApiConfig;
+export function saveUserApiConfig(userId: string, value: UserApiConfig): void;
+export function clearUserApiConfig(userId: string): void;
+```
+
+- 缺失/损坏 JSON 默认 `{mode:"system",customApiKey:""}`；schema 版本不认识也安全回退。绝不把 Key放进 URL、cookie、SSR loader、TanStack Query cache、analytics 或错误。
+- 这是明确批准的**明文** `localStorage`，不做伪加密。配置按稳定 user ID 隔离；退出不删，清除按钮才删除并切 system。
+- 保存 custom Key 只校验 `trim().length>0` 与最大 500 字符，保存后切 custom；切 system 保留 Key。固定 URL 只读展示且不进入提交 payload。
+
+### 顶部弹窗
+
+- `TopBar` 增加 Lucide `KeyRound` 图标按钮与 tooltip/可访问名称。弹窗用单选/segmented control 表达 system/custom；custom 区含 password 输入、`Eye/EyeOff`、保存、清除和只读 URL。
+- system 状态说明按积分计费；custom 状态说明不扣积分。不要展示 Key hint、余额验证或“连接测试”。
+- 弹窗需有焦点圈、Escape/遮罩关闭、label/description 关联；360px 与桌面均无横向溢出、按钮文字截断或顶栏重叠。
+
+### 生成与批量轮询
+
+- 每次提交从当前 user 配置构造 `{credentialMode, customApiKey?}`。system 不放 `customApiKey`；custom 没 Key 时打开/聚焦弹窗并阻止请求。
+- system 本地余额预检查继续存在；custom 不读取 `canAfford`，Composer 显示“不扣积分”。服务端仍是最终权威。
+- 防双击 guard 只覆盖一次 enqueue 动作，到 202/错误即释放；不能锁到 generation 终态。这样 system 可在服务端并发上限内多任务，custom 可无限制连续提交。
+- 不再以单个 `activeId` 表示整页生成状态。由当前 conversation cache 派生所有 `queued/claimed/running` IDs，以一次批量请求轮询，按 `generationId` 更新对应 turn；一个终态只从集合移除自己。
+- 页面刷新/切回会话从 loader 数据重建 pending 集合；路由离开或标签关闭不取消服务端任务。到 `deadlineAt` 后做最后一次刷新，UI 只接受服务端返回的终态。
+
 ## 红线清单（前端）
 
-- [ ] server-only：DB/Key/Auth 只从 `.server.ts` 引用，组件层禁 import；构建期断言兜底（[00-overview.md §1.4](00-overview.md)）。
+- [ ] server-only：DB、system/基础设施 Key、任务加密主密钥只从 `.server.ts` 引用。custom 用户 Key 仅按 §9.8 存本地/随请求，组件不得日志化或放 Query cache。
 - [ ] 受保护路由统一走 `_app` 父 loader `requireUser`、后台走 `requireAdmin`；未登录 `redirect("/login?next=")`，封禁号撵出（[05-auth.md §6.3](05-auth.md)）。
 - [ ] 图片 URL **只用 R2 `public_url`**，绝不渲染中转临时 URL（[01-architecture.md §2.1](01-architecture.md)）。
-- [ ] job 轮询固定 2s、满 5min 必停；终态停轮询（[04-generation-pipeline.md §5.4](04-generation-pipeline.md)）。
-- [ ] 提交前余额本地校验拦「积分不足」，但**真权威在服务端 402**（[03-money.md §4.9](03-money.md)）；前端校验仅省一次往返、绝不作为扣费依据。
+- [ ] 当前会话所有非终态 job 走单次批量轮询；按各自 `deadlineAt` 最后刷新，单项终态不影响其他项。
+- [ ] 余额本地校验只用于 system；custom 不因余额禁用提交。两者真权威都在服务端。
 - [ ] 生成**不可取消**：UI 无取消按钮、无「已取消」态（[§5.3](../redesign-requirements.md)）。
 - [ ] 取值一律 `var(--token)`，禁硬编码；`--cosmic-*` 仅生成态用、不随明暗反相。
 - [ ] 星空动效仅 transform/opacity + `prefers-reduced-motion` 降级（[§17](../redesign-requirements.md)）。
 - [ ] 回前端的中转响应/报错先脱敏（[redaction.ts](../../src/lib/redaction.ts)）。
+- [ ] 360px/桌面截图验证 TopBar Key 入口、弹窗、最长错误文案和多任务卡片无重叠/溢出。

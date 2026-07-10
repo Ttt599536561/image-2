@@ -181,12 +181,16 @@ RETURNING id;
 
 **置 running**（抢到后、调中转前）：`UPDATE generations SET status='running', started_at=now() WHERE id=$ AND status='claimed'`。
 
-## 4.6 5 分钟超时与失败退款
+## 4.6 统一 5 分钟 deadline 与失败退款
 
-- **超时判定（权威，cron）**：`UPDATE generations SET status='failed', error_code='provider_timeout', error='中转 5 分钟超时', completed_at=now() WHERE status IN('claimed','running') AND COALESCE(started_at, updated_at) < now()-interval '5 minutes'`。用 `COALESCE(started_at, updated_at)` 兜底「抢占置 claimed（写了 updated_at）后未及写 started_at 即被杀」的僵尸行（[10-ops-test.md §11.6](10-ops-test.md)）。
-- **失败不扣费**：失败/超时路径**从不进扣费事务**，所以默认就是"未扣"。前端失败卡注明"未扣积分"。
+- generation 创建成功时写 `deadline_at=created_at+5min`，system/custom 使用同一起点；排队时间也计入，不从 `started_at` 重新计时。
+- **权威超时收口**：状态读取与 cron 共用单一 helper，按 `status IN('queued','claimed','running') AND deadline_at<=now()` 做带状态谓词的原子更新。只有拿到 affected row 的调用方写 `failed/provider_timeout`、脱敏事件并删除临时凭据；cron 是无人轮询时兜底，不是唯一入口（[10-ops-test.md §11.11](10-ops-test.md)）。
+- Background 上游请求最迟在 `deadline_at-30s` 中止，把 30 秒留给响应解析、对象存储与终态事务；不得在 claim/running 后重置完整 5 分钟。
+- **失败不扣费**：失败/超时路径**从不进扣费事务**，`credits_charged_mp=0`，前端固定显示“请求超时，本次未扣积分，请重试”。
 - **退款仅用于"已扣后又判失败"的极端补偿**（正常流程用不到，因成功才扣）：若将来出现该情形，走 `refund` 流水（`uq_refund` 幂等）+ 回补对应批次 `remaining_mp` + 物化余额，写 `events`。本期主流程不触发。
 - 释放并发 = 状态进终态，自动反映到 `COUNT`，无双减/漏减。
+
+> 迁移前 system-only 代码使用 `COALESCE(started_at,updated_at)<now()-5min` 的 cron SQL。该谓词仅作历史基线，实施本需求后统一改读 `deadline_at`，同时覆盖 `queued`。
 
 ## 4.7 兑换核销事务（单语句原子 + 同事务入账）
 
@@ -291,3 +295,48 @@ await tx(async (c) => {
 - [ ] 过期/退款各自幂等键；永久批次（`expires_at IS NULL`）跳过过期。
 - [ ] 物化余额每事务同步 + 每日 cron 对账，以批次为准。
 - [ ] 钱链路对**真 Neon 分支库**跑事务测试（含并发双击/重试重入用例，[10](10-ops-test.md)）。
+
+## 4.11 custom 零扣费分支（2026-07-11）
+
+本章 §4.1–§4.10 的余额、预算、并发和扣费规则属于 **system 模式**。custom 入队仍做严格鉴权、封禁、参数、会话归属和参考图归属校验，但显式跳过：
+
+- `credit_lots` 可用余额查询；
+- `users.max_concurrency` in-flight 判断；
+- system `relay_budget:*` 预检查与原子递增；
+- 任何 `credit_accounts`、`credit_lots`、`credit_ledger` 写入。
+
+custom 落图后的幂等成功事务：
+
+```sql
+BEGIN;
+SELECT id, status, credential_mode
+FROM generations
+WHERE id=$generation_id AND user_id=$user_id
+FOR UPDATE;
+
+-- 必须断言 status='running' AND credential_mode='custom'；
+-- 已 succeeded/failed 则幂等退出，不得覆盖终态。
+INSERT INTO images (..., generation_id, user_id, ...)
+VALUES (...)
+ON CONFLICT (generation_id) DO NOTHING;
+
+UPDATE generations
+SET status='succeeded', credits_charged_mp=0,
+    completed_at=now(), duration_ms=..., updated_at=now()
+WHERE id=$generation_id AND status='running' AND credential_mode='custom';
+
+INSERT INTO events(type,user_id,payload)
+VALUES ('image_succeeded',$user_id,
+        jsonb_build_object('generationId',$generation_id,
+                           'credentialMode','custom',
+                           'creditsChargedMp',0,
+                           'durationMs',...));
+
+DELETE FROM generation_credentials WHERE generation_id=$generation_id;
+COMMIT;
+```
+
+- 事件必须可幂等去重；若现有 `events` 无唯一键，先依据 generation 终态更新的 affected row 决定是否插事件。
+- custom 失败/超时事务只写脱敏失败终态/事件并删凭据；余额、lots、ledger 均保持字节级不变。
+- system 继续调用现有 `chargeOnSuccess`，不得为复用 custom 而削弱双守卫、FIFO 或 `uq_debit`。
+- 真库测试必须覆盖：零余额 custom 成功；system 预算/并发已满时 custom 仍入队；custom 成功/重入/失败/超时均零 debit；system 回归仍只扣一次；两种 mode 伪造/串路被拒。

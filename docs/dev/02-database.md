@@ -33,7 +33,7 @@
 -- gen_status: queued | claimed | running | succeeded | failed
 -- code_status: active | redeemed | disabled
 -- lot_source: signup | code | adjust
--- gen_error_code（失败归一化，见 04-generation-pipeline.md §5.8）: insufficient_quota | relay_5xx | provider_timeout | content_rejected | relay_unreachable | unknown
+-- gen_error_code：§5.8 六值是存量 system 历史兼容值；新写入使用 07-api.md §8.7 的十值契约
 
 -- ========== users（业务账号） ==========
 CREATE TABLE users (
@@ -265,3 +265,40 @@ CREATE INDEX ix_notif_user ON notifications(user_id, created_at DESC) WHERE read
 | ¥29.9 套餐 | `price_cash=2990`，`credits_mp=32000`（32 积分） | — |
 
 > 展示层才转小数（`mp/1000`）；DB/计算层一律整数 mp。
+
+## 3.7 Key 模式与 deadline 迁移（目标迁移 `0005`）
+
+在不改变存量 system 语义的前提下扩展：
+
+```sql
+ALTER TABLE generations
+  ADD COLUMN credential_mode text NOT NULL DEFAULT 'system',
+  ADD CONSTRAINT generations_credential_mode_ck
+    CHECK (credential_mode IN ('system','custom'));
+
+ALTER TABLE generations ADD COLUMN deadline_at timestamptz;
+
+CREATE TABLE generation_credentials (
+  generation_id uuid PRIMARY KEY
+    REFERENCES generations(id) ON DELETE CASCADE,
+  ciphertext text NOT NULL,
+  iv text NOT NULL,
+  auth_tag text NOT NULL,
+  key_version integer NOT NULL DEFAULT 1,
+  expires_at timestamptz NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX ix_generation_credentials_expires
+  ON generation_credentials(expires_at);
+```
+
+迁移与约束：
+
+- 文件号使用当前序列的下一号 `drizzle/0005_user_generation_credentials.sql`；先审查仓库实际 migration journal，若编号已占用则顺延但不要覆盖。
+- `credential_mode` 存量行默认 `system`。`deadline_at` 分阶段加：部署时先可空；终态存量行回填 `created_at + interval '5 minutes'`，极少数仍在途存量行在排空队列后同样回填，或显式给 `now()+5min` 的迁移宽限；然后设 `NOT NULL`。所有新 enqueue 必须直接写创建时刻 + 5 分钟。
+- `generation_credentials` 只允许 custom 行。应用层在插入前验证 mode；测试加 DB 触发器并非必需，但必须有跨用户/跨 mode 负例。
+- 表中只能出现 base64/等价编码的 AES-GCM 密文材料；**禁止** plaintext Key、Base URL、用户长期配置、可还原主密钥或错误原文。
+- custom generation + credential 原子创建。成功、失败、超时均删除凭据；`expires_at=created_at+15min` 仅供异常孤儿清理，不是正常保留期。
+- `generations.deadline_at` 增加 in-flight 扫描索引，建议 `CREATE INDEX ix_gen_inflight_deadline ON generations(deadline_at) WHERE status IN ('queued','claimed','running')`。
+- `generations.error_code` 继续使用可演进的 `text` 列：读取兼容历史 `insufficient_quota` / `relay_5xx`，新 generation 只写 [07 §8.7](07-api.md) 的十值错误契约，不为旧六值新增封闭 CHECK。

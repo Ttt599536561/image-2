@@ -9,7 +9,7 @@
 | 项 | 约定 |
 |---|---|
 | 协议 | REST + JSON（`Content-Type: application/json`）；二进制（图）走 R2 `public_url`，不经本站 API |
-| 鉴权 | **Better Auth cookie 会话**（HttpOnly）；无 Bearer/无 API Key 给前端。敏感路径每请求查 DB（不吃 cookieCache，[05-auth.md §6.3](05-auth.md)） |
+| 鉴权 | **Better Auth cookie 会话**（HttpOnly）；不把本站鉴权 Key 发给前端。custom 中转 Key 仅作为用户输入随已鉴权 HTTPS 生成请求提交，不替代站内会话鉴权 |
 | 时间 | 一律 ISO-8601 UTC 字符串（`2026-06-21T08:30:00Z`），展示层本地化 |
 | 金额 | 跨 JSON 用**整数 mp / 分**，字段带 `_mp` / `_cash` 后缀；前端展示才 `/1000`、`/100`（[02-database.md §3.6](02-database.md)） |
 | 分页 | `?page=1&pageSize=N`，响应 `{ items, page, pageSize, total }`；列表均默认倒序 |
@@ -84,7 +84,7 @@ export function httpError(status: number, code: string, message: string, details
 >   AND expires_at IS NOT NULL AND expires_at < now() + interval '3 days';
 > ```
 
-### 生成（核心）
+### 生成（现有 system-only 基线；目标契约见 §8.7）
 
 | 方法 | 路径 | 入参 | 响应 | 码 | 通道 |
 |---|---|---|---|---|---|
@@ -92,9 +92,9 @@ export function httpError(status: number, code: string, message: string, details
 | POST | `/api/generate` | `GenerateRequest` | `{ generationId, status:'queued' }` | **202**/400/401/402/403/409/429 | REST |
 | GET | `/api/generate-status?id=` | `?id=uuid` | `GenerateStatusResponse` | 200/400/401/404 | REST（短轮询） |
 
-`GenerateRequest`（[§5.1](../redesign-requirements.md)）：`{ prompt, size, quality?, background?, conversationId?, inputImageKey? }`。`model` 不收（**固定 `gpt-image-2`**）、`n` 不收（固定 1）、`moderation` 不收（固定 `low`）、**任何 Key 字段不收**（删 v1 `apiKey`，[00-overview.md §1.4](00-overview.md)）。`conversationId` 缺省 → 服务端新建会话（标题取 prompt 前 20 字，[§10](../redesign-requirements.md)）。`inputImageKey?`=**图生图参考图**（来自 `POST /api/uploads` 返回，见下）；入队时**owner-scope 校验前缀** `uploads/<me>/`（非本人前缀 → 拒），落 `generations.input_image_key`（迁移 `0003`），有则管线走中转 `/images/edits`、无则常规 `/images/generations`（[04-generation-pipeline.md](04-generation-pipeline.md)）。
+现有 system-only `GenerateRequest` 为 `{ prompt, size, quality?, background?, conversationId?, inputImageKey? }`，不收任何 Key；这是 v1 `apiKey` 清理后的历史基线。2026-07-11 目标由 §8.7 在**同一个 schema/endpoint** 增加 `credentialMode`，且仅 custom 接收 `customApiKey`。`model/n/moderation` 仍由服务端固定；会话与 `inputImageKey` owner-scope 规则不变。
 
-`POST /api/generate` 在**入队前三重闸**（并发 / 余额 / 预算，[03-money.md §4.9](03-money.md)）：
+现有 system `POST /api/generate` 在**入队前三重闸**（并发 / 余额 / 预算，[03-money.md §4.9](03-money.md)）；custom 按 §8.7 显式绕过：
 - 并发满 → **409 `CONCURRENCY_LIMIT`**，`details:{limit,current}`，文案"超出并发数量"。
 - 余额 < 70mp → **402 `INSUFFICIENT_CREDITS`**，文案"积分不足，去充值"。
 - 当日预算熔断 → **429 `BUDGET_EXHAUSTED`**，文案"今日额度已满，请稍后"。
@@ -116,7 +116,7 @@ export function httpError(status: number, code: string, message: string, details
   "errorCode":"provider_timeout", "error":"504 中转网关超时", "httpStatus": 504 }
 ```
 
-> 进行中态只有 `status` + `startedAt?` + `elapsedMs?`，**不含** `creditsChargedMp`（未结算）。失败态 `errorCode` 为归一化枚举（[04-generation-pipeline.md §5.8](04-generation-pipeline.md)：insufficient_quota｜relay_5xx｜provider_timeout｜content_rejected｜relay_unreachable｜unknown）、`error` 为脱敏可读串（可含状态码原文）、`httpStatus` 为中转 HTTP 状态码（无则 `null`）。成功态 `durationMs` 由扣费事务库内算出（[03-money.md §4.3](03-money.md)）；失败未扣无需在响应注明退款（成功才扣，[§5.3](../redesign-requirements.md)）。
+> 上述响应是现有 system-only 单项基线：进行中态没有 `creditsChargedMp`，历史失败行使用 [04 §5.8](04-generation-pipeline.md) 六值。目标响应与新错误集合以 §8.7 为准；读取层仍兼容历史六值。成功态 `durationMs` 由扣费事务库内算出（[03-money.md §4.3](03-money.md)）。
 
 ### 会话（ChatGPT 式历史，[§10](../redesign-requirements.md)）
 
@@ -201,6 +201,8 @@ export function httpError(status: number, code: string, message: string, details
 ## 8.5 Zod 契约（`src/contracts`）
 
 **组织**：按域分文件，前后端 `import` 同一 schema 校验（请求体在函数入口 `.parse()`，前端提交前 `.parse()` 预校验、TanStack Query 解响应 `.parse()`）。
+
+> 本节代码块记录当前 system-only schema；实施 Key 模式时按 §8.7 扩展。下方 `ERROR_CODES` 是存量六值，不再作为新 generation 写入集合。
 
 ```
 src/contracts/
@@ -322,20 +324,67 @@ export type NotificationItem = z.infer<typeof NotificationItem>;
 | `POST /api/auth/sign-in` | 10 次失败 / 10 分钟 | IP + 邮箱，仅计失败 | 429 `RATE_LIMITED` |
 | `POST /api/auth/sign-up` | 5 次 / 小时 / IP | IP | 429 `RATE_LIMITED` |
 | `POST /api/uploads` | **40 次 / 10 分钟**（图生图参考图上传） | 账号（每用户） | 429 `RATE_LIMITED` |
-| `POST /api/generate` | 并发闸即主闸（[§14](../redesign-requirements.md)）；另**单日预算熔断** | 全站当日 | 429 `BUDGET_EXHAUSTED` |
+| `POST /api/generate`（system） | 账户并发闸 + **单日预算熔断** | 账号 / system 当日预算 | 409 `CONCURRENCY_LIMIT` / 429 `BUDGET_EXHAUSTED` |
+| `POST /api/generate`（custom） | **不设提交限流、账户并发或系统预算闸**（已接受风险） | — | 不因这些条件返回 409/429 |
 
 **实现**：阶段一用 **DB 计数窗口**（轻量、无需 Redis）——`rate_limits(key, window_start, count)` 或直接 `COUNT events/audit_log WHERE … AND created_at > now()-interval`；阶段三规模化再迁 Upstash/KV（与队列演进同步，[01-architecture.md §2.5](01-architecture.md)）。
 
-**预算熔断**在生成入口前置判定（`isDailyBudgetExhausted()`），超阈值即 **429 `BUDGET_EXHAUSTED`** + 告警，逻辑与阈值（`DAILY_RELAY_BUDGET_CALLS/MS`）见 [04-generation-pipeline.md §5.6](04-generation-pipeline.md)、每日重置 cron 见 [10-ops-test.md §11.8](10-ops-test.md)。
+**system 预算熔断**在生成入口前置判定（`isDailyBudgetExhausted()`），超阈值即 **429 `BUDGET_EXHAUSTED`** + 告警；custom 不读取或递增该预算。逻辑与阈值见 [04-generation-pipeline.md §5.6/§5.9](04-generation-pipeline.md)、每日清理见 [10-ops-test.md §11.8](10-ops-test.md)。
+
+---
+
+## 8.7 Key 模式与批量状态契约（2026-07-11）
+
+### `POST /api/generate`
+
+仍使用唯一生图端点，禁止增加 `/api/generate/custom`。在既有字段上新增：
+
+```ts
+export const generateRequestSchema = z.object({
+  prompt: z.string().trim().min(1).max(4000),
+  size: imageSizeSchema,
+  quality: imageQualitySchema.optional(),
+  background: imageBackgroundSchema.optional(),
+  conversationId: z.string().uuid().optional(),
+  generationId: z.string().uuid().optional(),
+  inputImageKey: z.string().max(512).optional(),
+  credentialMode: z.enum(["system", "custom"]),
+  customApiKey: z.string().min(1).max(500).optional(),
+}).superRefine((value, ctx) => {
+  if (value.credentialMode === "custom" && !value.customApiKey?.trim()) {
+    ctx.addIssue({ code: "custom", path: ["customApiKey"], message: "CUSTOM_KEY_REQUIRED" });
+  }
+  if (value.credentialMode === "system" && value.customApiKey !== undefined) {
+    ctx.addIssue({ code: "custom", path: ["customApiKey"], message: "SYSTEM_MODE_FORBIDS_CUSTOM_KEY" });
+  }
+});
+```
+
+- 不接收 `baseUrl`、`model`、`n` 或 `moderation`。custom 固定 URL 由服务端注入；system 请求体不得携带 custom Key。
+- 保存时/提交时只检查 Key 非空与最大 500 字符，不发探测请求。`customApiKey` 不得回显在 Zod issue、错误 details 或响应。
+- 202 响应保持统一：`{ generationId, conversationId, status:"queued", credentialMode, deadlineAt }`。不得返回 credential ID、Key hint 或密文。
+- custom 无 Key 在入队前返回统一错误信封 `400 CUSTOM_KEY_REQUIRED`；不创建 generation，也不写临时凭据。
+
+### `GET /api/generate-status`
+
+- 保留 `?id=<uuid>` 单项兼容；新增 `?ids=<uuid>,<uuid>...`，去重后最多 50 个。两者互斥，空列表/超限返回 400。
+- 服务端始终加 `user_id=$me`；某 ID 不属于当前用户时按 404/不暴露原则处理。批量响应：`{ items: GenerationStatus[] }`，输入顺序不作为关联依据，客户端按 `generationId` 合并。
+- 每项都含 `generationId,status,credentialMode,deadlineAt`；running 可含 `startedAt,elapsedMs`；succeeded 含 `image,creditsChargedMp,durationMs`；failed 含 `errorCode,error,httpStatus,creditsChargedMp:0`。
+- 读取时先调用统一 deadline 收口 helper，再查询返回。到期文案固定“请求超时，本次未扣积分，请重试”。
+
+### 错误码
+
+入队错误新增 `CUSTOM_KEY_REQUIRED`。新 generation 写入错误限定为：`custom_key_invalid`、`custom_key_quota`、`relay_rate_limited`、`provider_timeout`、`relay_unreachable`、`invalid_request`、`content_rejected`、`invalid_response`、`storage_failed`、`unknown`。这是当前唯一的新写入集合；契约读取兼容历史行的 `insufficient_quota` / `relay_5xx`，但新 mapper 不再写它们。system 既有入口错误 `INSUFFICIENT_CREDITS`、`CONCURRENCY_LIMIT`、`BUDGET_EXHAUSTED` 保持不变。
 
 ---
 
 ### API 红线清单（落地必守）
 
 - [ ] 所有回前端响应**先脱敏**；`generate-status` 成功只给 R2 `public_url`，永不给中转临时 URL。
-- [ ] `POST /api/generate` **不收任何 Key 字段**；`model/n/moderation` 服务端固定、忽略前端传值。
-- [ ] 入队三闸顺序与码：并发 **409** / 余额 **402** / 预算 **429**（不入队、不扣费）。
+- [ ] `POST /api/generate` 只在 `credentialMode=custom` 接收 `customApiKey`；system 携带即拒。两种模式都不收 Base URL、model/n/moderation。
+- [ ] system 保持并发 409 / 余额 402 / 预算 429；custom 显式绕过这些闸且始终零扣费。
 - [ ] 生成失败用 **200 + body `status:'failed'`** 表达，不用 HTTP 错误码；`creditsChargedMp=0` 即"未扣"。
 - [ ] 兑换 404/400 统一文案"兑换码无效"（防枚举）；410 才区分已用/已失效；失败计数才进限流。
 - [ ] 金额跨 JSON：单笔 `number`、看板 SUM `string/bigint`，前后端复用 `src/contracts` 同一 schema。
 - [ ] 错误一律走统一信封 `{error:{code,message,details?}}`，前端按 `code` 分支、不解析 `message`。
+- [ ] 单项/批量状态都 owner-scoped；任何响应、校验错误或 details 不含 custom Key、密文或 credential ID。

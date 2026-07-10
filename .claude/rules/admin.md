@@ -14,4 +14,5 @@ paths:
 - **#14 UX 分离**：后台无回用户端入口；未登录访问 `/admin` → `/admin/login`（非 `/login`）；已登录非 admin → `/`（不暴露后台）；登录后校验 `role=admin` 直达 `/admin`。
 - 调积分调 `money/adjust`（见 [rules/money.md](money.md)）；管理员**不能封禁自己**（`setBanned` 守卫 + UI 禁本人行）。
 - 删生成记录 = **硬删 + 清 R2 + 写审计**，但**账本保留**（对账走 `credit_lots`，不受删除影响）。
+- 生成记录只显示 `credential_mode`、扣费 0/实际值和脱敏错误；**永不查询/返回** `generation_credentials`、custom Key、ciphertext、IV、tag 或可推导凭据的 hint。
 - 全局参数 #11：积分类键 UI 填**积分**、提交 ×1000 存 **mp**（换算只在前端边界，后端仍存 mp）。

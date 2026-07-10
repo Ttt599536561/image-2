@@ -263,3 +263,11 @@ export async function requireAdmin(request: Request): Promise<Ctx> {
 - [ ] 封禁/改密走 Better Auth admin API（`banUser`/`revokeUserSessions`/`setUserPassword`，立即下线/强制重登），不裸删 `session` 表；按「先吊销后写审计 + 审计失败补偿重试」执行 + 写 `audit_log`。
 - [ ] 密码 **≥6 且 ≤72 字节**：字节限长**在 §6.1 `password.hash` 内强制断言**（`TextEncoder`，注册与 admin `setUserPassword` 都必经），`maxPasswordLength` 仅粗过滤（按字符、非字节防线）；防 bcrypt 72 字节截断越权。
 - [ ] 注册 after-hook 走 [03-money.md §4.4](03-money.md) 原子发放，`uq_grant_signup` 幂等；钩子失败让注册失败、可安全重入。孤儿兜底**双确定挂载点**：`session.create.after` 每次登录补发 + cron 扫孤儿（不依赖再登录），均靠 `uq_grant_signup` 幂等。
+
+## 6.9 custom Key 的身份与归属边界
+
+- system/custom 两种生成都必须先过 `requireUserStrict`：有效会话、每请求 DB 校验、封禁拦截完全一致。custom 不扣费不等于匿名或弱鉴权。
+- 浏览器配置键名包含稳定 `user.id`，例如 `image-workshop:api-config:v1:<userId>`；同一浏览器切换账号时只加载当前 ID 的配置，禁止用 email（可变/含个人信息）或全局固定键。
+- 首次没有该用户配置时默认 system；刷新/重新登录恢复最后模式。按已批准产品决策，退出登录**不删除**该用户本地 custom Key，清除必须由用户在 Key 弹窗显式执行。
+- 服务端不把 custom Key 写进 Better Auth user/session、业务 `users`、账号配置或跨设备同步。临时凭据通过 `generation.user_id` 归属；Background/状态/清理访问均不得跨用户 ID。
+- API owner-scope 负例必须覆盖：伪造他人 conversation、generation、input image 或 credential ID 均返回 404/拒绝且不暴露对象是否存在。

@@ -164,7 +164,7 @@ i.ti{line-height:1}
       </aside>
       <main style="flex:1;min-width:0;padding:12px 16px;display:flex;flex-direction:column">
         <div style="display:flex;justify-content:flex-end;align-items:center;gap:10px">
-          <span class="d-pill"><i class="ti ti-coin" style="font-size:13px"></i>积分 5.86</span><i class="ti ti-moon" style="color:var(--color-text-secondary)"></i>
+          <span class="d-pill"><i class="ti ti-coin" style="font-size:13px"></i>积分 5.86</span><i class="ti ti-key" title="Key 配置" style="color:var(--color-text-secondary)"></i><i class="ti ti-moon" style="color:var(--color-text-secondary)"></i>
         </div>
         <div style="text-align:center;margin:24px 0 18px">
           <div style="font-size:24px;font-weight:500">今天想画点什么?</div>
@@ -231,6 +231,7 @@ i.ti{line-height:1}
           <div style="display:flex;align-items:center;gap:10px;flex:0 0 auto;margin-left:8px">
             <span style="font-size:11px;border:0.5px solid var(--color-border-secondary);border-radius:999px;padding:3px 8px"><i class="ti ti-coin" style="font-size:12px"></i> 5.86</span>
             <span style="font-size:11px;color:var(--color-text-secondary);border:0.5px solid var(--color-border-secondary);border-radius:999px;padding:3px 8px"><i class="ti ti-layout-grid" style="font-size:11px"></i> 本次·3</span>
+            <i class="ti ti-key" title="Key 配置" style="color:var(--color-text-secondary);font-size:15px"></i>
             <i class="ti ti-moon" style="color:var(--color-text-secondary);font-size:15px"></i>
           </div>
         </div>
@@ -240,7 +241,10 @@ i.ti{line-height:1}
             <div style="width:90px;height:135px;border-radius:8px;background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);display:flex;align-items:center;justify-content:center;color:var(--color-text-tertiary)"><i class="ti ti-photo" style="font-size:20px"></i></div>
             <div style="display:flex;gap:6px;margin-top:6px;font-size:10px;color:var(--color-text-secondary)"><span style="border:0.5px solid var(--color-border-tertiary);border-radius:6px;padding:3px 7px">下载</span><span style="border:0.5px solid var(--color-border-tertiary);border-radius:6px;padding:3px 7px">重新生成</span><span style="border:0.5px solid var(--color-border-tertiary);border-radius:6px;padding:3px 7px">复制提示词</span></div>
           </div>
-          <div style="width:90px;height:135px;border-radius:8px;background:var(--color-background-secondary);border:0.5px dashed var(--color-border-secondary);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--color-text-tertiary)"><i class="ti ti-loader-2" style="font-size:18px"></i><span style="font-size:10px">生成中 0:08</span></div>
+          <div style="display:flex;gap:8px;align-items:flex-start">
+            <div style="width:90px;height:135px;border-radius:8px;background:var(--color-background-secondary);border:0.5px dashed var(--color-border-secondary);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--color-text-tertiary)"><i class="ti ti-loader-2" style="font-size:18px"></i><span style="font-size:10px">生成中 0:08</span></div>
+            <div style="width:90px;height:90px;border-radius:8px;background:var(--color-background-secondary);border:0.5px dashed var(--color-border-secondary);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;color:var(--color-text-tertiary)"><i class="ti ti-loader-2" style="font-size:18px"></i><span style="font-size:10px">排队中 0:02</span></div>
+          </div>
         </div>
         <div style="border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-lg);padding:8px 10px;margin-top:8px;display:flex;justify-content:space-between;align-items:center">
           <span style="font-size:12px;color:var(--color-text-tertiary)">继续在当前对话生图…</span>
@@ -249,7 +253,7 @@ i.ti{line-height:1}
       </main>
     </div>
   </div>
-  <p class="cap">侧栏与积分始终在 → 点任意导航即离开当前对话，无需"退出"。「本次对话图片」面板由"本次·3"开关展开（见 §11）。</p>
+  <p class="cap">侧栏与积分始终在；Key 图标打开 §22 配置弹窗。custom 模式允许同一会话多任务提交，Composer 不等待上一项终态；每张卡按 generation ID 独立更新。</p>
 </section>
 
 <section>
@@ -791,6 +795,33 @@ i.ti{line-height:1}
     </div>
   </div>
   <p class="cap">从登录页「忘记密码?」链接进入；纯占位说明页（本期无邮件基建，不做自助找回）。「返回登录」回到 §2 登录/注册页。</p>
+</section>
+
+<section>
+  <h2>22. Key 模式配置弹窗<span class="map">· §25</span></h2>
+  <div class="frame" style="background:var(--color-background-secondary);display:flex;justify-content:center;padding:24px 14px">
+    <div style="width:360px;max-width:100%;background:#fff;border:0.5px solid var(--color-border-tertiary);border-radius:8px;padding:18px">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+        <div style="display:flex;align-items:center;gap:8px;font-size:15px;font-weight:500"><i class="ti ti-key"></i>生图 Key</div>
+        <i class="ti ti-x" title="关闭" style="color:var(--color-text-secondary)"></i>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;border:0.5px solid var(--color-border-secondary);border-radius:8px;padding:3px;margin-bottom:14px">
+        <div style="font-size:12px;text-align:center;padding:7px;background:var(--color-text-primary);color:#fff;border-radius:6px">系统 Key</div>
+        <div style="font-size:12px;text-align:center;padding:7px">自定义 Key</div>
+      </div>
+      <div style="font-size:11px;color:var(--color-text-tertiary);margin-bottom:14px">系统模式按积分计费；切换模式不会删除已保存的自定义 Key。</div>
+      <div class="l2-lab">自定义 Key</div>
+      <div class="l2-in" style="justify-content:space-between;color:var(--color-text-primary);margin-bottom:10px"><span>••••••••••••••••</span><i class="ti ti-eye" title="显示 Key"></i></div>
+      <div class="l2-lab">Base URL</div>
+      <div class="l2-in" style="background:var(--color-background-secondary);color:var(--color-text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">https://api.tangguo.xin/v1</div>
+      <div style="font-size:10px;color:var(--color-text-tertiary);margin-top:5px">固定地址，不可修改</div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <span class="es-btn" style="color:var(--color-text-danger)"><i class="ti ti-trash"></i>清除</span>
+        <span class="l2-btn" style="margin:0;height:34px;padding:0 16px">保存并使用</span>
+      </div>
+    </div>
+  </div>
+  <p class="cap">上图同时表达两种模式；切到“自定义 Key”后显示输入区。首次默认 system；配置按登录 user ID 保存在当前浏览器。保存只做非空/长度校验，不探测上游。</p>
 </section>
 
 </div>

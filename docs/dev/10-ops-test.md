@@ -10,11 +10,12 @@
 
 | 任务 | cron (UTC) | 作用 | 幂等点 | 落地 |
 |---|---|---|---|---|
-| 超时重扫 | `*/1 * * * *` 每分钟 | `claimed/running` 且 `COALESCE(started_at,updated_at)<now()-5min` → `failed/provider_timeout`（兜底僵尸 claimed） | `UPDATE…WHERE status IN(claimed,running)`（已终态行不再命中） | [§11.6](#116-超时重扫-cron) |
+| 超时重扫 | `*/1 * * * *` 每分钟 | `queued/claimed/running` 且 `deadline_at<=now()` → `failed/provider_timeout`；状态读取也调用同一 helper | 状态谓词保证已终态行不再命中 | [§11.11](#1111-key-模式deadline-与安全验证2026-07-11) |
 | 旧预算键清理 | `0 16 * * *`（= 北京 00:00） | 清理/归档旧日期的中转预算键 + 近阈告警（当日键靠 date-in-key 自动归零，无需清零） | 删旧键天然幂等；不 upsert 固定行 | [§11.8](#118-旧预算键清理-cron) |
 | 积分过期 | `10 16 * * *`（北京 00:10） | 过期批次清零 + `expire` 流水 + 同步余额 | `uq_expire_lot`（每 lot 只清一次）；永久批次 `expires_at IS NULL` 跳过 | [§11.2](#112-积分过期-cron) |
 | 余额对账 | `30 16 * * *`（北京 00:30） | 物化余额 vs `SUM(lots.remaining 未过期)`，不平告警+以批次修正 | 重算覆盖（重跑收敛到同值） | [§11.3](#113-余额对账-cron) |
 | 图片清理 | `0 17 * * *`（北京 01:00） | 删过期 R2 对象 + DB + `events(image_cleaned)` + 孤儿清理 | 删除天然幂等；已删行不再命中 | [§11.7](#117-图片清理-cron) |
+| custom 凭据孤儿清理 | `*/5 * * * *` | 删除 `generation_credentials.expires_at<=now()`；同步把仍在中间态且 deadline 已过的任务收口 | 按 PK 删除；终态/已删行重跑无影响 | [§11.11](#1111-key-模式deadline-与安全验证2026-07-11) |
 
 > 时区：cron 是 UTC，"每日 0 点"按运营所在北京时区折算（UTC+8 → UTC 的 16:00）。过期/对账/清理**错峰**排（00:10/00:30/01:00），避免与旧预算键清理同刻抢连接、且对账在过期之后跑（先清过期再对账才准）。
 
@@ -189,9 +190,9 @@ GB-hour 口径        = relay_p95_seconds/3600 × 函数内存 GB
 
 > 若毛利为负：①再降内存档；②抬单张定价（改 `app_config` 单张扣费 mp，[00-overview.md §1.5](00-overview.md)）；③调单日预算阈值压总敞口（[§11.8](#118-旧预算键清理-cron)）。失败的图也烧了 compute 却不扣费——把失败率计入有效成本。
 
-## 11.6 超时重扫 cron
+## 11.6 旧超时重扫 cron 基线（目标实现见 §11.11）
 
-**这是 5min 超时的权威判定**（前端轮询满 5min 只是软超时、释放 UI；服务端 cron 才是终态权威）。落地 [03-money.md §4.6](03-money.md)，与 [04-generation-pipeline.md §5.5](04-generation-pipeline.md) 的前端软超时**区分**：后台卡死/被平台杀掉时，只有 cron 能把僵尸行收成终态、释放并发。
+> 以下 SQL 说明当前 system-only 代码为何需要 cron，保留作迁移对照。2026-07-11 目标以 `deadline_at` 为权威数据，状态读取与 cron 共用 §11.11 原子 helper；cron 不再是唯一终态入口。
 
 ```sql
 -- 每分钟跑：超 5min 仍未终态 → failed/provider_timeout（单语句即原子，HTTP 即可）
@@ -399,12 +400,42 @@ jobs:
 - **每 PR 一条 Neon 分支**：CI 用 Neon API 按 PR 创建分支库 → 跑迁移 → 注入 `DATABASE_URL_UNPOOLED` 给测试 → PR 关闭时销毁分支。隔离、可对真库跑、互不污染。
 - **构建期密钥断言**（`assert-no-secrets-in-bundle.ts`）：`vite build` 后扫 `dist/`，断言 `RELAY_API_KEY`/`RELAY_BASE_URL`/`DATABASE_URL*`/`R2_SECRET_*`/`BETTER_AUTH_SECRET` 的**值与名**均未出现，命中即 `exit(1)`。这是密钥红线的 CI 兜底，泄露代码无法合入。实现见 [00-overview.md §1.4](00-overview.md)。
 
+## 11.11 Key 模式、deadline 与安全验证（2026-07-11）
+
+### 统一 deadline helper
+
+- system/custom 创建时都写 `deadline_at=created_at+5min`。超时扫描条件以 `deadline_at<=now()` 为准，覆盖 `queued/claimed/running`，不再用各状态不同的 started/updated 相对时间推断。
+- `generate-status` 在读前调用与 cron 相同的 `expireDueGenerations({ generationIds, userId, now })`：状态谓词更新为 `failed/provider_timeout`，写脱敏事件、清 custom credential。cron 是无人轮询时的兜底，不是唯一权威入口。
+- Background claim、上游返回、落图成功和超时收口必须做竞争测试；只有成功更新 generation 终态的一方可写对应事件/扣费，另一方幂等退出。
+- 上游测试注入虚拟时钟和 AbortSignal，断言可用时间为 `deadlineAt-now-30s`。不真实等待 5 分钟。
+
+### custom 凭据生命周期
+
+- 每 5 分钟删 `expires_at<=now()` 的凭据；若关联 generation 仍是中间态且 deadline 已过，先用统一 helper 收口。告警指标：删除数量、最老密文年龄、终态仍带 credential 的数量（目标 0）。
+- 日志只记 generationId/mode/阶段/耗时/错误码，不记请求 body、Authorization、Key、密文或解密异常原文。Sentry `beforeSend` 继续做字段和值级清洗。
+- 运行时哨兵使用高熵测试 Key，覆盖 202、成功、鉴权失败、配额失败、429、网络异常、超时、存储失败；扫描 DB 普通表、events/audit、捕获日志、Sentry 桩、用户/admin 响应，除允许的临时密文外不得命中 plaintext。
+
+### 必测矩阵
+
+| 维度 | 用例 |
+|---|---|
+| system 回归 | 余额/并发/预算三闸；成功只扣一次；失败/超时不扣；只使用 system Key |
+| custom 入队 | 零余额、system 预算满、system 并发满仍可入队；连续至少 3 项均 202；无 Key 400 且不建任务 |
+| custom 成功 | t2i/i2i 均固定 URL、同一 `callRelay`、图片入同一存储；`creditsChargedMp=0` 且账户/lots/ledger 不变 |
+| custom 失败 | 无效 Key、配额、普通 429、内容拒绝、网络、响应、存储、未知错误精确映射；不调用 system Key |
+| 批量状态 | 最多 50 IDs、去重、owner-scope、混合终态、单项终态不停止其他项、刷新后恢复 |
+| 5 分钟 | queued/claimed/running 均可收口；状态读无需等 cron；成功/超时竞争只有一个终态；两种 mode 都清凭据/不误扣 |
+| 前端 | 模式记忆与账号隔离、保存/切换/清除、360px/桌面无重叠、custom 不因余额禁用、多任务卡正确关联 |
+
+完整合入门：`npm run typecheck`、`npm run test:run`、`npm run test:money`、`npm run cron-smoke`、`npm run build`、`npm run assert-no-secrets`，再跑 mode/deadline 运行时哨兵与 Playwright。命令名若与 `package.json` 不符，以仓库脚本为准并同步实施计划，不得跳过对应能力。
+
 ### 收尾红线清单
 
 - [ ] 每条 cron 幂等（可重复触发/手动重跑不出错）+ `try/catch` 上报，不静默吞。
 - [ ] 过期/对账走 Pool/WS 事务；只读扫描走 HTTP；cron 错峰排（过期 → 对账）。
 - [ ] 所有 `SUM(*_mp)` 用 `::text`/bigint mode + `BigInt()`，绝不经 `number`（[§11.4](#114-bigint-sum-codec毫积分跨-json-的坑)）。
-- [ ] 超时重扫是 5min **权威**判定；前端软超时只释放 UI（[§11.6](#116-超时重扫-cron)）。
+- [ ] `deadline_at` 是 5min 权威数据；状态读取与 cron 共用原子收口 helper，前端只展示服务端终态。
 - [ ] 上线前填完 GB-hour 对账表、确认毛利为正（铁律②，[§11.5](#115-gb-hour-成本实测铁律)）。
-- [ ] 单日预算熔断触发即告警（防破产硬上限，[§11.8](#118-旧预算键清理-cron)）。
+- [ ] system 单日预算熔断触发即告警；custom 不计该预算，但单独监控平台 compute/DB/存储敞口。
 - [ ] 钱链路 9 类用例对真 Neon 分支跑通；CI 含密钥断言。
+- [ ] custom Key 运行时哨兵、凭据终态/15min 清理、system/custom 全矩阵与批量轮询 Playwright 全部通过。

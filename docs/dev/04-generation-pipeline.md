@@ -9,6 +9,8 @@
 
 ## 5.1 管线总览
 
+> §5.1–§5.8 主体记录现有 system-only 管线及 v1 迁移依据；2026-07-11 的 mode-aware 目标统一由 §5.9 覆盖。图中“三闸/扣费/env Key/单 ID 轮询”只代表 system 基线。
+
 端到端三段，**解耦两层等待**：前端 ↔ 本站走**短轮询**（每 2s，上限 5min）；本站 ↔ 中转走 Background Function 内**长 await**（中转同步阻塞、无 webhook，只能阻塞等）。job 态以 **`generations` 表（Postgres）为权威**，不再用 Netlify Blobs（KV、最终一致、无原子操作）。完整时序见 [01-architecture.md §2.2](01-architecture.md)。
 
 ```mermaid
@@ -35,7 +37,7 @@ flowchart LR
 
 ---
 
-## 5.2 提交入队（`generate` 同步函数）
+## 5.2 system 提交入队基线（`generate` 同步函数）
 
 职责：**轻、快、只校验+入队**，不碰中转、不阻塞。重活全甩给后台。
 
@@ -159,7 +161,7 @@ export async function handler(event) {
 }
 ```
 
-**中转调用封装**（铁律④：Key 只在此处从 env 注入）：
+**中转调用封装（system-only 历史基线）**（铁律④：system Key 只在此处从全局配置注入；custom 目标见 §5.9）：
 
 ```ts
 // src/server/relay.ts
@@ -300,7 +302,9 @@ export async function handler(event) {
 
 ---
 
-## 5.5 5min 超时（前端软超时 vs 服务端权威 cron）
+## 5.5 旧 5min 双层超时基线（已由 §5.9 的 `deadline_at` 规则取代）
+
+> 本节保留用于解释现有 system-only 实现。2026-07-11 目标不再由前端自判 + cron 唯一收口；状态读取与 cron 必须共用 §5.9 的 deadline helper。
 
 两层超时，**职责不同、不重复**：
 
@@ -320,7 +324,7 @@ export async function handler(event) {
 
 ## 5.6 单日预算熔断（铁律①）
 
-> **背景**：Netlify **无全局消费帽**；中转**同步阻塞**，后台函数按**墙钟**烧 compute（GB-hour），平台自动重试还会放大。这是**防站长破产的唯一硬上限**（规格 §14/§22）。子 Key 不做（一把共享 Key），故应用层熔断是唯一防线。
+> **system 背景**：Netlify 无全局消费帽；中转同步阻塞，后台函数按墙钟烧 compute，平台自动重试还会放大。system 保留应用层预算硬上限；custom 按 §5.9 不计该预算且平台成本风险已接受。
 
 **两道闸（软硬分离，防破产硬上限是后者）**：
 
@@ -455,11 +459,11 @@ async function triggerBackground(generationId: string) {
 
 ---
 
-## 5.8 失败原因归一化
+## 5.8 失败原因归一化（存量 system 基线）
 
 中转**原始文案 / HTTP 状态** → **有限枚举**，便于看板「失败原因 Top」统计（规格 §9 看板②）与后台生成记录列表直显（[09-admin.md §10.5](09-admin.md)）。**脱敏后才回前端 / 落库**。
 
-> 本节是 `error_code` 归一化枚举的**唯一权威源**（全文档其它章一律引此）。六值：`insufficient_quota | relay_5xx | provider_timeout | content_rejected | relay_unreachable | unknown`。
+> 本节记录现有 system-only 实现的六值历史口径：`insufficient_quota | relay_5xx | provider_timeout | content_rejected | relay_unreachable | unknown`，仅用于迁移和存量行读取兼容。2026-07-11 之后的新任务写入以 §5.9.4 / [07 §8.7](07-api.md) 的十值契约为唯一权威源。
 > ⚠️ **澄清**：`insufficient_quota` = **中转/上游**的配额或额度不足（共享 Key 烧光、上游欠费等），**不是用户积分不足**——用户积分不足在入队前即由余额闸 `402` 拦截（§5.2）、根本不入队，永远走不到这里。
 
 **枚举与映射表**：
@@ -473,7 +477,7 @@ async function triggerBackground(generationId: string) {
 | `relay_unreachable` | 本站无法连达中转（fetch 抛网络错） | 网络异常，请稍后重试 | `无法连达中转` |
 | `unknown` | 上述都不匹配 | 生成失败，请重试 | `unknown`（保留脱敏原文便于排查） |
 
-**归一化函数**：
+**现有归一化函数（实施时按 §5.9.4 替换）**：
 
 ```ts
 // src/server/generation/failure.ts
@@ -494,9 +498,40 @@ export function normalizeFailure(err: any): { code: FailureCode; message: string
 }
 ```
 
-- 失败行落库写 `error_code`（枚举）+ `error`（脱敏原文）+ `http_status`（状态码）；后台列表三者直显，**无需再点"查看错误"**（规格 §9）。
-- 看板②的「失败原因 Top」直接 `GROUP BY error_code` 聚合（[09-admin.md §10.7](09-admin.md)）。
+- 存量失败行仍按 `error_code` + `error` + `http_status` 三列读取；后台显示和看板聚合必须同时识别历史六值与 §5.9.4 新值。
+- 看板②的「失败原因 Top」直接 `GROUP BY error_code` 聚合，并按 mode 和新旧错误码区分（[09-admin.md §10.7/§10.8](09-admin.md)）。
 - **脱敏是硬约束**：任何回前端 / 落库的中转文案都先过 `redactText([RELAY_API_KEY])`，绝不泄露 Key（[00-overview.md §1.4](00-overview.md)）。
+
+---
+
+## 5.9 system/custom 统一管线（2026-07-11）
+
+### 5.9.1 提交与凭据
+
+- 对外只有 `POST /api/generate`。请求必带 `credentialMode`; custom 另带 `customApiKey`，system 不得携带 custom Key；两者都不接收 Base URL。
+- system 走现有余额/并发/预算 enqueue。custom 跳过这些闸门，在同一事务写 `generations(credential_mode='custom', deadline_at)` 与 `generation_credentials` 密文；加密/入库任一步失败都不返回 202。
+- 保存 custom Key 的 plaintext 生命周期只覆盖请求解析、加密与本次 Background 解密调用；后台触发 payload 仍只有 `generationId`。
+
+### 5.9.2 Background 与中转
+
+1. 以 `UPDATE ... WHERE status='queued' AND deadline_at>now() RETURNING *` 抢占；已过期则原子写 `failed/provider_timeout` 并清凭据。
+2. system 从 `getRelayConfig()` 取全局 URL/Key；custom 从本 generation 的凭据行解密 Key，并强制 URL `https://api.tangguo.xin/v1`。
+3. 两者调用同一 `callRelay`：文生图 `/images/generations`，图生图 `/images/edits`；固定模型/数量/审核/返回格式保持一致。
+4. fetch abort 时间为 `max(0, deadline_at - now - 30s)`，绝不重新给完整 5 分钟。30 秒预留给响应解析、对象存储和终态事务。
+5. system 成功走 `chargeOnSuccess`；custom 成功走 [03 §4.11](03-money.md) 零扣费事务。任意终态都清临时凭据；失败不自动改模式或调用另一种 Key。
+
+### 5.9.3 批量状态与权威超时
+
+- 状态接口保留单 ID 兼容，同时提供 owner-scoped 批量查询（同一请求接受去重后的 IDs，限制数量）。前端每轮查询当前会话全部非终态 ID，按 ID 合并；一个终态不停止其他项。
+- 状态读取发现 `deadline_at<=now()` 时，可用 `UPDATE ... WHERE id IN (...) AND status IN (...) AND deadline_at<=now() RETURNING` 原子收口，再返回 failed。cron 使用同一 helper 作兜底，**不再是唯一权威入口**。
+- 成功/失败/超时只允许从中间态以状态谓词进入终态；恰逢 deadline 的竞争中，只有 affected row 的一方写事件/图片/扣费或清理。
+
+### 5.9.4 错误与脱敏
+
+- 本节与 [07 §8.7](07-api.md) 是新任务写入的权威错误契约；§5.8 六值仅作历史读取兼容。
+- 入队缺 custom Key：`CUSTOM_KEY_REQUIRED`。任务错误枚举：`custom_key_invalid`、`custom_key_quota`、`relay_rate_limited`、`provider_timeout`、`relay_unreachable`、`invalid_request`、`content_rejected`、`invalid_response`、`storage_failed`、`unknown`。
+- 401/鉴权型 403 → `custom_key_invalid`；配额/账单不足 → `custom_key_quota`；普通 429 → `relay_rate_limited`；内容策略 403 → `content_rejected`。不得把所有 403 混为一种。
+- `redactText` 必须接收**本次实际 system/custom Key**并覆盖精确值、`Bearer <key>` 与常见回显形式。先脱敏、再分类/截断/持久化/上报。
 
 ---
 
@@ -504,14 +539,14 @@ export function normalizeFailure(err: any): { code: FailureCode; message: string
 
 - [ ] `generate` 同步函数**只校验+入队**，绝不在同步函数里 await 中转（会超时）。
 - [ ] 后台函数文件名带 **`-background` 后缀**；入口第一件事是**抢占 `UPDATE…WHERE status='queued' RETURNING`**，抢不到立即退（铁律③）。
-- [ ] 中转 Key **只在 Background Function** 从 `process.env.RELAY_API_KEY` 注入；全链路删 `apiKey`、不经请求体/前端/localStorage（铁律④）。
+- [ ] system Key 只从服务端全局配置注入；custom Key 仅按 user ID 存本地、随统一提交请求进入并转任务密文。Background 只按 generationId 解析对应凭据，普通字段/日志/响应不含 Key。
 - [ ] 中转调用固定 `model='gpt-image-2'` / `n=1` / `moderation='low'`。
 - [ ] 图生图(i2i)：有 `input_image_key` → 先 `getUploadObject` 回读参考图字节（失败→友好 `invalid_request`、不扣费）→ `callRelay` 走 `/images/edits` multipart；**multipart 必带 `response_format='b64_json'`**（中转默认回美西临时 url、`putToR2` 二次跨境下载超 5min 窗，commit `0378d67`）；管线带 `[gen-timing]` 日志（commit `f6842c1`）。抢占/成功才扣/双守卫/超时与文生图一致（§5.3.1）。
 - [ ] 落 R2 在扣费事务**外**（先传图、再开单事务扣费）；扣费走 [03-money.md §4.3](03-money.md)、抢占走 [03-money.md §4.5](03-money.md)。
 - [ ] 失败/超时**从不进扣费事务**（天然未扣）；前端失败卡注明"未扣积分"。
-- [ ] 5min 超时双层：前端软释放 UI + **服务端 cron 权威置 `provider_timeout`**（[10-ops-test.md §11.6](10-ops-test.md)，覆盖超龄 `queued` + `claimed/running`，用 `COALESCE(started_at,updated_at)`）；释放并发 = 状态进终态。
+- [ ] system/custom 都以 `deadline_at=created_at+5min` 为权威；上游预留 30s。状态读取可主动原子收口，cron 兜底；前端不自造另一个终态。
 - [ ] 触发真后台 **fire-and-forget**（不 await、吞错），失败不影响已 202；**常驻 Scheduled 派发**扫 `queued` 兜底（§5.5）。
-- [ ] 单日预算熔断（铁律①）：软闸入队前快速预拦（`429`）+ **硬上限调中转前带阈值条件原子自增**（affected=0→`failed/insufficient_quota`、不扣费）；ms 仅监控、§11.8 cron 重算覆盖；每日 cron 重置 + 告警。
+- [ ] system 单日预算熔断仍为软预拦 + 原子硬上限；custom 不读、不增预算键，也不因 system 预算满失败。
 - [ ] 库内算 `duration_ms` 一律 `(EXTRACT(EPOCH FROM now()-started_at)*1000)::int`（cron 用 `COALESCE`），禁 `EXTRACT(MILLISECONDS …)`。
-- [ ] 回前端 / 落库的中转文案先过 `redactText([RELAY_API_KEY])`；失败码归一化为有限枚举。
-- [ ] `generate-status` 限**本人** job、按 status 判别联合只回 `status (+image{publicUrl,width,height},creditsChargedMp,durationMs / +errorCode,error,httpStatus / +startedAt,elapsedMs)`，不回原始中转响应（§5.4）。
+- [ ] 回前端/后台、落库、日志和 Sentry 前用本次实际 Key 脱敏；失败码按 §5.9.4 有限枚举。
+- [ ] `generate-status` owner-scoped，支持批量并限制数量；只回逐项状态联合，不回原始中转响应或凭据。

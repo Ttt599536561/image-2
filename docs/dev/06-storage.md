@@ -270,3 +270,11 @@ for await (const page of listR2Pages()) {           // ListObjectsV2 续传 Cont
 - [ ] `expires_at` = `retentionExpiry(user)`（免费 7 / 付费 60，走全局参数）；**首次兑换升级在兑换事务内 `GREATEST` 顺延旧图 60 天**（[03-money.md §4.7](03-money.md)）。
 - [ ] 清理 cron：过期图**先删 R2、后删 DB**、写 `events(image_cleaned)`；孤儿清理只删「DB 无记录且 `LastModified>1h`」的对象。
 - [ ] **前端绝不读中转临时 URL/base64**；五类读图面（对话流 / 本次对话图片面板 / 资产库 / 灵感库 / 后台生成记录，见 §7.6 表）统一只读 `public_url`。
+
+## 7.8 custom 结果与临时凭据清理
+
+- system/custom 都先把中转结果落到同一对象存储，使用相同 key 生成、`images` 表、`public_url`、会话历史、资产库和免费/付费 7/60 天保留策略。custom 不扣积分不代表图片临时保存或不进入资产体系。
+- system 落图后进入扣费成功事务；custom 落图后进入 [03 §4.11](03-money.md) 零扣费成功事务。两者都由 `images.generation_id UNIQUE` 防重复图片行，孤儿对象仍按现有 1 小时保护窗清理。
+- `generation_credentials` 不是对象存储内容，不得把 Key、密文或加密主密钥写到 bucket。正常成功/失败/超时在终态事务删除凭据；`expires_at<=now()` 的 15 分钟孤儿由数据库 cron 清理。
+- 图生图参考图生命周期不变：custom 也必须 owner-scope 校验 `uploads/<userId>/`，使用后由现有孤儿清理回收，不能因 custom 跳过计费而跳过归属验证。
+- 验收需对同一用户分别生成 system/custom 图片，证明 URL 形态、会话回看、资产库、下载、删除、保留期与清理完全一致，且任何对象 metadata/键名不含 custom Key。
