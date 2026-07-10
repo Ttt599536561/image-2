@@ -8,11 +8,16 @@ import { callRelay } from "../src/server/relay";
 async function main() {
   const prompt = "a simple red apple on a white table, clean product photo";
   const key = process.env.RELAY_API_KEY;
-  console.log(`[relay-smoke] base=${process.env.RELAY_BASE_URL} key=${key ? `${key.slice(0, 6)}…(${key.length})` : "MISSING"}`);
+  console.log(`[relay-smoke] base=${process.env.RELAY_BASE_URL} key=${key ? "PRESENT" : "MISSING"}`);
   console.log(`prompt: "${prompt}"\n生图中（中转同步阻塞，可能数十秒~数分钟）…`);
 
   const t0 = Date.now();
-  const { images } = await callRelay({ prompt, size: "1024x1024" });
+  const { images } = await callRelay({
+    prompt,
+    size: "1024x1024",
+    credential: { mode: "system" },
+    deadlineAt: new Date(Date.now() + 5 * 60_000),
+  });
   const dt = ((Date.now() - t0) / 1000).toFixed(1);
   const kind = images[0]?.b64_json ? "b64_json" : images[0]?.url ? "url" : "?";
   console.log(`\ncallRelay ok in ${dt}s → images=${images.length}, first=${kind}`);

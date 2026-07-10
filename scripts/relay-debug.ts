@@ -6,6 +6,7 @@ import {
   buildImageGenerationUrl,
   parseImageGenerationResponse,
 } from "../src/api/imageGeneration";
+import { redactText } from "../src/lib/redaction";
 
 async function main() {
   const prompt = process.argv[2] || "a golden retriever puppy on green grass, studio light";
@@ -43,17 +44,19 @@ async function main() {
     const ms = Date.now() - t0;
     const text = await resp.text();
     console.log(`\n→ status ${resp.status} in ${(ms / 1000).toFixed(1)}s`);
-    console.log("→ body[0:500]:", text.slice(0, 500));
+    console.log("→ body[0:500]:", redactText(text, [key]).slice(0, 500));
     try {
       const json = JSON.parse(text);
       const imgs = parseImageGenerationResponse(json);
       console.log(`→ parsed ${imgs.length} image(s), kind=${imgs[0]?.kind}`);
     } catch (e) {
-      console.log("→ parse note:", String(e).slice(0, 120));
+      console.log("→ parse note:", redactText(String(e), [key]).slice(0, 120));
     }
   } catch (e) {
     const ms = Date.now() - t0;
-    console.log(`\n→ ERROR after ${(ms / 1000).toFixed(1)}s: ${(e as Error).name} ${(e as Error).message}`);
+    console.log(
+      `\n→ ERROR after ${(ms / 1000).toFixed(1)}s: ${(e as Error).name} ${redactText((e as Error).message, [key])}`,
+    );
   } finally {
     clearTimeout(timer);
   }

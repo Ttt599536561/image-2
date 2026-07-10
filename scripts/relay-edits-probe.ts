@@ -6,6 +6,7 @@
 // 跑：node --env-file=.env --import tsx scripts/relay-edits-probe.ts
 import { deflateSync } from "node:zlib";
 import { buildImageGenerationUrl } from "../src/api/imageGeneration";
+import { redactText } from "../src/lib/redaction";
 
 // ---------- 极简 PNG 编码器（RGB、无 alpha、filter=0）----------
 const CRC_TABLE = (() => {
@@ -88,8 +89,9 @@ async function probeEdits(
     });
     const ms = ((Date.now() - t0) / 1000).toFixed(1);
     const text = await resp.text();
+    const safeText = redactText(text, [key]);
     if (!resp.ok) {
-      console.log(`  [field=${imageField}] → ${resp.status} in ${ms}s :: ${text.slice(0, 260)}`);
+      console.log(`  [field=${imageField}] → ${resp.status} in ${ms}s :: ${safeText.slice(0, 260)}`);
       // 503「无可用渠道」/404/405 端点不存在 → 明确不支持；400 多为参数/字段问题（端点其实在）→ 含糊。
       if (resp.status === 400 || resp.status === 422) return "ambiguous";
       return "unsupported";
@@ -98,11 +100,13 @@ async function probeEdits(
     try {
       json = JSON.parse(text);
     } catch {
-      console.log(`  [field=${imageField}] → 200 unparseable in ${ms}s :: ${text.slice(0, 200)}`);
+      console.log(`  [field=${imageField}] → 200 unparseable in ${ms}s :: ${safeText.slice(0, 200)}`);
       return "ambiguous";
     }
     if (json.error && !json.data) {
-      console.log(`  [field=${imageField}] → 200 但 error body in ${ms}s :: ${JSON.stringify(json.error).slice(0, 220)}`);
+      console.log(
+        `  [field=${imageField}] → 200 但 error body in ${ms}s :: ${redactText(JSON.stringify(json.error), [key]).slice(0, 220)}`,
+      );
       return "unsupported";
     }
     const item = json.data?.[0];
@@ -112,15 +116,17 @@ async function probeEdits(
       return "supported";
     }
     if (item?.url) {
-      console.log(`  [field=${imageField}] ✓ 200 in ${ms}s :: 返回 url ${item.url.slice(0, 80)}（图生图成功）`);
+      console.log(`  [field=${imageField}] ✓ 200 in ${ms}s :: 返回 url（图生图成功）`);
       return "supported";
     }
-    console.log(`  [field=${imageField}] → 200 in ${ms}s 但无 data[0].b64_json/url :: ${text.slice(0, 200)}`);
+    console.log(`  [field=${imageField}] → 200 in ${ms}s 但无 data[0].b64_json/url :: ${safeText.slice(0, 200)}`);
     return "ambiguous";
   } catch (e) {
     const ms = ((Date.now() - t0) / 1000).toFixed(1);
     const isAbort = (e as { name?: string })?.name === "AbortError";
-    console.log(`  [field=${imageField}] ✗ ${isAbort ? "超时" : "ERROR"} in ${ms}s :: ${String(e).slice(0, 200)}`);
+    console.log(
+      `  [field=${imageField}] ✗ ${isAbort ? "超时" : "ERROR"} in ${ms}s :: ${redactText(String(e), [key]).slice(0, 200)}`,
+    );
     return isAbort ? "ambiguous" : "unsupported";
   } finally {
     clearTimeout(timer);
@@ -134,7 +140,7 @@ async function main() {
     console.error("缺 RELAY_API_KEY / RELAY_BASE_URL（见 .env / PHASE2-PLAN §0）");
     process.exit(2);
   }
-  console.log(`base=${base} key=${key.slice(0, 6)}…(${key.length})`);
+  console.log(`base=${base} key=PRESENT`);
   const png = makePng(512);
   console.log(`测试图：512×512 RGB 渐变 PNG，${png.length}B\n`);
   console.log(`探 POST ${buildImageGenerationUrl(base, "/images/edits")}（multipart 图生图）：`);

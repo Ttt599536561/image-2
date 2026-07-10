@@ -1,6 +1,7 @@
 const GENERIC_SECRET_PATTERNS = [
-  /Bearer\s+sk-[A-Za-z0-9._-]+/g,
-  /sk-[A-Za-z0-9._-]{8,}/g,
+  /Bearer\s+[A-Za-z0-9._~+\/-]{8,}/gi,
+  /\bsk-[A-Za-z0-9._-]{8,}\b/g,
+  /\b(api[_-]?key|token)\s*[:=]\s*[A-Za-z0-9._~+\/-]{8,}/gi,
 ];
 
 export function redactText(value: string, secrets: string[] = []): string {
@@ -13,9 +14,13 @@ export function redactText(value: string, secrets: string[] = []): string {
   }
 
   for (const pattern of GENERIC_SECRET_PATTERNS) {
-    redacted = redacted.replace(pattern, (match) =>
-      match.startsWith('Bearer ') ? 'Bearer sk-***' : 'sk-***',
-    );
+    redacted = redacted.replace(pattern, (match) => {
+      if (/^Bearer\s/i.test(match)) return 'Bearer sk-***';
+      if (/^(api[_-]?key|token)\s*[:=]/i.test(match)) {
+        return `${match.split(/[:=]/, 1)[0]}=sk-***`;
+      }
+      return 'sk-***';
+    });
   }
 
   return redacted;

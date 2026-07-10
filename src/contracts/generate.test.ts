@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  GenerateAcceptedResponse,
   GenerateRequest,
   generateRequestErrorCode,
   type GenerateParams,
@@ -68,5 +69,23 @@ describe("GenerateRequest credential modes", () => {
       customBaseUrl: "https://invalid.example/v1",
     });
     expect(result.success).toBe(false);
+  });
+});
+
+describe("GenerateAcceptedResponse", () => {
+  it("requires the authoritative mode and deadline", () => {
+    const accepted = {
+      generationId: "00000000-0000-4000-8000-000000000001",
+      conversationId: "00000000-0000-4000-8000-000000000002",
+      status: "queued",
+      credentialMode: "custom",
+      deadlineAt: "2026-07-11T12:05:00.000Z",
+    };
+    expect(GenerateAcceptedResponse.parse(accepted)).toEqual(accepted);
+    expect(GenerateAcceptedResponse.safeParse({
+      generationId: accepted.generationId,
+      conversationId: accepted.conversationId,
+      status: "queued",
+    }).success).toBe(false);
   });
 });

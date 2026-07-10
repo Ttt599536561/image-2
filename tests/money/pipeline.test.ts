@@ -11,7 +11,11 @@ const TINY_PNG_B64 =
 
 // 桩：callRelay 返回一张 b64 图；putToR2 返回假存储信息（不写 Supabase）。
 const stubDeps = (): ProcessDeps => ({
-  callRelay: async () => ({ images: [{ b64_json: TINY_PNG_B64 }], raw: {} }),
+  callRelay: async (request) => {
+    expect(request.credential).toEqual({ mode: "system" });
+    expect(request.deadlineAt).toBeInstanceOf(Date);
+    return { images: [{ b64_json: TINY_PNG_B64 }] };
+  },
   putToR2: async (_uid: string, gid: string): Promise<PutResult> => ({
     storageKey: `mtest/${gid}.png`,
     publicUrl: `https://img.test/${gid}.png`,
@@ -117,7 +121,7 @@ describe("后台生图编排（runGenerationJob）", () => {
         sawInput = req.inputImage
           ? { contentType: req.inputImage.contentType, filename: req.inputImage.filename }
           : null;
-        return { images: [{ b64_json: TINY_PNG_B64 }], raw: {} };
+        return { images: [{ b64_json: TINY_PNG_B64 }] };
       },
       putToR2: async (_uid: string, gid: string): Promise<PutResult> => ({
         storageKey: `mtest/${gid}.png`,
@@ -148,7 +152,7 @@ describe("后台生图编排（runGenerationJob）", () => {
       },
       callRelay: async () => {
         relayCalled = true;
-        return { images: [{ b64_json: TINY_PNG_B64 }], raw: {} };
+        return { images: [{ b64_json: TINY_PNG_B64 }] };
       },
       putToR2: async (_uid: string, gid: string): Promise<PutResult> => ({
         storageKey: `mtest/${gid}.png`,

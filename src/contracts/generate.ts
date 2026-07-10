@@ -29,13 +29,41 @@ export type GenerateRequestErrorCode =
   (typeof GENERATE_REQUEST_ERROR_CODES)[keyof typeof GENERATE_REQUEST_ERROR_CODES];
 
 // 归一化失败枚举（唯一权威 04 §5.8；09 §10.5 直显）。error_code 为 text 列（无 DB CHECK），可加值不需迁移。
-export const ERROR_CODES = [
+export const SYSTEM_ERROR_CODES = [
   "insufficient_quota",
   "relay_5xx",
   "provider_timeout",
   "content_rejected",
-  "invalid_request", // 参数错误（尺寸/格式/无效请求，中转 400 类），#5 友好中文映射
+  "invalid_request",
   "relay_unreachable",
+  "unknown",
+] as const;
+
+export const CUSTOM_ERROR_CODES = [
+  "custom_key_invalid",
+  "custom_key_quota",
+  "relay_rate_limited",
+  "provider_timeout",
+  "relay_unreachable",
+  "invalid_request",
+  "content_rejected",
+  "invalid_response",
+  "storage_failed",
+  "unknown",
+] as const;
+
+export const ERROR_CODES = [
+  "insufficient_quota",
+  "relay_5xx",
+  "custom_key_invalid",
+  "custom_key_quota",
+  "relay_rate_limited",
+  "provider_timeout",
+  "relay_unreachable",
+  "invalid_request",
+  "content_rejected",
+  "invalid_response",
+  "storage_failed",
   "unknown",
 ] as const;
 export type ErrorCode = (typeof ERROR_CODES)[number];
@@ -134,9 +162,7 @@ export const GenerateAcceptedResponse = z.object({
   generationId: z.uuid(),
   conversationId: z.uuid(),
   status: z.literal("queued"),
+  credentialMode: CredentialModeSchema,
+  deadlineAt: z.iso.datetime(),
 });
-export interface GenerateAccepted {
-  generationId: string;
-  conversationId: string;
-  status: "queued";
-}
+export type GenerateAccepted = z.infer<typeof GenerateAcceptedResponse>;

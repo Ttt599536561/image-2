@@ -61,6 +61,8 @@ async function main() {
       prompt: "change the background to a calm starry night sky",
       size: "1024x1024",
       inputImage: { bytes: new Uint8Array(png), contentType: "image/png", filename: "ref.png" },
+      credential: { mode: "system" },
+      deadlineAt: new Date(Date.now() + 5 * 60_000),
     });
     const ms = ((Date.now() - t0) / 1000).toFixed(1);
     const ok = images.length >= 1 && (!!images[0].b64_json || !!images[0].url);

@@ -26,6 +26,9 @@ export const API_ERROR_CODES = [
   "CODE_DISABLED",
   "RATE_LIMITED",
   "BUDGET_EXHAUSTED",
+  "CUSTOM_KEY_REQUIRED",
+  "SYSTEM_MODE_FORBIDS_CUSTOM_KEY",
+  "CUSTOM_KEY_MODES_DISABLED",
   "INTERNAL",
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];

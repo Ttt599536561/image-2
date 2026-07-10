@@ -2,6 +2,7 @@
 // 直打中转（用 .env 的 RELAY_*，不走我们的入队/积分；但会产生中转真实出图费 ×2）。
 // 跑：node --env-file=.env --import tsx scripts/relay-t2i-format-probe.ts
 import { buildImageGenerationUrl } from "../src/api/imageGeneration";
+import { redactText } from "../src/lib/redaction";
 
 const base = process.env.RELAY_BASE_URL;
 const key = process.env.RELAY_API_KEY;
@@ -41,7 +42,7 @@ async function callGen(label: string, body: Record<string, unknown>) {
   console.log(
     `[${label}] http=${resp.status} ${ms}ms  b64=${hasB64} url=${hasUrl}` +
       (hasUrl && item ? `  url=${(item.url || item.image_url || "").slice(0, 60)}…` : "") +
-      (!item ? `  body=${text.slice(0, 180)}` : ""),
+      (!item ? `  body=${redactText(text, [key]).slice(0, 180)}` : ""),
   );
   return { status: resp.status, hasB64, hasUrl };
 }
@@ -65,7 +66,7 @@ async function main() {
 main().then(
   () => process.exit(0),
   (e) => {
-    console.error(e);
+    console.error(redactText(String(e), [key]));
     process.exit(1);
   },
 );

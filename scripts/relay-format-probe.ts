@@ -2,6 +2,7 @@
 // gpt-image-2 官方对 webp 会忽略并回 PNG（issue#1850）；本脚本确认中转对 png/jpeg 是否真透传。
 // 跑：node --env-file=.env --import tsx scripts/relay-format-probe.ts
 import { buildImageGenerationUrl } from "../src/api/imageGeneration";
+import { redactText } from "../src/lib/redaction";
 
 function magicOf(bytes: Uint8Array): string {
   if (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47)
@@ -39,15 +40,16 @@ async function probe(base: string, key: string, outputFormat: string): Promise<s
   });
   const ms = ((Date.now() - t0) / 1000).toFixed(1);
   const text = await resp.text();
+  const safeText = redactText(text, [key]);
   if (!resp.ok) {
-    console.log(`  [output_format=${outputFormat}] → ${resp.status} in ${ms}s :: ${text.slice(0, 200)}`);
+    console.log(`  [output_format=${outputFormat}] → ${resp.status} in ${ms}s :: ${safeText.slice(0, 200)}`);
     return null;
   }
   let json: { data?: { b64_json?: string; url?: string }[]; output?: unknown };
   try {
     json = JSON.parse(text);
   } catch {
-    console.log(`  [output_format=${outputFormat}] → 200 unparseable in ${ms}s :: ${text.slice(0, 160)}`);
+    console.log(`  [output_format=${outputFormat}] → 200 unparseable in ${ms}s :: ${safeText.slice(0, 160)}`);
     return null;
   }
   const item = json.data?.[0];
@@ -61,10 +63,10 @@ async function probe(base: string, key: string, outputFormat: string): Promise<s
     // 极少：返回 url（检查扩展名 / content-type）
     const head = await fetch(item.url);
     const ct = head.headers.get("content-type");
-    console.log(`  [output_format=${outputFormat}] → 200 in ${ms}s :: url, content-type=${ct}, ext=${item.url.split(".").pop()}`);
+    console.log(`  [output_format=${outputFormat}] → 200 in ${ms}s :: url, content-type=${ct}`);
     return ct?.includes("jpeg") ? "jpeg" : ct?.includes("png") ? "png" : `ct:${ct}`;
   }
-  console.log(`  [output_format=${outputFormat}] → 200 in ${ms}s :: 无 b64_json/url，body[0:200]=${text.slice(0, 200)}`);
+  console.log(`  [output_format=${outputFormat}] → 200 in ${ms}s :: 无 b64_json/url，body[0:200]=${safeText.slice(0, 200)}`);
   return null;
 }
 
@@ -75,7 +77,7 @@ async function main() {
     console.error("缺 RELAY_API_KEY / RELAY_BASE_URL");
     process.exit(1);
   }
-  console.log(`base=${base} key=${key.slice(0, 6)}…(${key.length})\n`);
+  console.log(`base=${base} key=PRESENT\n`);
   console.log("探 png（对照）+ jpeg（关键）：");
   const png = await probe(base, key, "png");
   const jpeg = await probe(base, key, "jpeg");
@@ -86,4 +88,7 @@ async function main() {
   process.exit(0);
 }
 
-main();
+main().catch((error) => {
+  console.error(`[relay-format-probe] FAIL: ${redactText(String(error), [process.env.RELAY_API_KEY ?? ""])}`);
+  process.exitCode = 1;
+});

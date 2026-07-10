@@ -11,10 +11,16 @@ import {
   type ParsedImage,
   parseImageGenerationResponse,
 } from "../api/imageGeneration";
+import type { CredentialMode, ErrorCode } from "../contracts/generate";
 import { redactText } from "../lib/redaction";
 import { getConfigString } from "./config.server";
+import { CUSTOM_RELAY_BASE_URL } from "./generation/credential.server";
 
-const RELAY_SOFT_TIMEOUT_MS = 4.5 * 60_000; // 略小于 cron 5min，本函数自归一化 provider_timeout（F-relay）
+export type RelayCredential = { mode: "system" } | { mode: "custom"; apiKey: string };
+
+export function relayTimeoutMs(deadlineAtMs: number, nowMs = Date.now()): number {
+  return Math.max(0, deadlineAtMs - nowMs - 30_000);
+}
 
 // 中转网关（rix）要求 size 为 WIDTHxHEIGHT，不接受「auto」（会回 "size must use WIDTHxHEIGHT…"）。
 // 「auto / 比例·智能」档在中转边界落到默认方形；其它档本就是 WxH，原样透传。quality/background 的「auto」中转可接受、不转。
@@ -51,6 +57,33 @@ async function relayKey(): Promise<string> {
   const key = (await getConfigString("relay_api_key")) || process.env.RELAY_API_KEY;
   if (!key) throw new Error("[relay] 缺少 RELAY_API_KEY（见 PHASE2-PLAN §0）");
   return key;
+}
+
+async function relayTarget(
+  credential: RelayCredential,
+): Promise<{ mode: CredentialMode; key: string; bases: string[] }> {
+  if (credential.mode === "custom") {
+    return { mode: "custom", key: credential.apiKey, bases: [CUSTOM_RELAY_BASE_URL] };
+  }
+  return { mode: "system", key: await relayKey(), bases: await relayBases() };
+}
+
+function sanitizeRelayError(
+  error: unknown,
+  key: string,
+): Error & { httpStatus?: number; failureCode?: ErrorCode } {
+  const source = (error ?? {}) as {
+    name?: string;
+    message?: string;
+    httpStatus?: number;
+    failureCode?: ErrorCode;
+  };
+  const safe = new Error(redactText(String(source.message ?? "relay failure"), [key]));
+  safe.name = source.name ?? "Error";
+  return Object.assign(safe, {
+    httpStatus: source.httpStatus,
+    failureCode: source.failureCode,
+  });
 }
 
 // v1 解析输出 {src,kind} → putToR2 入参 {b64_json?,url?}：任意 base64 data URL 提取 b64_json，否则当 url。
@@ -103,15 +136,21 @@ function buildEditsForm(req: {
   return fd;
 }
 
-export async function callRelay(req: {
+export interface CallRelayRequest {
   prompt: string;
   size: string;
   quality?: string | null;
   background?: string | null;
   inputImage?: RelayInputImage | null; // ④b：有值 → 走 /images/edits multipart（图生图），无 → JSON 文生图
-}): Promise<{ images: RelayImage[]; raw: unknown }> {
-  const key = await relayKey(); // ★ 只在 Background Function 解析（app_config 优先、回退 env）
-  const bases = await relayBases();
+  credential: RelayCredential;
+  deadlineAt: Date;
+}
+
+export async function callRelay(req: CallRelayRequest): Promise<{ images: RelayImage[] }> {
+  const { key, bases } = await relayTarget(req.credential);
+  if (relayTimeoutMs(req.deadlineAt.getTime()) <= 0) {
+    throw new DOMException("provider deadline exceeded", "AbortError");
+  }
   const isEdit = !!req.inputImage;
   const endpoint = isEdit ? "/images/edits" : undefined; // undefined → 默认 /images/generations
   // JSON 文生图 body 不变（一次构造可复用）；图生图 multipart 每次新建（见 buildEditsForm）。
@@ -136,8 +175,10 @@ export async function callRelay(req: {
   let lastErr: unknown;
   for (let i = 0; i < bases.length; i++) {
     const base = bases[i];
+    const remainingMs = relayTimeoutMs(req.deadlineAt.getTime());
+    if (remainingMs <= 0) throw new DOMException("provider deadline exceeded", "AbortError");
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), RELAY_SOFT_TIMEOUT_MS); // 软超时 → AbortError → provider_timeout
+    const timer = setTimeout(() => ctrl.abort(), remainingMs);
     try {
       const resp = await fetch(buildImageGenerationUrl(base, endpoint), {
         method: "POST",
@@ -169,13 +210,20 @@ export async function callRelay(req: {
         const detail = redactText(JSON.stringify(raw.error), [key]);
         throw new RelayError(detail, errObj?.status ?? 200);
       }
-      const images = parseImageGenerationResponse(raw).map(toRelayImage);
-      return { images, raw };
+      let images: RelayImage[];
+      try {
+        images = parseImageGenerationResponse(raw).map(toRelayImage);
+        if (images.length === 0) throw new Error("provider returned no images");
+      } catch (error) {
+        throw Object.assign(sanitizeRelayError(error, key), { failureCode: "invalid_response" as const });
+      }
+      return { images };
     } catch (err) {
-      lastErr = err;
-      const isAbort = (err as { name?: string })?.name === "AbortError";
+      const safeError = sanitizeRelayError(err, key);
+      lastErr = safeError;
+      const isAbort = safeError.name === "AbortError";
       // AbortError（软超时）= 请求已发出、不知中转是否在跑 → 不退避重试（防重复下单），直接抛走 provider_timeout。
-      if (isAbort || !isRetriable(err) || i === bases.length - 1) throw err;
+      if (isAbort || !isRetriable(safeError) || i === bases.length - 1) throw safeError;
       await new Promise((r) => setTimeout(r, 500 + i * 500)); // 退避后退到备用 Base 重试一次
     } finally {
       clearTimeout(timer);

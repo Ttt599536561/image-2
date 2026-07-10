@@ -33,7 +33,7 @@ describe("入队三闸（enqueue）", () => {
   it("余额不足（<单价）→ 402、不入队、不扣费", async () => {
     const uid = await ctx.createUser({ balanceMp: PRICE - 1 });
     await ctx.addLot(uid, PRICE - 1, { source: "signup" });
-    const s = await status(enqueueGeneration({ user: { id: uid, maxConcurrency: 2 }, input: { prompt: "p", size: "auto" } }));
+    const s = await status(enqueueGeneration({ user: { id: uid, maxConcurrency: 2 }, input: { prompt: "p", size: "auto", credentialMode: "system" } }));
     expect(s).toBe(402);
     expect((await ctx.sql`SELECT 1 FROM generations WHERE user_id=${uid}`).length).toBe(0); // 未入队
   });
@@ -41,7 +41,7 @@ describe("入队三闸（enqueue）", () => {
   it("余额恰够（=单价）→ 通过、建会话 + queued 行", async () => {
     const uid = await ctx.createUser({ balanceMp: PRICE });
     await ctx.addLot(uid, PRICE, { source: "signup" });
-    const res = await enqueueGeneration({ user: { id: uid, maxConcurrency: 2 }, input: { prompt: "hello world", size: "1024x1024" } });
+    const res = await enqueueGeneration({ user: { id: uid, maxConcurrency: 2 }, input: { prompt: "hello world", size: "1024x1024", credentialMode: "system" } });
     expect(res.generationId).toBeTruthy();
     const g = await ctx.gen(res.generationId);
     expect(g?.status).toBe("queued");
@@ -54,7 +54,7 @@ describe("入队三闸（enqueue）", () => {
     await ctx.addLot(uid, 1000, { source: "signup" });
     await ctx.createGeneration(uid, { status: "running" });
     await ctx.createGeneration(uid, { status: "queued" });
-    const s = await status(enqueueGeneration({ user: { id: uid, maxConcurrency: 2 }, input: { prompt: "p", size: "auto" } }));
+    const s = await status(enqueueGeneration({ user: { id: uid, maxConcurrency: 2 }, input: { prompt: "p", size: "auto", credentialMode: "system" } }));
     expect(s).toBe(409);
   });
 
@@ -64,7 +64,7 @@ describe("入队三闸（enqueue）", () => {
     // 把当日预算计数顶到阈值之上（cap 默认 2000）。
     await ctx.sql`INSERT INTO app_config(key,value_json) VALUES (${budgetTodayKey()}, '{"calls":99999999,"ms":0}'::jsonb)
                   ON CONFLICT (key) DO UPDATE SET value_json='{"calls":99999999,"ms":0}'::jsonb`;
-    const s = await status(enqueueGeneration({ user: { id: uid, maxConcurrency: 2 }, input: { prompt: "p", size: "auto" } }));
+    const s = await status(enqueueGeneration({ user: { id: uid, maxConcurrency: 2 }, input: { prompt: "p", size: "auto", credentialMode: "system" } }));
     expect(s).toBe(429);
     expect((await ctx.sql`SELECT 1 FROM generations WHERE user_id=${uid}`).length).toBe(0);
   });
@@ -75,7 +75,7 @@ describe("入队三闸（enqueue）", () => {
     const key = `uploads/${uid}/2026/06/ref.png`;
     const res = await enqueueGeneration({
       user: { id: uid, maxConcurrency: 2 },
-      input: { prompt: "把背景换成海边", size: "auto", inputImageKey: key },
+      input: { prompt: "把背景换成海边", size: "auto", inputImageKey: key, credentialMode: "system" },
     });
     const g = await ctx.gen(res.generationId);
     expect(g?.input_image_key).toBe(key);
@@ -88,7 +88,7 @@ describe("入队三闸（enqueue）", () => {
     const s = await status(
       enqueueGeneration({
         user: { id: uid, maxConcurrency: 2 },
-        input: { prompt: "p", size: "auto", inputImageKey: othersKey },
+        input: { prompt: "p", size: "auto", inputImageKey: othersKey, credentialMode: "system" },
       }),
     );
     expect(s).toBe(400);
@@ -102,7 +102,7 @@ describe("入队三闸（enqueue）", () => {
     const gid = randomUUID();
     const res = await enqueueGeneration({
       user: { id: uid, maxConcurrency: 2 },
-      input: { prompt: "hello world", size: "1024x1024", conversationId: cid, generationId: gid },
+      input: { prompt: "hello world", size: "1024x1024", conversationId: cid, generationId: gid, credentialMode: "system" },
     });
     expect(res.conversationId).toBe(cid); // 用客户端 id
     expect(res.generationId).toBe(gid);
@@ -123,7 +123,7 @@ describe("入队三闸（enqueue）", () => {
     const s = await status(
       enqueueGeneration({
         user: { id: attacker, maxConcurrency: 2 },
-        input: { prompt: "p", size: "auto", conversationId: ownerConv, generationId: randomUUID() },
+        input: { prompt: "p", size: "auto", conversationId: ownerConv, generationId: randomUUID(), credentialMode: "system" },
       }),
     );
     expect(s).toBe(404); // 他人占用该 id → upsert 不命中、拒

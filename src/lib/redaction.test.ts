@@ -13,6 +13,14 @@ describe('redactText', () => {
       'Authorization: Bearer sk-***',
     );
   });
+
+  it('redacts non-sk bearer and key-value token echoes', () => {
+    const sentinel = 'FictionalToken_1234567890';
+    const output = redactText(
+      `Authorization: Bearer ${sentinel}; api_key=${sentinel}; token: ${sentinel}`,
+    );
+    expect(output).not.toContain(sentinel);
+  });
 });
 
 describe('redactSecrets', () => {

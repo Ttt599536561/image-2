@@ -10,8 +10,10 @@ import { incCallIfUnderCap, incMs, markBudgetAlertedOnce } from "../budget.serve
 import { chargeOnSuccess } from "../money/debit.server";
 import { claim, markRunning } from "../money/preempt.server";
 import { getUploadObject as realGetUploadObject, putToR2 as realPutToR2 } from "../r2.server";
-import { RelayError, callRelay as realCallRelay } from "../relay";
+import { RelayError, callRelay as realCallRelay, type RelayCredential } from "../relay";
+import { deleteGenerationCredential, loadCustomApiKey } from "./credential.server";
 import { normalizeFailure } from "./failure";
+import { finalizeCustomSuccess } from "./finalizeCustom.server";
 
 export interface ProcessDeps {
   callRelay?: typeof realCallRelay;
@@ -38,22 +40,30 @@ export async function runGenerationJob(generationId: string, deps: ProcessDeps =
   // ② running + started_at（超时 cron 以 COALESCE(started_at,updated_at) 兜底）。
   await markRunning(generationId);
 
-  // ③ 预算硬上限（铁律①·防破产）：与「calls+1」同一原子语句、调中转前。affected=0 → 不调中转、置 failed。
-  if (!(await incCallIfUnderCap())) {
-    // 「命中即告警」（铁律①·10 §11.9 daily_budget_exhausted「每天首次」）：防破产硬上限被击中=当天敞口见顶，
-    // 站长必须当场收到。markBudgetAlertedOnce 原子去重（每天首次才发）；alert 永不抛，可安全 await。
-    if (await markBudgetAlertedOnce()) {
-      await alert("daily_budget_exhausted", { exhausted: true, reason: "hard_cap_hit", source: "generation", generationId });
-    }
-    await sql`
-      UPDATE generations SET status='failed', error_code='insufficient_quota', error='今日额度已满，请稍后',
-        completed_at=now(), duration_ms=(EXTRACT(EPOCH FROM now()-started_at)*1000)::int, updated_at=now()
-      WHERE id=${generationId} AND status='running'`;
-    return "budget_exhausted";
-  }
-
   const t0 = Date.now();
+  let credential: RelayCredential = { mode: "system" };
   try {
+    if (g.credentialMode === "custom") {
+      credential = { mode: "custom", apiKey: await loadCustomApiKey(generationId) };
+    }
+
+    // 只有 system 消耗本站共享中转预算；custom 使用用户自己的凭据和固定目标。
+    if (g.credentialMode === "system" && !(await incCallIfUnderCap())) {
+      if (await markBudgetAlertedOnce()) {
+        await alert("daily_budget_exhausted", {
+          exhausted: true,
+          reason: "hard_cap_hit",
+          source: "generation",
+          generationId,
+        });
+      }
+      await sql`
+        UPDATE generations SET status='failed', error_code='insufficient_quota', error='今日额度已满，请稍后',
+          completed_at=now(), duration_ms=(EXTRACT(EPOCH FROM now()-started_at)*1000)::int, updated_at=now()
+        WHERE id=${generationId} AND status='running'`;
+      return "budget_exhausted";
+    }
+
     // ④b 图生图：有参考图 key → 回读字节，传给 callRelay 走 /images/edits multipart（无则文生图）。
     // 回读失败（参考图已被孤儿清理/存储故障，罕见）→ 友好归一为 invalid_request、不扣费（在扣费事务前）。
     let inputImage: Awaited<ReturnType<typeof realGetUploadObject>> | null = null;
@@ -76,21 +86,31 @@ export async function runGenerationJob(generationId: string, deps: ProcessDeps =
       quality: g.quality,
       background: g.background,
       inputImage,
+      credential,
+      deadlineAt: g.deadlineAt,
     });
     const relayMs = Date.now() - tRelay;
-    if (!images.length) throw new Error("中转返回 0 张图");
+    if (!images.length) {
+      throw Object.assign(new Error("中转响应无有效图片"), { failureCode: "invalid_response" as const });
+    }
 
     // ⑤ 落 R2（事务外，结果存临时变量）。
     const tPut = Date.now();
-    const obj = await putToR2(g.userId, generationId, images[0]);
+    let obj: Awaited<ReturnType<typeof realPutToR2>>;
+    try {
+      obj = await putToR2(g.userId, generationId, images[0]);
+    } catch {
+      throw Object.assign(new Error("图片保存失败，本站未扣积分，请重试"), {
+        failureCode: "storage_failed" as const,
+      });
+    }
     const putMs = Date.now() - tPut;
     // 可观测：每张图的耗时拆分（定位瓶颈在中转响应还是落图上传；本机跨境会偏大，线上美西机房快）。
     console.log(
       `[gen-timing] ${generationId} ${g.inputImageKey ? "i2i" : "t2i"} fetchInput=${fetchInputMs}ms relay=${relayMs}ms putToR2=${putMs}ms total=${Date.now() - t0}ms`,
     );
 
-    // ⑥ 扣费事务（成功才扣 + ⓪双守卫 + 幂等）→ 内部置 succeeded。
-    await chargeOnSuccess({
+    const finalizeInput = {
       generationId,
       userId: g.userId,
       storageKey: obj.storageKey,
@@ -99,19 +119,31 @@ export async function runGenerationJob(generationId: string, deps: ProcessDeps =
       width: obj.width ?? null,
       height: obj.height ?? null,
       sizeBytes: obj.sizeBytes,
-    });
-    return "succeeded";
+    };
+    if (g.credentialMode === "custom") {
+      return (await finalizeCustomSuccess(finalizeInput)) === "succeeded" ? "succeeded" : "lost";
+    }
+    const charged = await chargeOnSuccess(finalizeInput);
+    return charged.outcome === "not_running" ? "lost" : "succeeded";
   } catch (err) {
     // ⑦ 失败/超时：脱敏归一后写 failed，不进扣费事务（天然未扣）。
-    const { code, message, httpStatus } = normalizeFailure(err);
-    await sql`
+    const secrets = credential.mode === "custom" ? [credential.apiKey] : [];
+    const { code, message, httpStatus } = normalizeFailure(err, {
+      mode: g.credentialMode,
+      secrets,
+    });
+    const updated = await sql`
       UPDATE generations SET status='failed', error_code=${code}, error=${message},
         http_status=${httpStatus ?? null}, completed_at=now(),
         duration_ms=(EXTRACT(EPOCH FROM now()-started_at)*1000)::int, updated_at=now()
-      WHERE id=${generationId} AND status='running'`;
-    return "failed";
+      WHERE id=${generationId} AND status='running' RETURNING id`;
+    if (updated.length > 0) {
+      await sql`INSERT INTO events(type,user_id,payload)
+                VALUES('image_failed',${g.userId},${JSON.stringify({ generationId, reason: code, credentialMode: g.credentialMode })}::jsonb)`;
+    }
+    return updated.length > 0 ? "failed" : "lost";
   } finally {
-    // ⑧ ms 累计（仅监控/告警，不硬挡；被平台杀少计由 10 §11.8 cron 重算覆盖）。
-    await incMs(Date.now() - t0);
+    if (g.credentialMode === "custom") await deleteGenerationCredential(generationId);
+    else await incMs(Date.now() - t0);
   }
 }

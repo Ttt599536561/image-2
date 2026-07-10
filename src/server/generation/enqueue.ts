@@ -3,10 +3,13 @@
 //
 // 🔴 红线：余额校验「只判不扣」（成功才扣在 03 §4.3）；INSERT generations 与三闸同一事务、并以
 //   `SELECT … FOR UPDATE` 锁住该用户 credit_accounts 行作串行化点，杜绝「并发两次提交都读到余额够/并发未满」的双花/超并发。
+import { randomUUID } from "node:crypto";
 import { httpError } from "../../contracts/error";
+import type { CredentialMode } from "../../contracts/generate";
 import { readConfigInt } from "../config.server";
 import { isDailyBudgetExhausted } from "../budget.server";
 import { type TxClient, tx } from "../tx.server";
+import { encryptCustomApiKey, type EncryptedCustomApiKey } from "./credential.server";
 
 export interface EnqueueUser {
   id: string;
@@ -21,14 +24,26 @@ export interface EnqueueRequest {
   conversationId?: string; // 客户端提供：新建用此 id（owner-safe upsert）/ 续聊传既有 id
   generationId?: string; // 客户端提供：generations 行用此 id（乐观 turn 与服务端同 id）
   inputImageKey?: string | null; // ④b 图生图：参考图 key（owner-scope 在 run() 内校验）
+  credentialMode: CredentialMode;
+  customApiKey?: string;
 }
 
 export interface EnqueueResult {
   generationId: string;
   conversationId: string;
+  credentialMode: CredentialMode;
+  deadlineAt: string;
 }
 
-async function run(c: TxClient, user: EnqueueUser, input: EnqueueRequest): Promise<EnqueueResult> {
+type PersistableEnqueueRequest = Omit<EnqueueRequest, "customApiKey" | "generationId">;
+
+async function run(
+  c: TxClient,
+  user: EnqueueUser,
+  input: PersistableEnqueueRequest,
+  generationId: string,
+  encrypted: EncryptedCustomApiKey | null,
+): Promise<EnqueueResult> {
   // ④b owner-scope：参考图 key 必须属本人（uploads/<me>/…），杜绝拿别人/伪造 key 进图生图。
   // 入队前就拒（不入队、不调中转），是越权防线；通过则原样落 generations.input_image_key。
   const inputImageKey = input.inputImageKey?.trim() || null;
@@ -36,37 +51,36 @@ async function run(c: TxClient, user: EnqueueUser, input: EnqueueRequest): Promi
     throw httpError(400, "INVALID_PARAM", "参考图无效");
   }
 
-  // 串行化点：锁该用户账户行。两个并发入队对同一用户在此排队，使下方 COUNT/SUM 读到一致快照。
-  const acct = await c.query("SELECT balance_mp FROM credit_accounts WHERE user_id=$1 FOR UPDATE", [user.id]);
-  if (acct.rowCount === 0) {
-    // 未 onboard（理论上注册即建账户）→ 无可用积分，按余额不足拒。
-    throw httpError(402, "INSUFFICIENT_CREDITS", "积分不足，去充值");
-  }
+  if (input.credentialMode === "system") {
+    // system 以账户行为串行化点；custom 不占本站账户并发槽，也不要求余额账户存在。
+    const acct = await c.query("SELECT balance_mp FROM credit_accounts WHERE user_id=$1 FOR UPDATE", [user.id]);
+    if (acct.rowCount === 0) {
+      throw httpError(402, "INSUFFICIENT_CREDITS", "积分不足，去充值");
+    }
 
-  // 并发闸：进行中数 < max_concurrency（COUNT 为准、无独立计数列）。
-  const inflight = await c.query(
-    `SELECT COUNT(*)::int AS n FROM generations WHERE user_id=$1 AND status IN ('queued','claimed','running')`,
-    [user.id],
-  );
-  const current = inflight.rows[0].n as number;
-  if (current >= user.maxConcurrency) {
-    throw httpError(409, "CONCURRENCY_LIMIT", "超出并发数量", { limit: user.maxConcurrency, current });
-  }
+    const inflight = await c.query(
+      `SELECT COUNT(*)::int AS n FROM generations
+       WHERE user_id=$1 AND credential_mode='system' AND status IN ('queued','claimed','running')`,
+      [user.id],
+    );
+    const current = Number(inflight.rows[0].n);
+    if (current >= user.maxConcurrency) {
+      throw httpError(409, "CONCURRENCY_LIMIT", "超出并发数量", { limit: user.maxConcurrency, current });
+    }
 
-  // 余额闸（只判不扣）：可用批次之和 ≥ PRICE_MP。
-  const priceMp = await readConfigInt(c, "price_per_image_mp", 70);
-  const bal = await c.query(
-    `SELECT COALESCE(SUM(remaining_mp),0)::bigint AS s FROM credit_lots
-     WHERE user_id=$1 AND remaining_mp>0 AND (expires_at IS NULL OR expires_at>now())`,
-    [user.id],
-  );
-  if (Number(bal.rows[0].s) < priceMp) {
-    throw httpError(402, "INSUFFICIENT_CREDITS", "积分不足，去充值");
-  }
+    const priceMp = await readConfigInt(c, "price_per_image_mp", 70);
+    const bal = await c.query(
+      `SELECT COALESCE(SUM(remaining_mp),0)::bigint AS s FROM credit_lots
+       WHERE user_id=$1 AND remaining_mp>0 AND (expires_at IS NULL OR expires_at>now())`,
+      [user.id],
+    );
+    if (Number(bal.rows[0].s) < priceMp) {
+      throw httpError(402, "INSUFFICIENT_CREDITS", "积分不足，去充值");
+    }
 
-  // 软预算闸（铁律①·省 compute 的第一道闸；硬上限在后台调中转前，见 budget.server）。
-  if (await isDailyBudgetExhausted(c)) {
-    throw httpError(429, "BUDGET_EXHAUSTED", "今日额度已满，请稍后");
+    if (await isDailyBudgetExhausted(c)) {
+      throw httpError(429, "BUDGET_EXHAUSTED", "今日额度已满，请稍后");
+    }
   }
 
   // 通过 → 建会话（如新）+ INSERT generations(queued)。
@@ -91,22 +105,63 @@ async function run(c: TxClient, user: EnqueueUser, input: EnqueueRequest): Promi
     conversationId = conv.rows[0].id as string;
   }
 
-  // generations 行：客户端提供 generationId 则用之（乐观 turn 同 id，轮询即时对上）；否则服务端生成。
-  const gen = input.generationId
-    ? await c.query(
-        `INSERT INTO generations(id, conversation_id, user_id, prompt, model, size, quality, background, moderation, input_image_key, status)
-         VALUES ($1,$2,$3,$4,'gpt-image-2',$5,$6,$7,'low',$8,'queued') RETURNING id`,
-        [input.generationId, conversationId, user.id, input.prompt, input.size, input.quality ?? null, input.background ?? null, inputImageKey],
-      )
-    : await c.query(
-        `INSERT INTO generations(conversation_id, user_id, prompt, model, size, quality, background, moderation, input_image_key, status)
-         VALUES ($1,$2,$3,'gpt-image-2',$4,$5,$6,'low',$7,'queued') RETURNING id`,
-        [conversationId, user.id, input.prompt, input.size, input.quality ?? null, input.background ?? null, inputImageKey],
-      );
-  return { generationId: gen.rows[0].id as string, conversationId };
+  const gen = await c.query(
+    `INSERT INTO generations(
+       id,conversation_id,user_id,prompt,model,size,quality,background,moderation,input_image_key,
+       credential_mode,deadline_at,status
+     )
+     VALUES($1,$2,$3,$4,'gpt-image-2',$5,$6,$7,'low',$8,$9,now()+interval '5 minutes','queued')
+     ON CONFLICT(id) DO NOTHING
+     RETURNING id,deadline_at`,
+    [
+      generationId,
+      conversationId,
+      user.id,
+      input.prompt,
+      input.size,
+      input.quality ?? null,
+      input.background ?? null,
+      inputImageKey,
+      input.credentialMode,
+    ],
+  );
+  if (gen.rowCount === 0) throw httpError(400, "INVALID_PARAM", "任务标识无效");
+
+  if (input.credentialMode === "custom") {
+    if (!encrypted) throw httpError(500, "INTERNAL", "自定义 Key 暂时不可用");
+    await c.query(
+      `INSERT INTO generation_credentials(generation_id,ciphertext,iv,auth_tag,key_version,expires_at)
+       VALUES($1,$2,$3,$4,$5,now()+interval '10 minutes')`,
+      [generationId, encrypted.ciphertext, encrypted.iv, encrypted.authTag, encrypted.keyVersion],
+    );
+  }
+
+  return {
+    generationId,
+    conversationId,
+    credentialMode: input.credentialMode,
+    deadlineAt: new Date(gen.rows[0].deadline_at as string | Date).toISOString(),
+  };
 }
 
 /** 入队三闸（同一 Pool/WS 事务 + FOR UPDATE）。抛 httpError(402/409/429/404)；通过返回 {generationId, conversationId}。 */
 export async function enqueueGeneration(args: { user: EnqueueUser; input: EnqueueRequest }): Promise<EnqueueResult> {
-  return tx((c) => run(c, args.user, args.input));
+  const { input } = args;
+  if (input.credentialMode !== "system" && input.credentialMode !== "custom") {
+    throw httpError(400, "INVALID_PARAM", "参数无效");
+  }
+  if (input.credentialMode === "custom" && !input.customApiKey?.trim()) {
+    throw httpError(400, "CUSTOM_KEY_REQUIRED", "请先填写并保存自定义 Key");
+  }
+  if (input.credentialMode === "system" && input.customApiKey !== undefined) {
+    throw httpError(400, "SYSTEM_MODE_FORBIDS_CUSTOM_KEY", "系统 Key 模式不接受自定义 Key");
+  }
+
+  const generationId = input.generationId ?? randomUUID();
+  const encrypted =
+    input.credentialMode === "custom"
+      ? encryptCustomApiKey(generationId, (input.customApiKey as string).trim())
+      : null;
+  const { customApiKey: _customApiKey, generationId: _generationId, ...persistableInput } = input;
+  return tx((c) => run(c, args.user, persistableInput, generationId, encrypted));
 }
