@@ -6,13 +6,15 @@
   "scripts": {
     "dev": "react-router dev",
     "dev:netlify": "netlify dev",
+    "dev:netlify:test": "node --import tsx scripts/run-netlify-test.ts",
     "build": "react-router build",
     "typecheck": "react-router typegen && tsc",
     "test": "vitest",
     "test:run": "vitest run",
     "test:money": "vitest run -c vitest.money.config.ts",
     "test:e2e": "playwright test",
-    "assert-no-secrets": "node --import tsx scripts/assert-no-secrets-in-bundle.ts"
+    "db:test:migrate": "node --import tsx scripts/migrate-test-database.ts",
+    "assert-no-secrets": "node --env-file-if-exists=.env --import tsx scripts/assert-no-secrets-in-bundle.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1073.0",
@@ -26,6 +28,7 @@
     "drizzle-zod": "^0.8.3",
     "isbot": "^5.1.0",
     "lucide-react": "1.14.0",
+    "pg": "8.22.0",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "react-router": "8.0.1",
@@ -35,12 +38,14 @@
   "devDependencies": {
     "@better-auth/cli": "1.4.21",
     "@netlify/vite-plugin-react-router": "4.0.0",
+    "@playwright/test": "1.61.1",
     "@react-router/dev": "8.0.1",
     "@testing-library/jest-dom": "6.9.1",
     "@testing-library/react": "16.3.2",
     "@testing-library/user-event": "14.6.1",
     "@types/bcryptjs": "2.4.6",
     "@types/node": "25.6.2",
+    "@types/pg": "8.20.0",
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "@types/ws": "^8.18.1",

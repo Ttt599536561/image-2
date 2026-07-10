@@ -209,6 +209,8 @@ export const generations = pgTable(
     moderation: text("moderation").notNull().default("low"),
     // ④b 图生图：参考图上传 key（uploads/<userId>/…）；NULL = 文生图。管线有图走 /images/edits multipart。
     inputImageKey: text("input_image_key"),
+    credentialMode: text("credential_mode").notNull().default("system"),
+    deadlineAt: timestamp("deadline_at", tz).notNull().default(sql`now() + interval '5 minutes'`),
     status: text("status").notNull().default("queued"),
     jobId: text("job_id"), // 抢占者标识/中转 task id（可选）
     errorCode: text("error_code"), // 归一化失败枚举（04 §5.8），NULL 除非 failed
@@ -226,11 +228,31 @@ export const generations = pgTable(
       "generations_status_chk",
       sql`${t.status} IN ('queued','claimed','running','succeeded','failed')`,
     ),
+    check("generations_credential_mode_chk", sql`${t.credentialMode} IN ('system','custom')`),
     index("ix_gen_conv").on(t.conversationId),
     index("ix_gen_user_time").on(t.userId, t.createdAt.desc()),
     // cron 扫超时/重扫；status 前导列缩小集合
     index("ix_gen_status_time").on(t.status, t.createdAt),
+    index("ix_gen_inflight_deadline")
+      .on(t.deadlineAt)
+      .where(sql`${t.status} IN ('queued','claimed','running')`),
   ],
+);
+
+export const generationCredentials = pgTable(
+  "generation_credentials",
+  {
+    generationId: uuid("generation_id")
+      .primaryKey()
+      .references(() => generations.id, { onDelete: "cascade" }),
+    ciphertext: text("ciphertext").notNull(),
+    iv: text("iv").notNull(),
+    authTag: text("auth_tag").notNull(),
+    keyVersion: integer("key_version").notNull().default(1),
+    expiresAt: timestamp("expires_at", tz).notNull(),
+    createdAt: timestamp("created_at", tz).notNull().defaultNow(),
+  },
+  (t) => [index("ix_generation_credentials_expires").on(t.expiresAt)],
 );
 
 // ========== images（落地图） ==========

@@ -44,7 +44,15 @@ export interface TestCtx {
   createUser(opts?: { hasPaid?: boolean; maxConcurrency?: number; balanceMp?: number }): Promise<string>;
   /** 建批次。expiresInDays: number=N天后过期；null=永久；负数=已过期（用于过期 cron 用例）。 */
   addLot(userId: string, remainingMp: number, opts?: { source?: string; expiresInDays?: number | null; codeId?: string | null }): Promise<string>;
-  createGeneration(userId: string, opts?: { status?: string; startedAtAgoSec?: number }): Promise<{ conversationId: string; generationId: string }>;
+  createGeneration(
+    userId: string,
+    opts?: {
+      status?: string;
+      startedAtAgoSec?: number;
+      credentialMode?: "system" | "custom";
+      deadlineAgoSec?: number;
+    },
+  ): Promise<{ conversationId: string; generationId: string }>;
   createCode(opts: { creditsMp: number; cashValue: number; validDays?: number | null; status?: string }): Promise<{ id: string; code: string }>;
   balanceMp(userId: string): Promise<number>;
   lots(userId: string): Promise<Array<{ id: string; source: string; remaining_mp: number; expires_at: string | null }>>;
@@ -52,6 +60,7 @@ export interface TestCtx {
   gen(generationId: string): Promise<Record<string, unknown> | undefined>;
   images(generationId: string): Promise<Array<Record<string, unknown>>>;
   events(userId: string, type?: string): Promise<Array<Record<string, unknown>>>;
+  credentials(generationId: string): Promise<Array<Record<string, unknown>>>;
   cleanup(): Promise<void>;
 }
 
@@ -96,14 +105,19 @@ export function newCtx(): TestCtx {
       const genId = randomUUID();
       await sql`INSERT INTO conversations(id,user_id,title) VALUES (${convId}, ${userId}, 'mtest')`;
       const status = opts.status ?? "queued";
-      if (status === "running" || status === "claimed") {
-        // running/claimed 写 started_at（可拨早 startedAtAgoSec 秒，用于超时/duration 用例）。
-        const ago = opts.startedAtAgoSec ?? 0;
+      if (opts.credentialMode === undefined && opts.deadlineAgoSec === undefined) {
         await sql`INSERT INTO generations(id,conversation_id,user_id,prompt,size,status,started_at)
-                  VALUES (${genId}, ${convId}, ${userId}, 'mtest prompt', 'auto', ${status}, now() - (${ago}::int * interval '1 second'))`;
+                  VALUES(${genId},${convId},${userId},'mtest prompt','auto',${status},
+                         CASE WHEN ${status} IN ('claimed','running')
+                              THEN now()-(${opts.startedAtAgoSec ?? 0}::int*interval '1 second') ELSE NULL END)`;
       } else {
-        await sql`INSERT INTO generations(id,conversation_id,user_id,prompt,size,status)
-                  VALUES (${genId}, ${convId}, ${userId}, 'mtest prompt', 'auto', ${status})`;
+        const mode = opts.credentialMode ?? "system";
+        const deadlineAgo = opts.deadlineAgoSec ?? -300;
+        await sql`INSERT INTO generations(id,conversation_id,user_id,prompt,size,status,credential_mode,deadline_at,started_at)
+                  VALUES(${genId},${convId},${userId},'mtest prompt','auto',${status},${mode},
+                         now()-(${deadlineAgo}::int*interval '1 second'),
+                         CASE WHEN ${status} IN ('claimed','running')
+                              THEN now()-(${opts.startedAtAgoSec ?? 0}::int*interval '1 second') ELSE NULL END)`;
       }
       return { conversationId: convId, generationId: genId };
     },
@@ -148,6 +162,11 @@ export function newCtx(): TestCtx {
         return (await sql`SELECT * FROM events WHERE user_id=${userId} AND type=${type} ORDER BY created_at`) as Array<Record<string, unknown>>;
       }
       return (await sql`SELECT * FROM events WHERE user_id=${userId} ORDER BY created_at`) as Array<Record<string, unknown>>;
+    },
+    async credentials(generationId) {
+      return (await sql`SELECT * FROM generation_credentials WHERE generation_id=${generationId}`) as Array<
+        Record<string, unknown>
+      >;
     },
 
     async cleanup() {

@@ -22,7 +22,13 @@ const SECRET_ENV_NAMES = [
   "STORAGE_S3_SECRET_ACCESS_KEY",
   "ADMIN_ALERT_WEBHOOK",
   "SENTRY_DSN",
+  "CUSTOM_KEY_JOB_ENCRYPTION_KEY",
 ];
+
+const PUBLIC_VALUE_ALLOWLIST = new Set([
+  "https://api.tangguo.xin/v1",
+  "https://api.tangguo.xin/v1/",
+]);
 
 // db/schema 结构泄露标记：钱幂等键名（02 §3.3）+ 内部账本表名。客户端可达模块须手写 Zod、绝不 value-import db/schema
 // （⑤ 已修 package.ts 的 value-import 泄露）；这些串出现在客户端 = 整套钱 schema 被打进 bundle。
@@ -35,6 +41,7 @@ const STRUCT_MARKERS = [
   "credit_ledger",
   "credit_lots",
   "credit_accounts",
+  "generation_credentials",
 ];
 
 // 扫描的可执行/可下载文件类型（client bundle 仅 js/css；含 html/json 兜底；不含 .map，react-router build 默认不产）。
@@ -56,8 +63,10 @@ function main(): void {
     process.exit(1);
   }
 
-  const secretValues = SECRET_ENV_NAMES.map((name) => ({ name, value: process.env[name] }))
-    .filter((s): s is { name: string; value: string } => typeof s.value === "string" && s.value.length >= 8);
+  const secretValues = SECRET_ENV_NAMES.map((name) => ({ name, value: process.env[name] })).filter(
+    (s): s is { name: string; value: string } =>
+      typeof s.value === "string" && s.value.length >= 8 && !PUBLIC_VALUE_ALLOWLIST.has(s.value),
+  );
 
   const files = walk(CLIENT_DIR);
   const findings: string[] = [];

@@ -3,11 +3,10 @@
 //
 // 🔴 红线：凡「读-改-写多步 + 防并发双花」（扣费 FIFO / 注册原子发放 / 兑换 / 调账）必须走这里 + FOR UPDATE；
 //    HTTP 单语句模式不支持事务/FOR UPDATE，拿它防双花会落空。
-import type { PoolClient } from "@neondatabase/serverless";
-import { getPool } from "../db/db.server";
+import { type DbPoolClient, getPool } from "../db/db.server";
 
 // 事务客户端类型（neon 的 connect() 有 callback 重载，ReturnType 会取到 void，故直接用 PoolClient）。
-export type TxClient = PoolClient;
+export type TxClient = DbPoolClient;
 
 export async function tx<T>(fn: (c: TxClient) => Promise<T>): Promise<T> {
   const pool = getPool();
