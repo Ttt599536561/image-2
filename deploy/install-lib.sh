@@ -396,12 +396,12 @@ render_production_env() {
   (
     umask 077
     local temp_path=''
-    temp_path="$(mktemp "${target_path}.tmp.XXXXXX")"
     # shellcheck disable=SC2329 # Invoked by the signal and EXIT traps below.
     cleanup_rendered_env() {
       [[ -z "$temp_path" ]] || rm -f -- "$temp_path"
     }
     trap cleanup_rendered_env EXIT HUP INT TERM
+    temp_path="$(mktemp "${target_path}.tmp.XXXXXX")" || exit 1
 
     local -a entries=(
       COMPOSE_PROJECT_NAME "$project_name"
@@ -430,12 +430,11 @@ render_production_env() {
     local entry_index
     for ((entry_index = 0; entry_index < ${#entries[@]}; entry_index += 2)); do
       _write_deploy_env_line "${entries[entry_index]}" "${entries[entry_index + 1]}" || exit 1
-    done >"$temp_path"
+    done >"$temp_path" || exit 1
 
-    chmod 0600 "$temp_path"
-    mv -f -- "$temp_path" "$target_path"
+    chmod 0600 "$temp_path" || exit 1
+    mv -f -- "$temp_path" "$target_path" || exit 1
     temp_path=''
-    chmod 0600 "$target_path"
     trap - EXIT HUP INT TERM
   )
 }

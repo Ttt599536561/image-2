@@ -468,6 +468,87 @@ test_render_production_env_preserves_existing_target_on_write_failure() {
   fi
 }
 
+test_render_production_env_handles_mktemp_failure() {
+  local env_file="$TEST_ROOT/mktemp-failure.env"
+  printf '%s\n' 'KNOWN_GOOD_MKTEMP_CONFIG' >"$env_file"
+  chmod 0640 "$env_file"
+  local before_hash before_mode
+  before_hash="$(sha256sum "$env_file" | awk '{print $1}')"
+  before_mode="$(stat -c '%a' "$env_file")"
+
+  set_render_fixture_inputs
+  mktemp() {
+    return 73
+  }
+  local render_status=0
+  if render_production_env "$env_file" >/dev/null 2>&1; then
+    render_status=0
+  else
+    render_status=$?
+  fi
+
+  [[ "$render_status" -ne 0 ]] || fail_assertion 'mktemp failure must propagate'
+  assert_equal "$before_hash" "$(sha256sum "$env_file" | awk '{print $1}')" 'mktemp failure must preserve existing bytes'
+  assert_equal "$before_mode" "$(stat -c '%a' "$env_file")" 'mktemp failure must preserve existing mode'
+  if compgen -G "${env_file}.tmp.*" >/dev/null; then
+    fail_assertion 'mktemp failure must not leave temporary files'
+  fi
+}
+
+test_render_production_env_handles_temp_chmod_failure() {
+  local env_file="$TEST_ROOT/chmod-failure.env"
+  printf '%s\n' 'KNOWN_GOOD_CHMOD_CONFIG' >"$env_file"
+  chmod 0640 "$env_file"
+  local before_hash before_mode
+  before_hash="$(sha256sum "$env_file" | awk '{print $1}')"
+  before_mode="$(stat -c '%a' "$env_file")"
+
+  set_render_fixture_inputs
+  chmod() {
+    return 74
+  }
+  local render_status=0
+  if render_production_env "$env_file" >/dev/null 2>&1; then
+    render_status=0
+  else
+    render_status=$?
+  fi
+
+  [[ "$render_status" -ne 0 ]] || fail_assertion 'temporary chmod failure must propagate'
+  assert_equal "$before_hash" "$(sha256sum "$env_file" | awk '{print $1}')" 'temporary chmod failure must preserve existing bytes'
+  assert_equal "$before_mode" "$(stat -c '%a' "$env_file")" 'temporary chmod failure must preserve existing mode'
+  if compgen -G "${env_file}.tmp.*" >/dev/null; then
+    fail_assertion 'temporary chmod failure must remove temporary files'
+  fi
+}
+
+test_render_production_env_handles_mv_failure() {
+  local env_file="$TEST_ROOT/mv-failure.env"
+  printf '%s\n' 'KNOWN_GOOD_MV_CONFIG' >"$env_file"
+  chmod 0640 "$env_file"
+  local before_hash before_mode
+  before_hash="$(sha256sum "$env_file" | awk '{print $1}')"
+  before_mode="$(stat -c '%a' "$env_file")"
+
+  set_render_fixture_inputs
+  mv() {
+    return 75
+  }
+  local render_status=0
+  if render_production_env "$env_file" >/dev/null 2>&1; then
+    render_status=0
+  else
+    render_status=$?
+  fi
+
+  [[ "$render_status" -ne 0 ]] || fail_assertion 'mv failure must propagate'
+  assert_equal "$before_hash" "$(sha256sum "$env_file" | awk '{print $1}')" 'mv failure must preserve existing bytes'
+  assert_equal "$before_mode" "$(stat -c '%a' "$env_file")" 'mv failure must preserve existing mode'
+  if compgen -G "${env_file}.tmp.*" >/dev/null; then
+    fail_assertion 'mv failure must remove temporary files'
+  fi
+}
+
 run_test 'email validation' test_validate_email
 run_test 'password UTF-8 byte limits' test_validate_password_byte_limits
 run_test 'explicit y/N confirmation' test_confirm_yes_defaults_to_no
@@ -485,6 +566,9 @@ run_test 'random secret formats' test_random_secret_formats
 run_test 'private complete production dotenv rendering' test_render_production_env_is_complete_private_and_safe
 run_test 'required generated secrets' test_render_production_env_requires_caller_secrets
 run_test 'atomic render failure preserves target' test_render_production_env_preserves_existing_target_on_write_failure
+run_test 'mktemp failure preserves target' test_render_production_env_handles_mktemp_failure
+run_test 'temporary chmod failure preserves target' test_render_production_env_handles_temp_chmod_failure
+run_test 'mv failure preserves target' test_render_production_env_handles_mv_failure
 
 if ((FAIL_COUNT > 0)); then
   printf '%d deployment helper test(s) failed\n' "$FAIL_COUNT" >&2
