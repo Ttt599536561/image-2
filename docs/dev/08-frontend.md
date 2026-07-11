@@ -4,17 +4,16 @@
 
 ## 9.1 RR8 框架模式
 
-> **当前实现**：`react-router`/`@react-router/node`/`@react-router/dev` 均为 **8.0.1**，Vite 8，配 `@netlify/vite-plugin-react-router@4` 与 React 19.2.7。本文直接使用 RR8 名称，不再使用旧版本代称。
+> **当前实现**：`react-router`/`@react-router/node`/`@react-router/dev` 均为 **8.0.1**，Vite 8，React 19.2.7。生产构建产出 React Router Node SSR，由 Docker `web` 进程启动。
 
 React Router 8 **framework 模式**（非 library/data 模式）：路由即模块，每个路由模块可导出 `loader`、`action`、`Component`、`ErrorBoundary`。配 Vite 8 + React 19，`@react-router/dev` 接管打包与 SSR。
 
-`vite.config.ts` 形态：`plugins:[reactRouter(), netlifyReactRouter()]`；前者来自 `@react-router/dev/vite`，后者来自 `@netlify/vite-plugin-react-router`，默认产出 Netlify Serverless Functions(Node)。
+`vite.config.ts` 只启用 `reactRouter()`；Netlify Vite adapter 已不参与构建。
 
 ```ts
 // vite.config.ts
 import { reactRouter } from "@react-router/dev/vite";
-import netlifyReactRouter from "@netlify/vite-plugin-react-router";
-export default { plugins: [reactRouter(), netlifyReactRouter()] };
+export default { plugins: [reactRouter()] };
 ```
 
 ```
@@ -82,7 +81,7 @@ export async function requireAdmin(request: Request) {
 
 > 主对话 `/` 与会话 `/c/:id` 共用 `_app` 三栏壳；「新建生成」= 路由到 `/` 并清空 Composer，首次提交成功后服务端建 `conversation` 并 `navigate(/c/:newId)`（[§10](../redesign-requirements.md)）。后台页面挂独立 `_admin` 布局（自建、贴 design-system，[09-admin.md §10.1](09-admin.md)）。
 
-**站内通知铃铛**（非独立路由，挂 `_app` 顶栏常驻组件）：顶栏铃铛入口 + 未读红点 badge，下拉列表走 TanStack Query（不入 SSR loader），消费 `GET /api/notifications?unread=1`（[07-api.md §8.3](07-api.md)）；组件细节见 §9.6。当前唯一通知类型为「图片到期前 1 天」（`image_expiring`，cron 预扫入 `notifications` 表，[02-database.md §3.2](02-database.md) / [10-ops-test.md §11.7](10-ops-test.md)）；积分到期提示不入此表、走 §9.7 的 `expiringSoon` 实时字段。
+**站内通知铃铛**（非独立路由，挂 `_app` 顶栏常驻组件）：顶栏铃铛入口 + 未读红点 badge，下拉列表走 TanStack Query（不入 SSR loader），消费 `GET /api/notifications?unread=1`（[07-api.md](07-api.md)）。通知类型为图片到期 `image_expiring`、后台公告 `announcement` 和灵感审核结果 `inspiration_reviewed`；积分到期提示不入此表，走 `expiringSoon` 实时字段。
 
 ## 9.3 TanStack Query v5
 
@@ -96,34 +95,17 @@ export async function requireAdmin(request: Request) {
 
 loader 取到的首屏数据可作为对应 query 的 `initialData`（用同一 query key），避免「SSR 渲染一份 → 客户端再拉一份」抖动。
 
-**现有 system-only job 态短轮询**（迁移基线；目标批量轮询见 §9.8）：
-
-```ts
-function useGenerationStatus(generationId: string | null) {
-  const startedAt = useRef(Date.now());
-  return useQuery({
-    queryKey: ["generation", generationId],
-    enabled: !!generationId,
-    queryFn: () => api.getGenerationStatus(generationId!),
-    refetchInterval: (q) => {
-      const s = q.state.data?.status;
-      if (s === "succeeded" || s === "failed") return false;        // 终态停轮询
-      if (Date.now() - startedAt.current > 5 * 60_000) return false; // 满 5min 停（前端兜底，§5.5）
-      return 2_000;                                                  // 每 2s 轮询
-    },
-    refetchIntervalInBackground: false,
-  });
-}
-```
-
-> 上述 hook 记录当前单 ID 行为。目标实现不由前端自行判失败：到 `deadlineAt` 后做最后一次状态读取，由状态接口与 cron 共用的 deadline helper 返回权威终态（[03-money.md §4.6](03-money.md) / [04-generation-pipeline.md §5.9](04-generation-pipeline.md)）。
+**当前任务轮询**：从会话缓存派生全部 `queued/claimed/running` IDs，每批最多 50 个调用
+`/api/generate-status?ids=` 并按 `generationId` 合并。单项终态只移除自己；到各自
+`deadlineAt` 后做最后一次权威读取，不由浏览器伪造失败态。连续缺失项先刷新会话，仍缺失
+才显示 UI-only 无权/不存在状态。
 
 **query keys 约定**（统一收在 `app/queries/keys.ts`，分页用游标/页码入 key）：
 
 | key | 用途 | 失效来源 |
 |---|---|---|
 | `["me","balance"]` | 顶部余额（常驻） | 兑换成功、生成成功（扣费后） |
-| `["generation", id]` | 单 job 态轮询 | 自身终态 |
+| 当前会话 pending IDs | 批量 job 状态轮询 | 单项终态、会话权威刷新 |
 | `["conversation", id, "images"]` | 本次面板图片 | 该会话生成成功 |
 | `["conversations", { cursor }]` | 最近会话分页 | 新建/续聊 |
 | `["assets", { range, cursor }]` | 资产库分页（含日期筛选参数） | 删除、生成成功 |
@@ -339,15 +321,12 @@ export function clearUserApiConfig(userId: string): void;
 - 页面刷新/切回会话从 loader 数据重建 pending 集合；路由离开或标签关闭不取消服务端任务。到 `deadlineAt` 后做最后一次刷新，UI 只接受服务端返回的终态。
 - 已打开页面若 custom POST 收到 `503 CUSTOM_KEY_MODES_DISABLED`，立即把 me cache 标为 false 并 invalidate，撤销本次乐观项、打开暂停态弹窗且保留 Key；不得自动重试为 system。
 
-## 红线清单（前端）
+## 前端不变量
 
-- [ ] server-only：DB、system/基础设施 Key、任务加密主密钥只从 `.server.ts` 引用。custom 用户 Key 仅按 §9.8 存本地/随请求，组件不得日志化或放 Query cache。
-- [ ] 受保护路由统一走 `_app` 父 loader `requireUser`、后台走 `requireAdmin`；未登录 `redirect("/login?next=")`，封禁号撵出（[05-auth.md §6.3](05-auth.md)）。
-- [ ] 图片 URL **只用 Supabase Storage `public_url`**，绝不渲染中转临时 URL（[01-architecture.md §2.1](01-architecture.md)）。
-- [ ] 当前会话所有非终态 job 走单次批量轮询；按各自 `deadlineAt` 最后刷新，单项终态不影响其他项。
-- [ ] 余额本地校验只用于 system；custom 不因余额禁用提交。两者真权威都在服务端。
-- [ ] 生成**不可取消**：UI 无取消按钮、无「已取消」态（[§5.3](../redesign-requirements.md)）。
-- [ ] 取值一律 `var(--token)`，禁硬编码；`--cosmic-*` 仅生成态用、不随明暗反相。
-- [ ] 星空动效仅 transform/opacity + `prefers-reduced-motion` 降级（[§17](../redesign-requirements.md)）。
-- [ ] 回前端的中转响应/报错先脱敏（[redaction.ts](../../src/lib/redaction.ts)）。
-- [ ] 360px/桌面截图验证 TopBar Key 入口、弹窗、最长错误文案和多任务卡片无重叠/溢出。
+- DB、system Key 和任务加密主密钥仅从 server-only 模块引用；custom Key 不进入日志或 Query cache。
+- 受保护路由统一校验用户/admin，封禁态每请求生效。
+- 所有图片只渲染对象存储 `public_url`。
+- 当前会话所有非终态任务走批量轮询；单项终态不影响其他项。
+- 余额预检查只用于 system；custom 不因本站余额禁用提交。
+- UI 不提供取消态；主题使用设计 token，生成动效遵守 `prefers-reduced-motion`。
+- 中转响应和错误先脱敏；360px 与桌面都不得出现 Key 弹窗、多任务卡片重叠或溢出。

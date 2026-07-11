@@ -30,7 +30,7 @@ async function main() {
     await sql`UPDATE "user" SET role='admin' WHERE email=${email}`;
     baNote = "Better Auth user.role=admin（admin 插件 ban/改密 可用）";
   } else {
-    baNote = "⚠ Better Auth user 表无 role 列（admin 插件迁移未跑）——⑥ 用 admin 插件前需补 @better-auth/cli migrate";
+    baNote = "⚠ Better Auth user 表无 role 列（admin 插件迁移未跑）——请先应用仓库受控迁移";
   }
 
   console.log(`✓ 已将 ${email} 提权为 admin（业务 users.role=admin；${baNote}）。`);

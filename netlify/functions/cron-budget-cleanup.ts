@@ -1,9 +1,9 @@
-// Scheduled Function（北京 00:00 = UTC 16:00，schedule 在 netlify.toml）：旧预算键清理 + 昨日 ms 重算 + 回溯近阈/熔断日报。
+// Budget cleanup job. Docker schedule: 北京 00:00 = UTC 16:00（scripts/scheduler.ts）。
 // 真相源 10 §11.8。跨天靠 date-in-key 自动归零（无需清零当日键）；本 cron 删 7 天前旧键 + 用 generations.duration_ms
 // 之和重算覆盖**昨日** ms（cron 跑在 0 点、今天 calls/ms≈0，评估今天告警是死代码 → 回看刚结束的昨天才有意义）。
 //
-// 🔴 红线：cron try/catch → alert(cron_failed) + Sentry；扫描走 HTTP。
-// 注：**实时「命中即告警」在 src/server/generation/process.ts 硬上限命中分支**（防破产、当天首次即发）；本 cron 只补昨日回溯日报。
+// 🔴 红线：job try/catch → alert(cron_failed) + Sentry；扫描走 HTTP。
+// 注：实时「命中即告警」在 process.ts 硬上限分支；本 job 只补昨日回溯日报。
 import { alert } from "../../src/server/alert.server";
 import { cleanupBudgetKeys } from "../../src/server/budget.server";
 import { captureException } from "../../src/server/sentry.server";

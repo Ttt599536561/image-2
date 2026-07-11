@@ -1,9 +1,7 @@
-// Scheduled Function（每分钟，schedule 在 netlify.toml）：DB-as-queue 兜底（真相源 04 §5.5 / 10 §11.6）。
-//  ① rescanTimeouts：queued/claimed/running 超 5min → failed/provider_timeout（权威释放并发、未扣费）。
-//  ② dispatchStaleQueued：deadline 内仍 queued 的行 await 短触发请求，不等待 background job。
-// 顺序：先 rescan（把 >5min 孤儿收 failed）再 dispatch（只补 1–5min），避免重新触发即将被判超时的行。
+// Timeout rescan job. Docker scheduler runs it every minute.
+// queued/claimed/running 到达 deadline → failed/provider_timeout（权威释放并发、未扣费）。
 //
-// 🔴 红线：cron 非 -background 后缀；handler try/catch → alert(cron_failed) + Sentry，绝不静默吞；扫描走 HTTP。
+// 🔴 红线：只收口超时，不派发 queued；持久 worker 负责消费。失败必须告警，不能静默吞。
 import { alert } from "../../src/server/alert.server";
 import { rescanTimeouts } from "../../src/server/generation/scan.server";
 import { captureException } from "../../src/server/sentry.server";

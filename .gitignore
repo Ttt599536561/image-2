@@ -3,12 +3,14 @@ dist/
 build/
 .react-router/
 .netlify/
+.local-test-storage/
 coverage/
 playwright-report/
 test-results/
 .env
 .env.*
 !.env.example
+!deploy/.env.production.example
 *.log
 *.tsbuildinfo
 deno.lock

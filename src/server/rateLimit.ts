@@ -47,7 +47,7 @@ export async function recordRateFailure(kind: RateKind, dims: RateDims): Promise
     VALUES(${EVENT_TYPE}, ${JSON.stringify({ kind, ip: dims.ip, subject: dims.subject })}::jsonb)`;
 }
 
-/** 客户端 IP（信任平台代理头；Netlify 用 x-nf-client-connection-ip，回退 x-forwarded-for 首段）。 */
+/** 仅在显式信任 Caddy 时读取 x-forwarded-for 首段。 */
 export function clientIp(request: Request, env: NodeJS.ProcessEnv = process.env): string | null {
   if (env.TRUST_PROXY !== "true") return null;
   const h = request.headers;

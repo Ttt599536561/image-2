@@ -1,10 +1,9 @@
 // @smoke 关键路径冒烟（⑦ · 真相源 10 §11.10）：注册 → 生图（轮询到 succeeded）→ 兑换 → 余额增加。
 // 运行器 @playwright/test（非 vitest；本目录已从 vitest include 排除）。本文件不在 tsconfig include 内 → 不入 tsc。
 //
-// 前置：① npm i -D @playwright/test && npx playwright install chromium
-//      ② 起 server：netlify dev（加载 .env 的 Neon/Storage/中转；中转建议用桩/录制避免真烧钱）
-//      ③ 兑换步骤需一个有效未用兑换码 → 设 E2E_REDEEM_CODE（用 scripts 或后台预生成一枚 active 码）；未设则跳过兑换断言。
-// 跑：E2E_BASE_URL=http://localhost:8888 E2E_REDEEM_CODE=XXXX... npx playwright test
+// 前置：npm i -D @playwright/test && npx playwright install chromium。
+// 默认由 npm run test:e2e 加载 .env.test 并启动 dev:ui:test；真实生成 smoke 还需
+// E2E_LEGACY_SMOKE_ENABLED=true 和隔离的 relay/storage/兑换码配置，否则整组跳过。
 import { expect, test } from "@playwright/test";
 
 const REDEEM_CODE = process.env.E2E_REDEEM_CODE;

@@ -1,4 +1,4 @@
-// ★server-only：后台生图编排（真相源 04 §5.3）。Background Function 入口调它。
+// ★server-only：后台生图编排（真相源 04 §5.3）。持久 worker 调用它。
 // 抢占(铁律③) → running → 预算硬闸(调中转前) → callRelay → putToR2(事务外) → 扣费(成功才扣) → 终态。
 // 失败/超时归一为 failed，从不进扣费事务（天然未扣）；finally 累计 ms（仅监控）。
 //
@@ -24,8 +24,8 @@ export interface ProcessDeps {
 export type ProcessOutcome = "lost" | "budget_exhausted" | "succeeded" | "failed";
 
 /**
- * 消费单个 generation（幂等、可被平台重试/重扫多次安全调用）。
- * 返回结果仅供测试/日志判别；HTTP 后台函数忽略返回值。
+ * 消费单个 generation（幂等，可被 worker 重领或 scheduler 重扫多次安全调用）。
+ * 返回结果供 worker、兼容 handler、测试和日志判别。
  */
 export async function runGenerationJob(generationId: string, deps: ProcessDeps = {}): Promise<ProcessOutcome> {
   const callRelay = deps.callRelay ?? realCallRelay;
@@ -37,7 +37,7 @@ export async function runGenerationJob(generationId: string, deps: ProcessDeps =
   const g = await claim(generationId);
   if (!g) return "lost";
 
-  // ② running + started_at（超时 cron 以 COALESCE(started_at,updated_at) 兜底）。
+  // ② running + started_at；scheduler 使用 deadline_at 做权威超时收口。
   await markRunning(generationId);
 
   const t0 = Date.now();

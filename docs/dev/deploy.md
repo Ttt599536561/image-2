@@ -1,7 +1,8 @@
 # Debian Docker production deployment
 
-The production runtime is Docker Compose, not Netlify. The stack contains Caddy,
-the React Router SSR web process, a generation worker, and one scheduler.
+Status: Docker runtime is implemented and locally verified, but production has
+not yet switched from the historical Netlify deployment. The target stack is
+Caddy, React Router SSR `web`, one generation `worker`, and one `scheduler`.
 
 ## 1. Host preparation
 
@@ -19,7 +20,10 @@ chmod 600 deploy/.env.production
 Fill every database, auth, storage, relay, and encryption value. Set `DOMAIN`
 and `BETTER_AUTH_URL=https://<domain>`. Keep
 `CUSTOM_KEY_MODES_ENABLED=false` for the first rollout. Use the Neon pooled URL
-for `DATABASE_URL` and direct URL for `DATABASE_URL_UNPOOLED`.
+for `DATABASE_URL` and direct URL for `DATABASE_URL_UNPOOLED`. Keep certificate
+verification explicit with `sslmode=verify-full`; do not rely on the current
+`pg` aliasing of `sslmode=require`, because that compatibility changes in its
+next major release.
 
 Never bake this file into the image or commit it. Apply the checked-in migrations
 from a controlled maintenance container before the application rollout:
@@ -62,14 +66,16 @@ redaction before enabling custom-key mode.
 ## 5. Operations and rollback
 
 ```bash
-docker compose --env-file deploy/.env.production pull
-docker compose --env-file deploy/.env.production up -d --build
+IMAGE_TAG=release-2026-07-11 docker compose --env-file deploy/.env.production build
+IMAGE_TAG=release-2026-07-11 docker compose --env-file deploy/.env.production up -d --no-build
 docker compose --env-file deploy/.env.production logs -f worker
 ```
 
-Tag every released image with `IMAGE_TAG`. Roll back by restoring the previous
-tag and running `up -d`; do not roll application code back across an incompatible
-database migration. Neon database backups/PITR and Supabase bucket backup or
+Build and retain a local image tag for every release. Roll back with an existing
+tag and `IMAGE_TAG=<previous> docker compose --env-file deploy/.env.production
+up -d --no-build`. `compose.yaml` does not configure an image registry, so do
+not use `docker compose pull` as an application-release step. Do not roll code
+back across an incompatible migration. Neon PITR and Supabase bucket backup or
 replication remain separate operational responsibilities.
 
 Run exactly one scheduler replica. Worker replicas may be increased after load

@@ -137,7 +137,7 @@ async function main() {
   const key = process.env.RELAY_API_KEY;
   const base = process.env.RELAY_BASE_URL;
   if (!key || !base) {
-    console.error("缺 RELAY_API_KEY / RELAY_BASE_URL（见 .env / PHASE2-PLAN §0）");
+    console.error("缺 RELAY_API_KEY / RELAY_BASE_URL（见 .env.example）");
     process.exit(2);
   }
   console.log(`base=${base} key=PRESENT`);

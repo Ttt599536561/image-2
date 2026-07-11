@@ -1,460 +1,71 @@
-# 11 · cron / 可观测 / 测试
+# 运维与验证
 
-> 把"DB-as-queue 的兜底、钱的对账、成本的实测、上线的质量门"四件事落成可执行调度 + 测试。
-> 规则真相源：规格 [§22](../redesign-requirements.md)（工程一致性/对账/熔断）/ [§23](../redesign-requirements.md)（可观测告警）/ [§9 看板](../redesign-requirements.md)。本章把 [03-money.md](03-money.md) 的事务设计落成定时任务，并给 CI 门禁。
-> env（`SENTRY_DSN` / `ADMIN_ALERT_WEBHOOK` / `DAILY_RELAY_BUDGET_*`）见 [00-overview.md §1.4](00-overview.md)；Scheduled Function 形态见 [00-overview.md §1.2](00-overview.md)。
+状态：Docker runtime 已实现；生产运行和 Compose smoke 尚未完成。
 
-## 11.1 Scheduled 总览
+## Scheduler
 
-阶段一 DB-as-queue 靠**抢占式状态机 + cron 兜底重扫**撑住可靠性；钱靠**事务内同步物化余额 + cron 每日对账**保证不漂。下表是全部定时任务（每条都必须幂等——可被平台重复触发、被手动重跑而不出错）。
+Docker `scheduler` 进程以 UTC 调用维护 handler：
 
-| 任务 | cron (UTC) | 作用 | 幂等点 | 落地 |
-|---|---|---|---|---|
-| 超时重扫 | `*/1 * * * *` 每分钟 | `queued/claimed/running` 且 `deadline_at<=now()` → `failed/provider_timeout`；状态读取也调用同一 helper | 状态谓词保证已终态行不再命中 | [§11.11](#1111-key-模式deadline-与安全验证2026-07-11) |
-| 旧预算键清理 | `0 16 * * *`（= 北京 00:00） | 清理/归档旧日期的中转预算键 + 近阈告警（当日键靠 date-in-key 自动归零，无需清零） | 删旧键天然幂等；不 upsert 固定行 | [§11.8](#118-旧预算键清理-cron) |
-| 积分过期 | `10 16 * * *`（北京 00:10） | 过期批次清零 + `expire` 流水 + 同步余额 | `uq_expire_lot`（每 lot 只清一次）；永久批次 `expires_at IS NULL` 跳过 | [§11.2](#112-积分过期-cron) |
-| 余额对账 | `30 16 * * *`（北京 00:30） | 物化余额 vs `SUM(lots.remaining 未过期)`，不平告警+以批次修正 | 重算覆盖（重跑收敛到同值） | [§11.3](#113-余额对账-cron) |
-| 图片清理 | `0 17 * * *`（北京 01:00） | 删过期对象存储对象 + DB + `events(image_cleaned)` + 孤儿清理 | 删除天然幂等；已删行不再命中 | [§11.7](#117-图片清理-cron) |
-| custom 凭据孤儿清理 | `*/5 * * * *` | 删除 `generation_credentials.expires_at<=now()`；同步把仍在中间态且 deadline 已过的任务收口 | 按 PK 删除；终态/已删行重跑无影响 | [§11.11](#1111-key-模式deadline-与安全验证2026-07-11) |
-
-> 时区：cron 是 UTC，"每日 0 点"按运营所在北京时区折算（UTC+8 → UTC 的 16:00）。过期/对账/清理**错峰**排（00:10/00:30/01:00），避免与旧预算键清理同刻抢连接、且对账在过期之后跑（先清过期再对账才准）。
-
-**Netlify Scheduled Function 配置形态**（二选一，见 [00-overview.md §1.2](00-overview.md)）：
-
-```ts
-// 形态 A（推荐）：函数内导出 config.schedule —— 调度与代码同文件，便审阅
-// netlify/functions/cron-expire-credits.ts
-import type { Config } from '@netlify/functions';
-export default async (req: Request) => {
-  await runExpireCredits();           // 见 §11.2
-  return new Response('ok');
-};
-export const config: Config = { schedule: '10 16 * * *' };
-```
-
-```toml
-# 形态 B：netlify.toml 集中声明（适合一眼看全部 cron）
-[functions."cron-timeout-rescan"]
-  schedule = "*/1 * * * *"
-[functions."cron-budget-cleanup"]
-  schedule = "0 16 * * *"
-```
-
-约定：cron 函数统一命名 `cron-*.ts`，**非 `-background` 后缀**（Scheduled 由 schedule 触发，不是 Background）。每个 cron handler 包一层 `try/catch`：异常上报 Sentry + 推 `ADMIN_ALERT_WEBHOOK`（[§11.9](#119-可观测与告警)），**绝不静默吞**。钱相关 cron（过期/对账）走 Pool/WS 事务（`DATABASE_URL_UNPOOLED`）；只读扫描走 HTTP（`DATABASE_URL` pooled）。
-
-## 11.2 积分过期 cron
-
-落地 [03-money.md §4.8](03-money.md)：把"到期仍有余"的批次清零、写 `expire` 流水（`uq_expire_lot` 幂等）、同步物化余额。**永久批次（`expires_at IS NULL`）永不过期，必须跳过。**
-
-**单事务步骤**（Pool/WS + `FOR UPDATE`，逐批处理）：
-
-```ts
-async function runExpireCredits() {
-  const client = await pool.connect();
-  try {
-    await client.query('BEGIN');
-    // ① 锁住所有"到期且仍有余"的批次（永久批次 expires_at IS NULL 不命中）
-    const expired = await client.query(`
-      SELECT id, user_id, remaining_mp FROM credit_lots
-      WHERE expires_at IS NOT NULL AND expires_at < now() AND remaining_mp > 0
-      FOR UPDATE
-    `);
-    for (const lot of expired.rows) {
-      // ② 幂等闸：先探一笔 expire 是否已写过（uq_expire_lot(ref_id=lot_id)）。
-      //    用单独探测而非把 balance_after 塞进 INSERT 子查询——balance_after 必须取"本笔扣减后"的真值，
-      //    多笔 expire 要逐笔递减、与最终物化余额一致（D22 / 03 账本逐笔结余口径）。
-      const dup = await client.query(
-        `SELECT 1 FROM credit_ledger WHERE entry_type='expire' AND ref_type='lot' AND ref_id=$1`,
-        [lot.id]);
-      if (dup.rowCount > 0) continue;              // 重跑：本批此前已清，跳过 ③④⑤
-      // ③ 批次清零
-      await client.query(`UPDATE credit_lots SET remaining_mp=0 WHERE id=$1`, [lot.id]);
-      // ④ 物化余额减（不出负）+ RETURNING 取本笔扣减后的结余，作为本条流水的 balance_after
-      const acc = await client.query(`UPDATE credit_accounts
-        SET balance_mp=GREATEST(balance_mp-$1,0), updated_at=now() WHERE user_id=$2
-        RETURNING balance_mp`,
-        [lot.remaining_mp, lot.user_id]);
-      const balanceAfter = acc.rows[0].balance_mp;
-      // ⑤ expire 流水：balance_after_mp 用 ④ 的逐笔结余真值；uq_expire_lot 兜底防重写
-      await client.query(`
-        INSERT INTO credit_ledger(user_id,entry_type,amount_mp,balance_after_mp,ref_type,ref_id)
-        VALUES ($1,'expire',$2,$3,'lot',$4)
-        ON CONFLICT DO NOTHING
-      `, [lot.user_id, lot.remaining_mp, balanceAfter, lot.id]);
-      // ⑥ 事实事件
-      await client.query(`INSERT INTO events(type,user_id,payload) VALUES('credit_expired',$1,$2)`,
-        [lot.user_id, { lotId: lot.id, amountMp: lot.remaining_mp }]);
-    }
-    await client.query('COMMIT');
-  } catch (e) { await client.query('ROLLBACK'); throw e; }
-  finally { client.release(); }
-}
-```
-
-> 物化余额此处**逐批增量减**，每笔 `expire` 的 `balance_after_mp` 取该笔 `UPDATE … RETURNING balance_mp`（步骤④）的真值——同一用户多笔过期的 `balance_after_mp` 因此逐笔递减、与最终物化余额收敛一致（[03-money.md §4.3](03-money.md) 账本逐笔结余口径）。即便某步漂了，紧随其后的 [§11.3](#113-余额对账-cron) 对账会以批次为准重算修平，双保险。消费侧 `ORDER BY expires_at ASC NULLS LAST`（[03-money.md §4.3](03-money.md)）已保证"最早过期先扣、永久批次最后扣"，过期 cron 只兜底清"到期仍有余"的批次。
-
-## 11.3 余额对账 cron
-
-落地 [§22 余额对账](../redesign-requirements.md)：比对**物化余额** `credit_accounts.balance_mp` 与**权威余额** `SUM(credit_lots.remaining_mp 未过期)`，不一致 → 告警 + 以批次为准修正。
-
-```sql
--- 找出所有不平账户（权威 vs 物化）。注意 SUM 用 bigint，见 §11.4
-WITH authoritative AS (
-  SELECT u.id AS user_id,
-         COALESCE(SUM(l.remaining_mp) FILTER (
-           WHERE l.remaining_mp > 0 AND (l.expires_at IS NULL OR l.expires_at > now())
-         ), 0)::bigint AS auth_mp
-  FROM users u LEFT JOIN credit_lots l ON l.user_id = u.id
-  GROUP BY u.id
-)
-SELECT a.user_id, a.auth_mp, ca.balance_mp,
-       (a.auth_mp - ca.balance_mp) AS drift_mp
-FROM authoritative a JOIN credit_accounts ca ON ca.user_id = a.user_id
-WHERE a.auth_mp <> ca.balance_mp;
-```
-
-处理：
-
-```ts
-const drifts = await sql(reconcileQuery);       // HTTP 只读
-if (drifts.length > 0) {
-  await alert('balance_reconcile_mismatch', {   // §11.9 告警
-    count: drifts.length,
-    sample: drifts.slice(0, 20),
-    totalDriftMp: drifts.reduce((s, d) => s + Number(d.drift_mp), 0),
-  });
-  // 以批次为准修正（权威 = lots 之和）。逐账户单语句 UPDATE，幂等（重跑收敛同值）
-  for (const d of drifts) {
-    await sql`UPDATE credit_accounts SET balance_mp=${d.auth_mp}, updated_at=now()
-              WHERE user_id=${d.user_id}`;
-    await sql`INSERT INTO events(type,user_id,payload)
-              VALUES('balance_reconciled',${d.user_id},${JSON.stringify({
-                fromMp: d.balance_mp, toMp: d.auth_mp, driftMp: d.drift_mp })})`;
-  }
-}
-```
-
-> 先告警再修正：drift 频繁出现说明某条钱事务漏同步物化余额，是 bug 信号，不能"自愈"掩盖。修正只是兜底，根因得查事务。对账须在 [§11.2](#112-积分过期-cron) 之后跑（先清过期，`未过期` 口径才一致）。
-
-## 11.4 bigint SUM codec（毫积分跨 JSON 的坑）
-
-**单笔金额**（单张 70mp、最大套餐几万 mp）远小于 `2^53`，用 `number` 安全（[02-database.md §3.4](02-database.md) 用 `bigint('x_mp',{mode:'number'})`）。**但看板/对账的 `SUM()` 聚合可能超 `2^53`**（全站累计发放/消耗），`number` 会丢精度，钱就错了。两条取法：
-
-```ts
-// ① Drizzle：聚合列显式声明 bigint mode（返回 bigint，自己换算/格式化）
-import { sql } from 'drizzle-orm';
-const [row] = await db
-  .select({ total: sql<bigint>`SUM(${creditLedger.amountMp})`.mapWith(BigInt) })
-  .from(creditLedger);
-const totalCredits = Number(row.total) / 1000;       // 仅展示层转，注意大数用 BigInt 运算后再转
-
-// ② Neon HTTP：开 raw string，再用 BigInt 解析（Postgres bigint 默认回 string）
-import { neon } from '@neondatabase/serverless';
-const sql2 = neon(process.env.DATABASE_URL!);
-const r = await sql2`SELECT SUM(amount_mp)::text AS total FROM credit_ledger`;
-const totalMp = BigInt(r[0].total);                  // ::text + BigInt，绝不经 number
-```
-
-红线：**任何 `SUM(*_mp)` / `SUM(*_cash)` 一律 `::text` 或 bigint mode 取，再 `BigInt()` 运算**；只有在最终展示（除以 1000 取小数）那一步才落到 `Number`。看板聚合接口的实现要点与前端消费见 [02-database.md §3.4](02-database.md) 与 [08-frontend.md §9.3](08-frontend.md)。
-
-## 11.5 GB-hour 成本实测（铁律②）
-
-> 上线前**实测单图 compute 成本**，对账 0.07 积分（70mp）定价确认毛利为正。这是铁律②（[README.md 成本铁律表](README.md)）。
-
-成本来源：中转**同步阻塞**，Background Function 整个生图期间按墙钟计费 = `时长 × 内存档`。Netlify Functions 计费单位 GB-hour（约 $0.0000139/GB-s，以官方实时价为准）。
-
-**测算公式**：
-
-```
-单图 compute 成本($) = relay_p95_seconds × (函数内存 GB) × 单价($/GB-s)
-GB-hour 口径        = relay_p95_seconds/3600 × 函数内存 GB
-```
-
-**取数步骤**：
-1. 灰度跑 N≥200 张真实生图，从 `generations.duration_ms` 取中转 p50/p95（`duration_ms = completed_at - started_at`，覆盖整段后台 await）。
-2. Background Function 内存档**调到能跑通的最低**（生图期主要是空等中转 I/O，CPU/内存几乎不吃，高内存档纯浪费钱）；常见从默认降到 256–512MB，压测验证不 OOM。
-3. 把 p95 时长 × 内存档 × 单价算单图成本，填下表对账。
-
-**对账表模板**（上线前必填、连同实测数据归档；¥→$ 按记账汇率）：
-
-| 项 | 实测值 | 备注 |
-|---|---|---|
-| 中转 p50 时长 | __ s | `duration_ms` 中位 |
-| 中转 p95 时长 | __ s | 用 p95 算最坏成本 |
-| 函数内存档 | __ MB | 调低后的稳定值 |
-| 单图 compute 成本 | $ __ | p95 × 内存 × 单价 |
-| 单图中转 API 成本 | $ __ | 中转账单/张（若另计） |
-| 单图总成本 | $ __ | compute + 中转 |
-| 售价 | 70mp = ¥0.07 ≈ $ __ | 定价 |
-| **毛利/张** | $ __ | 售价 − 总成本，**必须 > 0** |
-
-> 若毛利为负：①再降内存档；②抬单张定价（改 `app_config` 单张扣费 mp，[00-overview.md §1.5](00-overview.md)）；③调单日预算阈值压总敞口（[§11.8](#118-旧预算键清理-cron)）。失败的图也烧了 compute 却不扣费——把失败率计入有效成本。
-
-## 11.6 旧超时重扫 cron 基线（目标实现见 §11.11）
-
-> 以下 SQL 说明当前 system-only 代码为何需要 cron，保留作迁移对照。2026-07-11 目标以 `deadline_at` 为权威数据，状态读取与 cron 共用 §11.11 原子 helper；cron 不再是唯一终态入口。
-
-```sql
--- 每分钟跑：超 5min 仍未终态 → failed/provider_timeout（单语句即原子，HTTP 即可）
--- 时间基准用 COALESCE(started_at, updated_at)：兜底"claimed 但还没写 started_at 就被平台杀掉"的僵尸行
--- （与 03-money.md §4.6 超时 WHERE 完全一致）。error_code 归一化枚举见 04-generation-pipeline.md §5.8。
--- duration_ms 一律用 (EXTRACT(EPOCH FROM …)*1000)::int 算（与 03-money.md §4.3 同口径）；
--- 禁用 EXTRACT(MILLISECONDS FROM …)——它只返回"秒"字段的毫秒分量(×1000、上限 59999)、≥1min 被截断，
--- 超时行恰好 ≥5min 必踩此坑（PG 陷阱）。
-UPDATE generations
-SET status='failed', error_code='provider_timeout', error='provider_timeout', completed_at=now(),
-    duration_ms = (EXTRACT(EPOCH FROM now()-COALESCE(started_at, updated_at))*1000)::int, updated_at=now()
-WHERE status IN ('claimed','running')
-  AND COALESCE(started_at, updated_at) < now() - interval '5 minutes'
-RETURNING id, user_id;
-```
-
-```ts
-const r = await sql(timeoutRescanSql);
-for (const g of r) {
-  await sql`INSERT INTO events(type,user_id,payload)
-            VALUES('image_failed',${g.user_id},${JSON.stringify({
-              generationId: g.id, reason: 'provider_timeout' })})`;
-}
-if (r.length > 0) await alert('queue_timeout_rescan', { count: r.length, ids: r.map(x => x.id) });
-```
-
-要点：
-- **失败不扣费**（成功才扣，[03-money.md §4.6](03-money.md)），超时路径从不进扣费事务，天然"未扣"，前端失败卡注明"未扣积分"。
-- **释放并发 = 状态进终态**：行从 `{queued,claimed,running}` 移出，`COUNT` 自动少一，无双减/漏减（[02-database.md §3.3](02-database.md)）。
-- 用 `ix_gen_status_time`（[02-database.md §3.3](02-database.md)）避免全表扫。
-- **僵尸 `claimed` 兜底**：若某行 `claimed` 后还没写 `started_at` 就被平台杀掉（占用并发却永不进 running），时间谓词改用 `COALESCE(started_at, updated_at)` 即可命中并收终态，避免漏扫死锁并发（与 [03-money.md §4.6](03-money.md) 一致）。
-- 若该行实际已成功但 cron 抢先置 failed？不会——成功事务 `UPDATE … WHERE status='running'`（[03-money.md §4.3](03-money.md)）与本 cron 互斥于行锁/状态谓词，先到先得且都只认中间态，终态行不再被改。
-
-## 11.7 图片清理 cron
-
-落地 [06-storage.md §7.5](06-storage.md) 的调度：删过期对象存储对象 + DB 行 + 写 `events(image_cleaned)` + 孤儿清理。本节只管“什么时候、按什么口径触发”，删除细节与 S3 SDK 调用见 06 章。
-
-```ts
-async function runImageCleanup() {
-  // ⓪ 到期前 1 天预扫 → 写站内通知（仅"图片到期前 1 天"用存储通知；积分到期走实时字段不入此表，
-  //    见 07-api.md §8.3 expiringSoon / 08-frontend.md §9.7）。必须在删图（步骤①）之前做，
-  //    否则今晚就到期的图来不及提示。dedupe_key=image_expiring:图id，UNIQUE 兜底重跑/每日不重发同一条。
-  await sql`
-    INSERT INTO notifications(user_id, type, payload, dedupe_key)
-    SELECT user_id, 'image_expiring',
-           jsonb_build_object('imageId', id, 'expiresAt', expires_at),
-           'image_expiring:'||id
-    FROM images
-    WHERE expires_at BETWEEN now() AND now() + interval '1 day'
-    ON CONFLICT (dedupe_key) DO NOTHING`;          // notifications 表见 02-database.md §3.2
-  // ① 到期顺延兜底（money-6）：删前对"已兑过码"的付费用户，把其仍到期的图 expires_at 顺延 60 天。
-  //    防"用户已升级付费、旧图却按旧保留期被清"。判定 users.has_paid（兑换升级写入，03-money.md §4.7）。
-  //    顺延后这些行不再命中步骤②的 expires_at<now()，本轮不删。
-  await sql`
-    UPDATE images i SET expires_at = now() + interval '60 days'
-    FROM users u
-    WHERE i.user_id = u.id AND u.has_paid = true
-      AND i.expires_at IS NOT NULL AND i.expires_at < now()`;
-  // ② 到期图：保留期已过（免费 7 / 付费 60，升级顺延 60，写在 images.expires_at）
-  const expired = await sql`
-    SELECT id, generation_id, user_id, storage_key FROM images
-    WHERE expires_at IS NOT NULL AND expires_at < now()
-    LIMIT 500`;                                   // 分批，防单次超时
-  for (const img of expired) {
-    await deleteFromR2(img.storage_key);          // 06 章；删失败记录、下轮重试
-    await sql`DELETE FROM images WHERE id=${img.id}`;
-    await sql`INSERT INTO events(type,user_id,payload)
-              VALUES('image_cleaned',${img.user_id},${JSON.stringify({
-                generationId: img.generation_id, reason: 'retention_expired' })})`;
-  }
-  // ③ 孤儿对象存储对象：扣费事务 ROLLBACK 留下的“已上传但没落 images 行”对象
-  //    （03-money.md §4.3 提到的孤儿），按 key 前缀对账 S3 listing vs images.storage_key 删除
-  //    known-set 并 UNION 灵感库封面（inspirations.cover_key）与 pending 灵感投稿副本
-  //    （inspiration_submissions WHERE status='pending'），保护在用对象（见下）
-  await sweepOrphanR2Objects();                   // 06 章
-}
-```
-
-口径要点：**保留期权威在 `images.expires_at`**（清理只删 `expires_at < now()`），免费/付费天数与升级顺延的写入逻辑在 [06-storage.md §7.4](06-storage.md) 与 [03-money.md §4.7](03-money.md)（兑换升级顺延）。`events(image_cleaned)` 是 append-only，历史图删了看板数据也不丢（[02-database.md §3.2](02-database.md)）。删对象与删 DB 顺序：**先删对象存储、再删 DB 行**（反过来会留孤儿对象）。
-
-> **孤儿清理与灵感投稿（UGC）副本**：用户投稿落 `inspiration_submissions(status=pending)` 时复制了一份永久副本到 `inspirations/submissions/<uid>/…`（[INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)）。`sweepOrphanR2Objects` 的 known-set 因此在原有 UNION 上**再并一支** `SELECT image_key FROM inspiration_submissions WHERE status='pending'`。语义：**pending** 副本受保护；**approved** 由 `inspirations.cover_key` 保护（审核事务把卡片 `cover_key` 设为同一副本 key、复用同一对象，[INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)）；**rejected/废弃** 不在任一 known-set，按孤儿（>1h）回收。
-
-执行顺序固定 **⓪预扫通知 → ①付费顺延兜底 → ②删图 → ③扫孤儿**：
-- **⓪到期前 1 天预扫通知**：把"次日内将到期"的图写入 `notifications`（`type='image_expiring'`、`dedupe_key='image_expiring:'||id`、`ON CONFLICT(dedupe_key) DO NOTHING`），cron 每日重跑/重复触发不重发同一条。**仅"图片到期前 1 天"用这张存储通知表**；积分到期提示走 `/api/me` 的实时字段 `expiringSoon`（[07-api.md §8.3](07-api.md) / [08-frontend.md §9.7](08-frontend.md)），不入此表。通知表 schema 见 [02-database.md §3.2](02-database.md)，读写端点 `GET /api/notifications` / `POST /api/notifications/read` 见 [07-api.md §8.3](07-api.md)，顶栏铃铛 UI 见 [08-frontend.md §9.2/§9.6](08-frontend.md)。
-- **①付费顺延兜底（money-6）**：删图前对 `users.has_paid=true` 的用户，把其"已到期"的图 `expires_at` 顺延 60 天，避免"已兑码升级却被按旧保留期清"的图被误删；顺延后这些行不再命中步骤②。`has_paid` 由兑换升级写入（[03-money.md §4.7](03-money.md)）。
-
-## 11.8 旧预算键清理 cron
-
-预算计数的**存储与判断口径权威在 [04-generation-pipeline.md §5.6](04-generation-pipeline.md)**，配合入队前的熔断闸（[03-money.md §4.9](03-money.md)）。计数按**日期拼进 key**存：`app_config` 行 `key='relay_budget:'||today`（`today` = 服务端约定时区 Asia/Shanghai 当日 `YYYY-MM-DD`），`value_json = { "calls": int, "ms": int }`。**字段名 `calls` / `ms`**（不是 `compute_ms`）。
-
-跨天靠**新日期键自动归零**（次日 key 不存在 → 计数从 0 起），**不需要**显式清零；因此本 cron 角色降为「清理/归档旧日期键 + 近阈告警」，**不**再 upsert 固定行清零：
-
-```sql
--- 每日 0 点（北京）：归档/删除昨日及更早的预算键（保留近 N 天供看板回溯，其余删）
--- 当日键无需任何操作——date-in-key 已让它天然从 0 起
-DELETE FROM app_config
-WHERE key LIKE 'relay_budget:%'
-  AND substring(key from 'relay_budget:(.*)') < to_char((now() AT TIME ZONE 'Asia/Shanghai') - interval '7 days','YYYY-MM-DD');
-```
-
-```ts
-// 入队闸消费侧权威实现见 03-money.md §4.9 isDailyBudgetExhausted(c)：用同一事务 client c 读"当日 key"。
-// 计数键带日期，读不到当日键即视为 0（跨天自动作废，无须清零）。
-function isDailyBudgetExhausted(cfg, env) {
-  const { calls = 0, ms = 0 } = cfg ?? {};         // cfg = 当日 key 的 value_json，读不到则 {}
-  return calls >= Number(env.DAILY_RELAY_BUDGET_CALLS)
-      || ms >= Number(env.DAILY_RELAY_BUDGET_MS);
-}
-```
-
-> 递增时机（与 [04-generation-pipeline.md §5.6](04-generation-pipeline.md) 一致）：`calls` 的硬上限递增 = 与 `calls < DAILY_RELAY_BUDGET_CALLS` 判断**同一条原子语句**，在 Background Function 抢占成功、**调中转前**执行（先 `INSERT … ON CONFLICT DO NOTHING` 保证当日 key 行存在，再 `UPDATE … jsonb_set(calls=calls+1) WHERE … AND (value_json->>'calls')::bigint < DAILY_RELAY_BUDGET_CALLS RETURNING`，affected=0 即越界→不调中转、置该 generation `failed/insufficient_quota`，详见 [04-generation-pipeline.md §5.6](04-generation-pipeline.md)）；`ms` 在**调中转后** `finally` 里 HTTP `+= duration_ms`（仅监控/告警、**不硬挡**）。阈值 `DAILY_RELAY_BUDGET_CALLS/MS` 来自 env（[00-overview.md §1.4](00-overview.md)）。
-
-`ms` 键易被平台"杀进程"导致少计（`finally` 没跑完），所以本 cron 额外用**当日 `generations.duration_ms` 之和重算覆盖 `ms` 键**，作为权威值（与 [04-generation-pipeline.md §5.6](04-generation-pipeline.md) 硬上限口径一致：硬挡看 `calls`，`ms` 仅监控并以重算值为准）：
-
-```sql
--- 每日 0 点（北京）随旧键清理一并跑：用当日所有 generations 的 duration_ms 之和重算覆盖当日 ms 键
--- （平台杀进程会丢 finally 的 incMs，故以 generations 落库时长为权威，BIGINT 求和防溢出）
-WITH today_ms AS (
-  SELECT COALESCE(SUM(duration_ms), 0)::bigint AS ms
-  FROM generations
-  WHERE started_at >= date_trunc('day', now() AT TIME ZONE 'Asia/Shanghai')
-)
-INSERT INTO app_config(key, value_json)
-SELECT 'relay_budget:'||to_char(now() AT TIME ZONE 'Asia/Shanghai','YYYY-MM-DD'),
-       jsonb_build_object('calls', 0, 'ms', (SELECT ms FROM today_ms))
-ON CONFLICT (key) DO UPDATE
-  SET value_json = jsonb_set(app_config.value_json, '{ms}', to_jsonb((SELECT ms FROM today_ms)));
-  -- 只覆盖 ms 路径，保留 calls（calls 是调中转前抢占式 +1 的硬上限计数，不可被重算冲掉）
-```
-
-本 cron 顺带做**近阈告警**：`calls` ≥ `DAILY_RELAY_BUDGET_CALLS` 的 80%、或**重算后**的 `ms` ≥ `DAILY_RELAY_BUDGET_MS` 的 80% 即报（告警以重算值为准，避免少计 ms 漏告警）。
-
-> **⚠️ 实现修正（错峰告警的时点陷阱）**：本 cron 跑在**北京 00:00**（新一天起点），此刻"当日"key 的 `calls`/`ms`≈0——若用上面 SQL 评估"当日"，近阈/熔断告警**恒为假、是死代码**（cron 链路对抗审查 alerting-major）。故实现上：**① 本 cron 改评估"已结束的前一天"**（`now() AT TIME ZONE 'Asia/Shanghai' - interval '1 day'` 的 key + 同窗 `generations.duration_ms` 重算），作为**昨日回溯日报**（"昨天到了 X% 敞口"）；② **真正的"熔断命中即告警"放在生图管线**——`src/server/generation/process.ts` 硬上限命中分支（`incCallIfUnderCap()` 返 false 处，[04 §5.6](04-generation-pipeline.md)）当场 `alert('daily_budget_exhausted', …)`，用当日 key 上的 `alerted` 标记原子去重做到"每天首次即发"（[§11.9](#119-可观测与告警) daily_budget_exhausted「命中即报（每天首次）」）。这样防破产硬上限被击中时站长**当天即收到告警**，不必等到次日 cron。
-
-## 11.9 可观测与告警
-
-落地 [§23 可观测性与告警](../redesign-requirements.md)。两条出口：**Sentry**（异常/性能追踪，服务端 `SENTRY_DSN`，前端可选 `VITE_SENTRY_DSN_CLIENT`，[00-overview.md §1.4](00-overview.md)）+ **`ADMIN_ALERT_WEBHOOK`**（业务阈值告警，推到站长 IM/webhook）。
-
-```ts
-// src/server/alert.ts —— 统一告警出口
-export async function alert(kind: AlertKind, detail: unknown) {
-  Sentry.captureMessage(`[alert] ${kind}`, { level: 'warning', extra: { detail } });
-  const url = process.env.ADMIN_ALERT_WEBHOOK;
-  if (url) await fetch(url, {
-    method: 'POST', headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ kind, detail, at: new Date().toISOString() }),
-  }).catch(e => Sentry.captureException(e));       // 告警自身失败也要进 Sentry
-}
-```
-
-**告警项与阈值建议**：
-
-| 告警 kind | 触发条件 | 阈值建议 | 来源 |
-|---|---|---|---|
-| `daily_budget_exhausted` | 当日中转预算达上限、入口开始拦截 | 命中即报（每天首次） | [§11.8](#118-旧预算键清理-cron) |
-| `balance_reconcile_mismatch` | 物化余额 vs 批次和不平 | 任一账户 drift≠0 即报 | [§11.3](#113-余额对账-cron) |
-| `queue_timeout_rescan` | 单次重扫置 failed 的数量 | >0 报；单次 >5 升级（疑后台批量挂） | [§11.6](#116-超时重扫-cron) |
-| `queue_backlog` | `queued` 行数 / 最老 `queued` 等待时长超阈（积压，非超时） | `queued` 行 >N 或最老等待 >M 分钟 | 看板⑥队列健康 [09-admin.md §10.7](09-admin.md) |
-| `relay_success_rate_low` | 中转近 1h 成功率 | <90% 警、<70% 急 | `events(image_succeeded/failed)` 聚合 |
-| `relay_latency_high` | 中转 p95 时长 | >相对基线 2× 或 >180s | `generations.duration_ms` |
-| `balance_low_overall` | 账面负债接近预算/余额耗尽 | 站长视成本设 | 看板 [§9](../redesign-requirements.md) |
-| `redeem_anomaly` | 兑换失败率/429 暴涨（疑刷码） | 单 IP/账号 10min 内 >N 次失败 | [03-money.md §4.7](03-money.md) 限流 |
-| `cron_failed` | 任一 cron handler 抛异常 | 命中即报 | [§11.1](#111-scheduled-总览) |
-
-> 规格 [§23](../redesign-requirements.md)「队列积压与超时」两类风险分别由 `queue_backlog`（积压：`queued` 堆积/久等，数据源看板⑥）与 `queue_timeout_rescan`（超时：[§11.6](#116-超时重扫-cron) 重扫置 failed）两条告警并列覆盖。
->
-> "每日扣费数 vs 中转账单差异"（[§23](../redesign-requirements.md)）属人工对账：用 `SUM(credit_ledger debit)` 笔数对中转账单笔数（[§11.4](#114-bigint-sum-codec毫积分跨-json-的坑) bigint 取法），月度核一次，差异即可能有"扣了费没成图"或"成图没记账"，回查 events。
-
-## 11.10 测试与 CI
-
-### 钱链路：对真 Neon 分支库跑事务测试（Vitest）
-
-钱/码的并发与重试正确性**只能对真 Postgres 验**（`FOR UPDATE` 行锁、部分唯一索引、`UPDATE…RETURNING` 原子性在内存 mock 里复现不了）。每个 PR 起一条 Neon 分支库（[02-database.md §3.5](02-database.md)）跑迁移后测。**必含用例**：
-
-| 用例 | 验什么 | 断言 |
-|---|---|---|
-| 并发双击兑换 | 同码两请求并发 | 仅 1 次 `affected=1` 入账，另一次 404/410；批次只建 1 个（[03-money.md §4.7](03-money.md)） |
-| 平台重试重入扣费 | 同 `generation_id` 调扣费事务两次 | `uq_debit` 命中，只扣 1 次 70mp、images 只 1 行（[03-money.md §4.3.1](03-money.md)） |
-| 抢占式状态机 | 同 generation 两个后台实例并发 | 仅 1 个 `queued→claimed` 成功、另一个 `affected=0` 退出（[03-money.md §4.5](03-money.md)） |
-| FIFO 跨批次 | 多批次、最早过期先扣、跨批扣够 70mp | 各批 `remaining` 不出负、永久批次最后扣（[03-money.md §4.3](03-money.md)） |
-| 过期清零幂等 | 过期 cron 跑两次 | 第二次 `uq_expire_lot` 命中跳过，余额不重复减；永久批次不动（[§11.2](#112-积分过期-cron)） |
-| 注册原子发放 | 注册回调重试两次 | `uq_grant_signup` 保证只发一次 140mp（[03-money.md §4.4](03-money.md)） |
-| 入队双闸 | 余额不足 / 并发满 | 402 不入队不扣费 / 409 超并发（[03-money.md §4.9](03-money.md)） |
-| 超时重扫 | `running` 行 started_at 拨早 6min | 置 `failed/provider_timeout`、并发释放、未扣费（[§11.6](#116-超时重扫-cron)） |
-| 余额对账 | 人为制造 drift | 检出 + 以批次修正收敛（[§11.3](#113-余额对账-cron)） |
-
-并发用例用 `Promise.all` 真并发发两条同参事务（不串行），断言其一成功其一被幂等/锁挡掉。测试连 `DATABASE_URL_UNPOOLED`（direct，跑 `FOR UPDATE`）。
-
-### Playwright 冒烟（关键路径不回归）
-
-一条端到端冒烟：**登录 → 生图（轮询到 succeeded）→ 看图（读 Supabase Storage `public_url`）→ 兑换码 → 余额增加**。中转在冒烟环境用桩/录制响应（避免真烧钱），断言五态流转（[08-frontend.md §9.4](08-frontend.md)）与扣费后余额变化。
-
-### 无界面 smoke（对真 Neon 分支跑服务端链路）
-
-灵感投稿（UGC）审核链路的服务端正确性用 `scripts/inspiration-submissions-smoke.ts` 对真 Neon 兜底（详见 [INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)；注入 `copyToInspirationSubmission` 桩免烧存储）：
-
-- **submit / 去重**：提交落 `inspiration_submissions(status=pending)`；同图（pending 或仍在架 approved）再提交被去重，`uq_insp_sub_pending_src` 兜底并发同图。
-- **越权**：投稿引用他人作品 → 404（owner-scope，服务端取权威 key/url/宽高，不信客户端）。
-- **approve**：建 `inspirations` 上架卡（`cover_key` = 投稿副本 key、`submitter_name` 掩码署名、`submitted_by` 审计）+ 置投稿 `approved` + `published_inspiration_id` + 审计 + `inspiration_reviewed` 通知；置终态。
-- **reject**：置 `rejected` + `review_reason` + 审计 + 通知。
-- **resubmit-after-delete**：源图删除后可重新投稿（pending 唯一索引仅约束在途，不挡历史）。
-
-迁移 `drizzle/0004_inspiration_submissions.sql` 由 `scripts/migrate-inspiration-submissions.ts` 应用（建 `inspiration_submissions` + `inspirations` 加 `submitted_by`/`submitter_name`）。
-
-`scripts/cron-smoke.ts` 新增**7 天保留段**断言孤儿清理对 UGC 副本的保护：pending 投稿副本受 known-set 保护不被回收、rejected/废弃副本按孤儿（>1h）回收（[§11.7](#117-图片清理-cron) 口径）。
-
-### Biome + GitHub Actions 门禁
-
-```yaml
-# .github/workflows/ci.yml（要点）
-jobs:
-  ci:
-    steps:
-      - run: pnpm biome ci .                       # lint + format 检查
-      - run: pnpm tsc --noEmit                     # typecheck
-      - run: pnpm vitest run                       # 钱链路对 PR 专属 Neon 分支（DATABASE_URL_UNPOOLED 注入）
-      - run: pnpm build                            # vite build
-      - run: pnpm tsx scripts/assert-no-secrets-in-bundle.ts   # 构建期密钥断言（见下）
-```
-
-流水线顺序 **lint → typecheck → test → build → 密钥断言**，任一失败阻断合入：
-
-- **每 PR 一条 Neon 分支**：CI 用 Neon API 按 PR 创建分支库 → 跑迁移 → 注入 `DATABASE_URL_UNPOOLED` 给测试 → PR 关闭时销毁分支。隔离、可对真库跑、互不污染。
-- **构建期密钥断言**：build 后扫 `build/client/`，断言真实 `RELAY_*`/`DATABASE_URL*`/`STORAGE_S3_*`/`BETTER_AUTH_SECRET`/custom 任务主密钥值及内部 schema 标记未出现；本地命令加载 `.env`，固定公开 custom URL 只做精确 allowlist。
-
-## 11.11 Key 模式、deadline 与安全验证（2026-07-11）
-
-### 统一 deadline helper
-
-- system/custom 创建时都写 `deadline_at=created_at+5min`。超时扫描条件以 `deadline_at<=now()` 为准，覆盖 `queued/claimed/running`，不再用各状态不同的 started/updated 相对时间推断。
-- `generate-status` 在读前调用与 cron 相同的 `expireDueGenerations({ generationIds, userId, now })`：状态谓词更新为 `failed/provider_timeout`，写脱敏事件、清 custom credential。cron 是无人轮询时的兜底，不是唯一权威入口。
-- Background claim、上游返回、落图成功和超时收口必须做竞争测试；只有成功更新 generation 终态的一方可写对应事件/扣费，另一方幂等退出。
-- 上游测试注入虚拟时钟和 AbortSignal，断言可用时间为 `deadlineAt-now-30s`。不真实等待 5 分钟。
-
-### custom 凭据生命周期
-
-- 凭据由数据库 `now()+10min` 计算到期，每 5 分钟按数据库 `expires_at<=now()` 删除；正常调度最迟 15 分钟物理删除，应用实例时钟不得改变 SLA。若关联 generation 仍是中间态且 deadline 已过，先用统一 helper 收口。告警指标：删除数量、最老密文年龄、终态仍带 credential 的数量（目标 0）。
-- 日志只记 generationId/mode/阶段/耗时/错误码，不记请求 body、Authorization、Key、密文或解密异常原文。`captureException/captureMessage` wrapper 在 console 与 Sentry sink 前统一做字段和值级清洗，并用注入 sink 的测试证明两处均已脱敏。
-- 运行时哨兵使用高熵测试 Key，覆盖 202、成功、鉴权失败、配额失败、429、网络异常、超时、存储失败；扫描 DB 普通表、events/audit、捕获日志、Sentry 桩、用户/admin 响应，除允许的临时密文外不得命中 plaintext。
-
-### 必测矩阵
-
-| 维度 | 用例 |
+| 时间 | 任务 |
 |---|---|
-| system 回归 | 余额/并发/预算三闸；成功只扣一次；失败/超时不扣；只使用 system Key |
-| custom 入队 | 零余额、system 预算满、system 并发满仍可入队；连续至少 3 项均 202；无 Key 400 且不建任务 |
-| custom 成功 | t2i/i2i 均固定 URL、同一 `callRelay`、图片入同一存储；`creditsChargedMp=0` 且账户/lots/ledger 不变 |
-| custom 失败 | 无效 Key、配额、普通 429、内容拒绝、网络、响应、存储、未知错误精确映射；不调用 system Key |
-| 停用/回滚 | kill switch 缺省 false；关闭 custom 503/零写入、system 正常；收口脚本 dry-run、确认词、终态竞争、删凭据和审计 |
-| 批量状态 | 每批最多 50 IDs、51+ 自动分片、去重、owner-scope、显式 missingIds、混合终态、单项终态不停止其他项、刷新后恢复 |
-| 5 分钟 | queued/claimed/running 均可收口；状态读无需等 cron；成功/超时竞争只有一个终态；两种 mode 都清凭据/不误扣 |
-| 前端 | 模式记忆与账号隔离、保存/切换/清除、360px/桌面无重叠、custom 不因余额禁用、多任务卡正确关联 |
+| 每分钟 | generation deadline rescan |
+| 每 5 分钟 | 过期 custom credential 清理 |
+| 16:00 | budget cleanup |
+| 16:10 | credit expiration |
+| 16:30 | balance reconciliation |
+| 17:00 | image/orphan cleanup |
 
-完整合入门：`npm run typecheck`、`npm run test:run`、`npm run test:money`、`npm run cron-smoke`、`npm run build`、`npm run assert-no-secrets`，再跑 mode/deadline 运行时哨兵与 Playwright。命令名若与 `package.json` 不符，以仓库脚本为准并同步实施计划，不得跳过对应能力。
+每个 handler 必须保持幂等、失败告警和数据库时钟语义。一个 scheduler 进程是当前
+部署约束；不要同时运行 Netlify scheduled functions 与 Docker scheduler。
 
-### 收尾红线清单
+## Health And Logs
 
-- [ ] 每条 cron 幂等（可重复触发/手动重跑不出错）+ `try/catch` 上报，不静默吞。
-- [ ] 过期/对账走 Pool/WS 事务；只读扫描走 HTTP；cron 错峰排（过期 → 对账）。
-- [ ] 所有 `SUM(*_mp)` 用 `::text`/bigint mode + `BigInt()`，绝不经 `number`（[§11.4](#114-bigint-sum-codec毫积分跨-json-的坑)）。
-- [ ] `deadline_at` 是 5min 权威数据；状态读取与 cron 共用原子收口 helper，前端只展示服务端终态。
-- [ ] 上线前填完 GB-hour 对账表、确认毛利为正（铁律②，[§11.5](#115-gb-hour-成本实测铁律)）。
-- [ ] system 单日预算熔断触发即告警；custom 不计该预算，但单独监控平台 compute/DB/存储敞口。
-- [ ] 钱链路 9 类用例对真 Neon 分支跑通；CI 含密钥断言。
-- [ ] custom Key 运行时哨兵、凭据终态立即删除与 10min TTL + 5min cron 边界、system/custom 全矩阵与批量轮询 Playwright 全部通过。
+`GET /healthz` 检查数据库连接和当前 generation/credential schema。Compose 用它
+决定 web 健康，worker、scheduler 与 Caddy 等待 web healthy 后启动。
+
+```bash
+docker compose --env-file deploy/.env.production ps
+docker compose --env-file deploy/.env.production logs --tail=200 web worker scheduler caddy
+curl -fsS -o /dev/null https://<domain>/healthz
+```
+
+## Required Checks
+
+```bash
+npm run typecheck
+npm run test:run
+npm run test:money
+npm run build
+npm run assert-no-secrets
+npm run docker:validate
+npm audit --audit-level=high
+```
+
+High/critical audit is a CI gate. Four moderate development-only advisories remain
+under Drizzle Kit's legacy esbuild loader; do not use `npm audit fix --force`,
+because its proposed fix downgrades Drizzle Kit to an incompatible release.
+
+Production smoke must additionally prove one system generation reaches exactly
+one terminal state, one stored image, and at most one debit. With custom disabled,
+custom requests must return `503` and create neither generation nor credential.
+Before enabling custom mode, test t2i/i2i zero-site-debit behavior, terminal
+credential deletion, redacted logs/audits, and containment rollback.
+
+## Cost And Capacity
+
+Track system and custom separately. System cost includes Docker host resources,
+relay usage, database, and object storage; custom has zero site-credit revenue but
+still consumes host/database/storage resources. Establish host CPU/memory,
+worker queue latency, relay duration/failure rate, database connection count, and
+storage/egress baselines before raising concurrency or pricing volume.
+
+Keep `WORKER_CONCURRENCY=1` and one scheduler for first release. Scale workers
+only after measuring atomic claim behavior and relay capacity. Evaluate Redis or
+BullMQ only when PostgreSQL queue throughput is demonstrably inadequate.
+
+## Secrets
+
+`npm run assert-no-secrets` scans client build output. Production logs, Sentry,
+alerts, events, audits, normal tables, and API responses must not contain system
+or custom plaintext Keys. Rotate leaked credentials outside the repository and
+revoke active sessions as part of first release.

@@ -1,8 +1,8 @@
-// Scheduled Function（北京 00:10 = UTC 16:10，schedule 在 netlify.toml）：积分过期清零（真相源 03 §4.8 / 10 §11.2）。
+// Credit expiration job. Docker schedule: 北京 00:10 = UTC 16:10（scripts/scheduler.ts）。
 // 把「到期仍有余」的批次清零 + 写 expire 流水（uq_expire_lot 幂等）+ 逐笔同步物化余额。永久批次（expires_at IS NULL）跳过。
 //
-// 🔴 红线：钱 cron 走 Pool/WS 事务（expireCredits 内部 tx + FOR UPDATE）；排在对账 cron 之前（先清过期、未过期口径才一致）；
-//    cron try/catch → alert(cron_failed) + Sentry，绝不静默吞。
+// 🔴 红线：钱任务走 Pool/WS 事务（expireCredits 内部 tx + FOR UPDATE）；排在对账任务之前；
+//    job try/catch → alert(cron_failed) + Sentry，绝不静默吞。
 import { alert } from "../../src/server/alert.server";
 import { expireCredits } from "../../src/server/money/expire.server";
 import { captureException } from "../../src/server/sentry.server";

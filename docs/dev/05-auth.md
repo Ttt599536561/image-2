@@ -6,9 +6,9 @@
 
 ## 6.1 Better Auth 配置
 
-落地形态：email+password（**不验邮箱**，规格 §4「注册即用」）+ **admin 插件**（角色/封禁能力）+ **bcryptjs**（纯 JS、无 native 依赖，适配 serverless 冷启动）。
+落地形态：email+password（**不验邮箱**，规格 §4「注册即用」）+ **admin 插件**（角色/封禁能力）+ **bcryptjs**（纯 JS、无 native 依赖，适合容器运行）。
 
-**钉版避 multi-session CVE**：`better-auth` 与各插件**锁定到经核验的安全版本**（package.json 写死精确版本号，不用 `^`/`~`；CI 跑 `npm audit`），规避历史上 multi-session 插件的会话越权问题。本期**不启用 multi-session 插件**（一个账号一套会话语义足够，少一个攻击面）。
+**钉版避 multi-session CVE**：`better-auth` 与各插件锁定到经核验的精确版本，规避历史上 multi-session 插件的会话越权问题。本期不启用 multi-session 插件。依赖审计目前是发布前人工检查，尚未作为 CI 门禁。
 
 ```ts
 // src/lib/auth.ts —— 服务端唯一 Better Auth 实例
@@ -83,7 +83,7 @@ export const action  = ({ request }: Route.ActionArgs) => auth.handler(request);
 
 | 表 | 归属 | 谁建/管 |
 |---|---|---|
-| `user` / `session` / `account` / `verification` | Better Auth | 其 **CLI（`@better-auth/cli generate`）/适配器** 生成 schema；**不在 `src/db/schema.ts` 重复定义**（[02-database.md §3.4](02-database.md)），但落**同一 Neon 库** |
+| `user` / `session` / `account` / `verification` | Better Auth | schema 已固化在受控迁移中；不在 `src/db/schema.ts` 重复定义，但落同一 Neon 库 |
 | `users`（业务） | 业务 | `src/db/schema.ts`（[02-database.md §3.2](02-database.md)）：`role / max_concurrency / is_banned / has_paid` 等 |
 
 **对齐策略（明确定）**：
@@ -219,7 +219,7 @@ export async function onUserRegistered(user: { id: string; email: string }) {
 - 整段所有 insert 都 `ON CONFLICT DO NOTHING`；grant 流水靠 `uq_grant_signup` 保证**重试不重发 0.14**——这是最后硬防线。
 - 钩子失败应**让注册失败（向上抛）**，尽量不留「建了 Better Auth user 却没发积分」的态。重试时业务 `users`/`credit_accounts` 命中 conflict 跳过、grant 命中 `uq_grant_signup` 跳过，安全可重入。
 
-**孤儿账号兜底（after-hook 与 Better Auth user 创建不同事务）**：after-hook 在 Better Auth 建完 `user` 行**之后**触发、属另一笔 DB 操作，二者**不在同一事务**——仍可能出现「Better Auth user 已建、但业务发放失败」的孤儿窗口。兜底**有确定挂载点**：
+**孤儿账号兜底（after-hook 与 Better Auth user 创建不同事务）**：after-hook 在 Better Auth 建完 `user` 行之后触发、属另一笔 DB 操作，二者不在同一事务——仍可能出现「Better Auth user 已建、但业务发放失败」的孤儿窗口。当前兜底挂载点是：
 
 - **每次登录补发（确定挂载点）**：`databaseHooks.session.create.after`（§6.1）触发 `onSessionCreated`——每次会话创建（即每次登录）校验该 user 的 `credit_accounts` 是否存在，**无则补建业务 `users` + `credit_accounts` + signup 批次 + grant 流水**（复用 §6.6 `onUserRegistered` 同段逻辑），靠 `uq_grant_signup(ref_id=user_id)` 幂等保证**已发过的不重发、漏发的补上**。
 
@@ -235,7 +235,7 @@ export async function onSessionCreated(session: { userId: string }) {
 }
 ```
 
-- **cron 扫孤儿（确定兜底，非"亦可"）**：定时扫描「有 Better Auth `user` 行却缺 `credit_accounts`」的孤儿，批量补发——**不依赖用户再次登录**，覆盖"建号后从不再登录"的极端窗口。靠 `uq_grant_signup` 幂等与登录补发互不重复。cron 与孤儿清理同族调度见 [10-ops-test.md §11.7](10-ops-test.md)。
+当前 scheduler 没有全量孤儿扫描任务；从不再次登录的极端孤儿需要运维查询或后续补任务，状态见 [PROGRESS.md](../PROGRESS.md)。
 
 ## 6.7 admin 鉴权
 
@@ -254,20 +254,20 @@ export async function requireAdmin(request: Request): Promise<Ctx> {
 - guard 失败：前端路由 loader 抛 403 → 重定向登录/首页；API 返回 403 JSON。后台总览/RBAC 见 [09-admin.md §10.1](09-admin.md)。
 - **忘记密码本期占位**（§24-1）：登录页放「忘记密码?」链接 → 提示「请联系站长重置」（无邮件基建，不接 Better Auth 的 reset 邮件流）；真正重置走 §6.5 admin 改密。
 
-## 6.8 鉴权红线清单（落地必守）
+## 6.8 鉴权不变量
 
-- [ ] `better-auth` 及插件**钉精确版本**避 multi-session CVE；本期不启用 multi-session 插件。
-- [ ] `BETTER_AUTH_SECRET`/`BETTER_AUTH_URL` 只在服务端；构建期断言不进 bundle（[00 §1.4](00-overview.md)）。
-- [ ] 业务 `users.id` 去 DEFAULT，**恒由 after-hook 写入** Better Auth `user.id`（后者配 `generateId:'uuid'`、列迁原生 uuid 同型可建外键）；业务字段不塞 `additionalFields`（钱事务不碰鉴权表）。
-- [ ] 敏感路径（生成/兑换/admin）走 `requireUserStrict`/`requireAdmin`：`auth.api.getSession` + `disableCookieCache` 每请求查 DB 会话，再 `SELECT is_banned FROM users`，不裸查 `session` 表、不吃 300s cookieCache。
-- [ ] 封禁/改密走 Better Auth admin API（`banUser`/`revokeUserSessions`/`setUserPassword`，立即下线/强制重登），不裸删 `session` 表；按「先吊销后写审计 + 审计失败补偿重试」执行 + 写 `audit_log`。
-- [ ] 密码 **≥6 且 ≤72 字节**：字节限长**在 §6.1 `password.hash` 内强制断言**（`TextEncoder`，注册与 admin `setUserPassword` 都必经），`maxPasswordLength` 仅粗过滤（按字符、非字节防线）；防 bcrypt 72 字节截断越权。
-- [ ] 注册 after-hook 走 [03-money.md §4.4](03-money.md) 原子发放，`uq_grant_signup` 幂等；钩子失败让注册失败、可安全重入。孤儿兜底**双确定挂载点**：`session.create.after` 每次登录补发 + cron 扫孤儿（不依赖再登录），均靠 `uq_grant_signup` 幂等。
+- `better-auth` 及插件钉精确版本；本期不启用 multi-session 插件。
+- `BETTER_AUTH_SECRET`/`BETTER_AUTH_URL` 只在服务端，构建期秘密扫描不得进客户端 bundle。
+- 业务 `users.id` 与 Better Auth `user.id` 同源；钱事务不碰鉴权表。
+- 生成、兑换和 admin 路径使用 `requireUserStrict`/`requireAdmin`，每请求校验数据库会话和封禁态。
+- 封禁、改密使用 Better Auth admin API 并吊销会话；敏感操作写 `audit_log`，不记录密码。
+- 密码为 6–72 字节，`password.hash` 内强制字节上限，避免 bcrypt 截断。
+- 注册赠送与登录时的孤儿补发共用 `uq_grant_signup` 幂等约束。
 
 ## 6.9 custom Key 的身份与归属边界
 
 - system/custom 两种生成都必须先过 `requireUserStrict`：有效会话、每请求 DB 校验、封禁拦截完全一致。custom 不扣费不等于匿名或弱鉴权。
 - 浏览器配置键名包含稳定 `user.id`，例如 `image-workshop:api-config:v1:<userId>`；同一浏览器切换账号时只加载当前 ID 的配置，禁止用 email（可变/含个人信息）或全局固定键。
 - 首次没有该用户配置时默认 system；刷新/重新登录恢复最后模式。按已批准产品决策，退出登录**不删除**该用户本地 custom Key，清除必须由用户在 Key 弹窗显式执行。
-- 服务端不把 custom Key 写进 Better Auth user/session、业务 `users`、账号配置或跨设备同步。临时凭据通过 `generation.user_id` 归属；Background/状态/清理访问均不得跨用户 ID。
+- 服务端不把 custom Key 写进 Better Auth user/session、业务 `users`、账号配置或跨设备同步。临时凭据通过 `generation.user_id` 归属；worker、状态读取和清理访问均不得跨用户 ID。
 - API owner-scope 负例必须覆盖：伪造他人 conversation、generation、input image 或 credential ID 均返回 404/拒绝且不暴露对象是否存在。

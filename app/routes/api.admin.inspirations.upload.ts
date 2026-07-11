@@ -1,6 +1,6 @@
 // POST /api/admin/inspirations/upload（灵感封面本地上传，multipart 单文件 `file`）。
 // 双守卫之一：requireAdmin（每请求查 DB role + 未封禁）。落 inspirations/<uuid> → 返回公有 URL。
-// 🔴 红线：① 类型以「魔数嗅探」为权威（不信可伪造的 Content-Type）；② 大小双查（声明+实际，≤4MB，留 Netlify 6MB body 余量）。
+// 🔴 红线：① 类型以「魔数嗅探」为权威（不信可伪造的 Content-Type）；② 大小双查（声明+实际，≤4MB）。
 import { httpError } from "../../src/contracts/error";
 import {
   UPLOAD_ACCEPT,

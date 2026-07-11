@@ -1,7 +1,7 @@
-// ★server-only：抢占式状态机（铁律③，真相源 03 §4.5 / 04 §5.3）。挡平台对 Background Function 自动重试
-//   / cron 重扫的「重复下单 + 重复扣费」。两步都用 HTTP 单语句（UPDATE…WHERE…RETURNING 即原子，无需事务）。
+// ★server-only：抢占式状态机（铁律③，真相源 03 §4.5 / 04 §5.3）。挡 worker 重领
+//   / scheduler 重扫的「重复下单 + 重复扣费」。两步都是原子单语句，无需显式事务。
 //
-// 🔴 红线：claim 必须是后台函数「入口第一件事」——`UPDATE…WHERE status='queued' RETURNING`，affected=0 立即退、
+// 🔴 红线：claim 必须是 worker 处理任务的第一件事——`UPDATE…WHERE status='queued' RETURNING`，affected=0 立即退、
 //   不调中转、不扣费；只有第一个把 queued→claimed 的实例能继续。
 import { randomUUID } from "node:crypto";
 import { getSql } from "../../db/db.server";
@@ -48,7 +48,7 @@ export async function claim(generationId: string, tag: string = workerTag()): Pr
   };
 }
 
-/** 置 running + 写 started_at（抢到后、调中转前）。超时 cron 以 COALESCE(started_at, updated_at) 兜底僵尸行。 */
+/** 置 running + 写 started_at（抢到后、调中转前）。scheduler 负责超时兜底。 */
 export async function markRunning(generationId: string): Promise<void> {
   const sql = getSql();
   await sql`UPDATE generations SET status='running', started_at=now(), updated_at=now()

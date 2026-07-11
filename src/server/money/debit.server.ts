@@ -2,8 +2,8 @@
 //   本函数只跑「单 Pool/WS 事务 + FOR UPDATE」。
 //
 // 顺序（一字不差照 03 §4.3）：
-//   ⓪a 锁 generation 行 + 断言 running（挡超时 cron 翻 failed 后仍扣 = pipe-1）
-//   ⓪b 探 uq_debit 已存在（挡平台重试/重投重入重复扣 lots = money-1；命中则只补置终态、绝不再扣）
+//   ⓪a 锁 generation 行 + 断言 running（挡 scheduler 超时收口后仍扣 = pipe-1）
+//   ⓪b 探 uq_debit 已存在（挡 worker 重领/事务重投重复扣 lots = money-1；命中则只补置终态、绝不再扣）
 //   ① FIFO 锁可用批次（ORDER BY expires_at ASC NULLS LAST, created_at ASC）
 //   ② 跨批 FIFO 扣减不出负，实扣量 charged（极端并发可能 < PRICE_MP，记 credit_shortfall）
 //   ③ INSERT images ON CONFLICT(generation_id) DO NOTHING

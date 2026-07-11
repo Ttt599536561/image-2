@@ -2,8 +2,8 @@
 // 选跑（CI 单独 job）。运行器是 @playwright/test（非 vitest），且本文件/ tests/e2e 不在 tsconfig include 内，故不入 tsc/默认单测。
 //
 // 安装（首次）：npm i -D @playwright/test && npx playwright install chromium
-// 跑：① 起 server（netlify dev，加载 .env 的 Neon/Storage/中转）→ ② E2E_BASE_URL=http://localhost:8888 npx playwright test
-//   中转建议用桩/录制响应避免真烧钱（10 §11.10）。
+// 跑：npm run test:e2e。受保护 runner 加载 .env.test，Playwright 自动启动 dev:ui:test。
+// 真中转场景默认跳过，只能在显式批准的 disposable 环境启用。
 import { defineConfig, devices } from "@playwright/test";
 import { assertLoopbackTestUrl } from "./scripts/test-env-guard";
 

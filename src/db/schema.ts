@@ -1,7 +1,7 @@
 // Drizzle schema — 逐列对齐 docs/dev/02-database.md §3.2 (DDL) / §3.3 (索引)。
 // 金额定死整数：积分列 *_mp = 毫积分 BIGINT；现金列 *_cash = 分 BIGINT。绝不 float/NUMERIC。
 //
-// 🔴 命门红线（02 §3.4 / PHASE2-PLAN §1）：
+// 🔴 命门红线（docs/dev/02-database.md §3.4）：
 //  - 5 个「部分唯一索引」(uq_debit/uq_refund/uq_grant_signup/uq_credit_code/uq_expire_lot) 是钱的幂等键，
 //    带 WHERE 谓词；drizzle-kit 推断不可靠 → 生成迁移后必须人工核对 drizzle/*.sql 里确有 WHERE。
 //  - users.id 无 DB default：恒由注册 hook 写入 Better Auth 的 user.id（05 §6.2）。

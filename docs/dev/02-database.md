@@ -18,7 +18,7 @@
 | `generations` | 内容/队列 | 生成记录 **+ 状态机（DB-as-queue）** |
 | `images` | 内容 | 落地图（对象存储 key + public_url + 保留期） |
 | `audit_log` | 后台 | 管理员敏感操作留痕 |
-| `notifications` | 内容/提醒 | 站内通知（仅「图片到期前 1 天」入表；积分到期走 `/api/me` 实时字段不入表） |
+| `notifications` | 内容/提醒 | 站内通知：图片到期、后台公告、灵感审核结果；积分到期走 `/api/me` 实时字段 |
 | `inspiration_submissions` | 内容/UGC | 灵感库用户投稿与审核队列（与上架表 `inspirations` 分离，详见 [INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)） |
 | `events` | 看板 | append-only 事实表，看板全从它聚合 |
 | `app_config` | 配置 | 全局参数（[00 §1.5](00-overview.md)） |
@@ -176,7 +176,7 @@ CREATE TABLE audit_log (
   created_at   timestamptz NOT NULL DEFAULT now()
 );
 
--- ========== notifications（站内通知；仅「图片到期前 1 天」入此表，积分到期走 /api/me 实时字段不入表，见 04-generation-pipeline.md / 07-api.md） ==========
+-- ========== notifications（图片到期、后台公告、灵感审核结果；积分到期走 /api/me 实时字段） ==========
 CREATE TABLE notifications (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,

@@ -21,7 +21,7 @@
 
 | 项 | 约定 |
 |---|---|
-| 前缀 | 全部挂 `/api/admin/*`（同步 Function，`netlify/functions/admin-*.ts`） |
+| 前缀 | 全部挂 `/api/admin/*`（RR resource routes + server service modules） |
 | 鉴权 | 每个 handler 首行 `const admin = await requireAdmin(req)`；非 admin → `403` |
 | 钱/码事务 | 走 Pool/WS + `FOR UPDATE`（[00 §1.3](00-overview.md)）；看板只读走 HTTP |
 | 契约 | 请求/响应 Zod schema 放 `src/contracts/admin.ts`（[07-api.md §8.5](07-api.md)） |
@@ -354,7 +354,7 @@ async function writeAudit(c, e: {
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
     [e.adminId, e.action, e.targetType, e.targetId, e.before ?? null, e.after ?? null, e.ip, e.reason]);
 }
-// ip 取自请求头（Netlify: x-nf-client-connection-ip / x-forwarded-for 首段）
+// 仅在 TRUST_PROXY=true 时读取 Caddy 写入的 x-forwarded-for 首段
 ```
 
 **审计红线（§9 / §24-13）**：
@@ -405,16 +405,12 @@ async function writeAudit(c, e: {
 - 现有“中转站配置”仍只管理 system 的 `app_config` URL/Key。custom 固定 URL 不是后台参数，不得增加可编辑入口。
 - 审计日志可记录“管理员改 system relay 配置”，但任何 custom Key 的保存/切换是浏览器本地行为，不写审计或事件。
 
-## 后台落地红线清单
+## 后台不变量
 
-- [ ] `/admin/*` 双重守卫：布局 loader + 每个 admin API 各自 `requireAdmin`（每请求查 DB，[05 §6.7](05-auth.md)）。
-- [ ] 码用 CSPRNG（`crypto.randomInt`）+ `src/contracts` 的 `REDEEM_ALPHABET`（31 字符去混表，与 [07 §8.5](07-api.md) 共用），靠 `code UNIQUE` 兜唯一；生成时**落套餐快照**到 `redeem_codes`。
-- [ ] 作废只动 `status='active'` 的码；对账/收入只认已兑换 `cash_value`（面值现金）。
-- [ ] 生成响应回 `codes[]` 明文供撰写区「复制全部(N 个)」+ 只读 textarea；批次列表行「复制码」拉该批 export CSV 取首列；CSV 导出保留（站长不强制下 CSV、可直接复制，commit `ac1c310`）。
-- [ ] 调积分走 `adjust` 流水 + 必填原因 + FIFO 锁扣 **不出负**（`balance_mp CHECK≥0` 兜底）；改密/封禁**吊销会话**（[05 §6.5](05-auth.md)）。
-- [ ] **所有敏感写**：二次确认 + 同事务写 `audit_log`(before/after/ip/reason)；改密类不落明文。
-- [ ] `audit_log` 只追加，**无删改端点**（管理员不可改自己的记录）。
-- [ ] 看板全从 `events` 聚合（队列健康例外查实时表）；**所有 `SUM` 走 string codec 换 BigInt**（[10-ops-test.md §11.4](10-ops-test.md)）。
-- [ ] 生成记录默认近 7 天/50 条、倒序、失败行直显三列；system 七值、custom 十值读取取并集并可按 mode 筛选；缩略图全局 lightbox。
-- [ ] 生成列表/看板可区分 system/custom；后台所有 API 与页面均不得返回 custom credential 行或任何可推导 Key 的材料。
-- [ ] 灵感投稿队列（`_admin.inspiration-submissions`）双守卫（页 `requireAdminPage` + 两条 API `requireAdmin`）；通过/驳回二次确认，并在同一事务内写 `writeAudit`（`approve_inspiration_submission` / `reject_inspiration_submission`）和 `inspiration_reviewed` 通知；通过流程以 `FOR UPDATE` + `status='pending'` 防并发重复上架。投稿表与上架表分离、全程不扣积分，详见 [灵感投稿审核队列](#灵感投稿审核队列ugc--_admininspiration-submissions) 与 [INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)。
+- `/admin/*` 使用布局 loader + 每个 API 的双重 `requireAdmin` 守卫。
+- 兑换码使用 CSPRNG 与唯一约束，落套餐快照；作废只修改 active 码，收入只认已兑换面值。
+- 调积分使用 adjust 流水、必填原因和 FIFO 锁扣；改密/封禁吊销会话。
+- 敏感写二次确认并写 append-only `audit_log`，密码等秘密不入审计。
+- 看板历史口径从 events 聚合，队列健康查实时表；SUM 使用 string/bigint codec。
+- 生成记录区分 system/custom，但任何 admin API 与页面都不得返回 custom credential 材料。
+- 灵感投稿审核使用 admin 双守卫、行锁、状态谓词、同事务审计与通知。

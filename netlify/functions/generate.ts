@@ -1,5 +1,5 @@
 // POST /api/generate（同步入队，真相源 04 §5.2）。轻/快/只校验+入队，**绝不 await 中转**。
-// requireUserStrict（敏感写·每请求查 DB·封禁拦截）→ enqueue 三闸(402/409/429) → 触发真后台(fire-and-forget) → 202。
+// requireUserStrict（敏感写·每请求查 DB·封禁拦截）→ enqueue 三闸(402/409/429) → 202；Docker worker 持续消费队列。
 import { httpError } from "../../src/contracts/error";
 import { GenerateRequest, generateRequestErrorCode } from "../../src/contracts/generate";
 import { requireUserStrict } from "../../src/lib/guard";

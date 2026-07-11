@@ -2,7 +2,7 @@
 import { z } from "zod";
 
 // 允许的参考图类型 + 大小上限（前端预校验 + 后端权威校验同值）。
-// 4MB：参考图经 SSR 函数中转入库，留足余量避开 Netlify 同步函数 ~6MB body 上限（更大图日后可改 presigned 直传）。
+// 4MB 是应用级固定上限；更大图片可在未来改为 presigned 直传。
 export const UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
 export const UPLOAD_ACCEPT = ["image/png", "image/jpeg", "image/webp"] as const;
 export type UploadMime = (typeof UPLOAD_ACCEPT)[number];

@@ -1,5 +1,5 @@
 // ★server-only：钱/码事务编排（00 §1.3 / 03）。Pool/WS over DATABASE_URL_UNPOOLED，
-// connect → BEGIN → fn → COMMIT/ROLLBACK → release → end（单 handler 内开-用-关，不跨请求复用）。
+// connect → BEGIN → fn → COMMIT/ROLLBACK → release；连接池在常驻进程内复用并于进程退出时关闭。
 //
 // 🔴 红线：凡「读-改-写多步 + 防并发双花」（扣费 FIFO / 注册原子发放 / 兑换 / 调账）必须走这里 + FOR UPDATE；
 //    HTTP 单语句模式不支持事务/FOR UPDATE，拿它防双花会落空。

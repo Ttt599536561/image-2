@@ -29,11 +29,11 @@ import {
 
 function env(name: string): string {
   const v = process.env[name];
-  if (!v) throw new Error(`[storage] 缺少环境变量 ${name}（接真存储前需配置，见 PHASE2-PLAN §0）`);
+  if (!v) throw new Error(`[storage] 缺少环境变量 ${name}（见 .env.example / deploy/.env.production.example）`);
   return v;
 }
 
-// 懒构造 + 缓存：离线 import / tsc 不触发 env 读取；serverless 内 S3Client 无状态可跨请求复用。
+// 懒构造 + 缓存：离线 import / tsc 不触发 env 读取；容器进程内复用无状态 S3Client。
 let _client: S3Client | null = null;
 export function getR2Client(): S3Client {
   if (!_client) {

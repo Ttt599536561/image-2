@@ -15,7 +15,7 @@
 | bucket | **公有 bucket** | 图片无隐私分级，公开可读；不签名、不鉴权 |
 | 公有访问 | Supabase 公有 bucket 的稳定公开 URL | 由 `STORAGE_PUBLIC_BASE_URL` 配置；前端只读落库 URL |
 | 防枚举 | **不可枚举 key**（§7.2 随机段） | 公有但「猜不到别人的图」，等价软隔离 |
-| 写入 | `STORAGE_S3_ENDPOINT` + S3 Access Key | 仅 Background/清理函数使用 |
+| 写入 | `STORAGE_S3_ENDPOINT` + S3 Access Key | 仅 web 上传、worker 与清理任务使用 |
 
 ### 凭据 env（全部服务端，永不进前端 · 引 [00-overview.md §1.4](00-overview.md)）
 
@@ -32,7 +32,7 @@
 
 | 方案 | 何时选 | 备注 |
 |---|---|---|
-| **`@aws-sdk/client-s3`**（推荐起步） | 直接、生态成熟、`PutObjectCommand` 即用 | 包体较大但 Background Function 冷启可接受；区域填 `auto` |
+| **`@aws-sdk/client-s3`**（推荐起步） | 直接、生态成熟、`PutObjectCommand` 即用 | 常驻 worker 无冷启动包体约束；区域按服务商填写 |
 | `aws4fetch` | 想要极小依赖、只用 PUT/DELETE | 手写 SigV4，适合后续瘦身；本期非必需 |
 
 `putObject` 调用骨架（`@aws-sdk/client-s3`）：
@@ -115,7 +115,7 @@ inspirations/submissions/{userId}/{yyyy}/{mm}/{uuid}.{ext}
 中转返回可能是**临时 URL** 或 **base64**，统一归一成字节后 PUT：
 
 ```ts
-// 都在 generate-background 内、扣费事务之前调用
+// 都在 worker 的 runGenerationJob 内、扣费事务之前调用
 export interface PutResult {
   storageKey: string; publicUrl: string;
   contentType: string; width?: number; height?: number; sizeBytes: number;
@@ -154,7 +154,7 @@ export async function putToR2(
 
 返回的 `{ storageKey, publicUrl, contentType, width, height, sizeBytes }` 直接喂给 [03-money.md §4.3](03-money.md) 扣费事务的 `INSERT images(...)`。`expires_at` 在事务里由 `retentionExpiry(user, cfg)`（§7.4，`cfg` 取 `app_config` 的 `{ freeDays, paidDays }`）算出。
 
-> **幂等**：`images.generation_id` UNIQUE + 扣费事务里 `ON CONFLICT (generation_id) DO NOTHING`（[03-money.md §4.3](03-money.md)）。平台重试若让同一 generation 二次落图，会多 PUT 一个新 `{rand}` key（孤儿，cron 清），但 DB 只认第一行——不会出现一张图两条 `images`。
+> **幂等**：`images.generation_id` UNIQUE + 扣费事务里 `ON CONFLICT (generation_id) DO NOTHING`（[03-money.md §4.3](03-money.md)）。worker 重入若让同一 generation 二次落图，会多 PUT 一个新 `{rand}` key（孤儿，scheduler 清），但 DB 只认第一行——不会出现一张图两条 `images`。
 
 ## 7.4 保留期（免费 7 / 付费 60 · 升级顺延）
 
@@ -183,7 +183,7 @@ WHERE user_id = $1;
 
 ## 7.5 清理 cron（过期图 + 孤儿对象）
 
-每日 Scheduled Function 跑两件事；**调度形态/时刻表在 [10-ops-test.md §11.7](10-ops-test.md)**，本节给清理逻辑与 SQL。
+每日 scheduler 任务跑两件事；**调度形态/时刻表在 [10-ops-test.md](10-ops-test.md)**，本节给清理逻辑与 SQL。
 
 ### A. 过期图清理（`expires_at < now()`）
 
@@ -264,7 +264,7 @@ for await (const page of listR2Pages()) {           // ListObjectsV2 续传 Cont
 
 中转返回的 URL 是临时签名 URL（过几分钟/几小时即失效），base64 更不能当地址用。**只要任何一处前端图源指向中转 URL，历史/资产库就会整片裂图**（[01-architecture.md §2.1](01-architecture.md) 要点已点名此坑）。规则：
 
-- 中转临时 URL/base64 **只在 Background Function 内**被 `putToR2` 消费一次（取字节），**绝不落 DB、绝不回前端**。
+- 中转临时 URL/base64 **只在 worker 内**被 `putToR2` 消费一次（取字节），**绝不落 DB、绝不回前端**。
 - DB `images.public_url` 是唯一稳定图源；前端所有读图面一律用它（loader/Query 返回的就是它）。
 
 **读图的全部面（都只读 `public_url`）**：
@@ -279,20 +279,19 @@ for await (const page of listR2Pages()) {           // ListObjectsV2 续传 Cont
 
 > 缩略图按需用对象存储/CDN 的图片变换或前端 `loading="lazy"`；本期可直接用原图 + CSS 裁剪。前端组件细节见 [08-frontend.md §9.6](08-frontend.md)。
 
-## 7.7 媒体红线清单（落地必守）
+## 7.7 媒体不变量
 
-- [ ] 公有 bucket + **自定义公有域**（不用 `*.r2.dev`）；key 末尾带 `{rand}` 随机段防枚举。
-- [ ] 对象存储凭据全在服务端 env，构建期断言不进 `dist/`（[00-overview.md §1.4](00-overview.md)）。
-- [ ] 落图**先 PUT 对象存储（事务外、存临时变量）→ 再开扣费事务**（[03-money.md §4.3](03-money.md)）；`images.generation_id` UNIQUE 幂等。
-- [ ] `storage_key`（服务端写删用）与 `public_url`（前端只读）分工不混用；`public_url` 服务端一次拼好落库。
-- [ ] `expires_at` = `retentionExpiry(user)`（免费 7 / 付费 60，走全局参数）；**首次兑换升级在兑换事务内 `GREATEST` 顺延旧图 60 天**（[03-money.md §4.7](03-money.md)）。
-- [ ] 清理 cron：过期图**先删对象存储、后删 DB**、写 `events(image_cleaned)`；孤儿清理只删「DB 无记录且 `LastModified>1h`」的对象。
-- [ ] **前端绝不读中转临时 URL/base64**；五类读图面（对话流 / 本次对话图片面板 / 资产库 / 灵感库 / 后台生成记录，见 §7.6 表）统一只读 `public_url`。
+- 对象 key 带随机段防枚举；凭据仅在服务端 env，客户端构建不得包含秘密。
+- 落图先 PUT 对象存储，再开终态/扣费事务；`images.generation_id` UNIQUE 保证幂等。
+- `storage_key` 仅服务端写删，`public_url` 是客户端唯一稳定图源。
+- 保留期按免费/付费策略计算；首次兑换在事务内顺延既有图片。
+- scheduler 清理过期图时先删对象、后删 DB；孤儿对象保留至少 1 小时保护窗。
+- 前端所有读图面只使用 `public_url`，绝不使用中转临时 URL/base64。
 
 ## 7.8 custom 结果与临时凭据清理
 
 - system/custom 都先把中转结果落到同一对象存储，使用相同 key 生成、`images` 表、`public_url`、会话历史、资产库和免费/付费 7/60 天保留策略。custom 不扣积分不代表图片临时保存或不进入资产体系。
 - system 落图后进入扣费成功事务；custom 落图后进入 [03 §4.11](03-money.md) 零扣费成功事务。两者都由 `images.generation_id UNIQUE` 防重复图片行，孤儿对象仍按现有 1 小时保护窗清理。
-- `generation_credentials` 不是对象存储内容，不得把 Key、密文或加密主密钥写到 bucket。正常终态立即删凭据；孤儿 10 分钟到期、cron 每 5 分钟清理，正常最迟 15 分钟物理删除。
+- `generation_credentials` 不是对象存储内容，不得把 Key、密文或加密主密钥写到 bucket。正常终态立即删凭据；孤儿 10 分钟到期、scheduler 每 5 分钟清理，正常最迟 15 分钟物理删除。
 - 图生图参考图生命周期不变：custom 也必须 owner-scope 校验 `uploads/<userId>/`，使用后由现有孤儿清理回收，不能因 custom 跳过计费而跳过归属验证。
 - 验收需对同一用户分别生成 system/custom 图片，证明 URL 形态、会话回看、资产库、下载、删除、保留期与清理完全一致，且任何对象 metadata/键名不含 custom Key。

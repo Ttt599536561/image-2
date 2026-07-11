@@ -7,7 +7,7 @@ export function isLocalTestStorageEnabled(env: NodeJS.ProcessEnv = process.env):
 
 function storageRoot(): string {
   return resolve(
-    process.env.LOCAL_TEST_STORAGE_ROOT || resolve(process.cwd(), ".netlify/local-storage"),
+    process.env.LOCAL_TEST_STORAGE_ROOT || resolve(process.cwd(), ".local-test-storage"),
   );
 }
 

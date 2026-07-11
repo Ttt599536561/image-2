@@ -1,4 +1,4 @@
-# CI 门禁（⑦ · 真相源 10 §11.10）。流水线顺序 lint → typecheck → test → build → 密钥断言，任一失败阻断合入。
+# CI 门禁：依赖高危审计、类型、单测、构建、秘密与 Compose 配置，任一失败阻断合入。
 name: CI
 
 on:
@@ -19,6 +19,9 @@ jobs:
 
       - name: Install deps
         run: npm ci
+
+      - name: Dependency audit (high and critical)
+        run: npm audit --audit-level=high
 
       # Biome（lint + format 检查）。当前仓未引 Biome（无 biome.json）→ 自动跳过；引入后此步即生效。
       - name: Biome (if configured)
@@ -52,6 +55,9 @@ jobs:
           STORAGE_S3_ACCESS_KEY_ID: ${{ secrets.STORAGE_S3_ACCESS_KEY_ID }}
           STORAGE_S3_SECRET_ACCESS_KEY: ${{ secrets.STORAGE_S3_SECRET_ACCESS_KEY }}
         run: node --import tsx scripts/assert-no-secrets-in-bundle.ts
+
+      - name: Validate Docker Compose
+        run: npm run docker:validate
 
 # TODO（需 Neon API token，10 §11.10）：每 PR 起一条 Neon test branch → 跑迁移 → 注入 DATABASE_URL_UNPOOLED 给
 #   `npm run test:money`（钱链路真库测试，命门）→ PR 关闭时销毁分支。当前 test:money 对共享 direct 串本地跑，

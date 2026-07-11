@@ -46,16 +46,16 @@ export class RelayError extends Error {
 // getConfigString 已对 DB 不可达鲁棒（回退 null）→ 再回退 env（防 relay 因配置读失败全挂）。
 async function relayBases(): Promise<string[]> {
   const primary = (await getConfigString("relay_base_url")) || process.env.RELAY_BASE_URL;
-  if (!primary) throw new Error("[relay] 缺少 RELAY_BASE_URL（见 PHASE2-PLAN §0）");
+  if (!primary) throw new Error("[relay] 缺少 RELAY_BASE_URL（见 .env.example / deploy/.env.production.example）");
   const backup = process.env.RELAY_BASE_URL_BACKUP; // 可空；无备用则只试主
   return backup && backup !== primary ? [primary, backup] : [primary];
 }
 
 // 中转 Key：主取 app_config.relay_api_key（后台可改、换厂商即时生效），回退 env RELAY_API_KEY。
-// ★ Key 只在 Background Function 内解析、注入 Authorization，绝不下发客户端（后台 GET 也只回 masked）。
+// Key 只在 worker 调 relay 前解析并注入 Authorization，绝不下发客户端（后台 GET 也只回 masked）。
 async function relayKey(): Promise<string> {
   const key = (await getConfigString("relay_api_key")) || process.env.RELAY_API_KEY;
-  if (!key) throw new Error("[relay] 缺少 RELAY_API_KEY（见 PHASE2-PLAN §0）");
+  if (!key) throw new Error("[relay] 缺少 RELAY_API_KEY（见 .env.example / deploy/.env.production.example）");
   return key;
 }
 

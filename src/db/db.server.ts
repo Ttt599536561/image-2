@@ -4,7 +4,7 @@
 //
 // 🔴 红线：凡「读-改-写多步且防并发双花」（扣费 FIFO / 注册原子发放 / 退款 / 调账）必须走 ① 事务模式；
 //    HTTP 单语句不支持 FOR UPDATE / 跨语句事务，拿它防双花会落空（00 §1.3）。
-//    DB client / pool 单 handler 内「开-用-关」、绝不跨请求复用（serverless 无常驻进程）。
+//    Docker 常驻进程复用 pool，并在进程退出时调用 closeDbPools()；disposable 测试保留隔离 pool。
 //
 // 注：本文件只负责「连接工厂」。事务编排助手 tx() 在 src/server/tx.server.ts（阶段二 §3）。
 
@@ -19,7 +19,7 @@ if (!neonConfig.webSocketConstructor) {
 
 function requireEnv(name: string): string {
   const v = process.env[name];
-  if (!v) throw new Error(`[db] 缺少环境变量 ${name}（接真 Neon 前需配置，见 PHASE2-PLAN §0）`);
+  if (!v) throw new Error(`[db] 缺少环境变量 ${name}（见 .env.example / deploy/.env.production.example）`);
   return v;
 }
 
@@ -60,8 +60,8 @@ function getLocalReadPool(): PgPool {
 
 /**
  * ① 事务连接池（Pool/WS over DATABASE_URL_UNPOOLED, direct endpoint）。
- * 用于钱/码事务：connect → BEGIN → … FOR UPDATE … → COMMIT/ROLLBACK → release → end。
- * 每个 handler 内新建、用完即 end()，不跨请求复用。事务编排见 tx.server.ts。
+ * 用于钱/码事务：connect → BEGIN → … FOR UPDATE … → COMMIT/ROLLBACK → release。
+ * Docker 进程复用连接池，进程关闭时统一 end()；事务编排见 tx.server.ts。
  */
 export function getPool(): DbPool {
   if (usesDisposableLocalPostgres()) {
@@ -84,7 +84,7 @@ export async function closeDbPools(): Promise<void> {
 
 /**
  * ② HTTP 单语句客户端（neon() over DATABASE_URL, pooled endpoint）。
- * 用于看板只读聚合、单语句原子写（兑换核销 UPDATE…RETURNING）、cron 只读扫描。
+ * 用于看板只读聚合、单语句原子写（兑换核销 UPDATE…RETURNING）、scheduler 只读扫描。
  * 不支持 FOR UPDATE / 跨语句事务。
  */
 export function getSql(): SqlClient {

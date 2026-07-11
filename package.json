@@ -12,8 +12,7 @@
     "start:scheduler": "node --import tsx scripts/scheduler.ts",
     "start:web": "react-router-serve ./build/server/index.js",
     "db:migrate:production": "node --import tsx scripts/migrate-production.ts",
-    "dev:netlify": "netlify dev",
-    "dev:netlify:test": "node --import tsx scripts/run-netlify-test.ts",
+    "dev:disposable:test": "node --import tsx scripts/run-disposable-test.ts",
     "dev:ui:test": "node --import tsx scripts/run-ui-test.ts",
     "build": "react-router build",
     "typecheck": "react-router typegen && tsc",
@@ -28,7 +27,6 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1073.0",
     "@neondatabase/serverless": "^1.1.0",
-    "@netlify/blobs": "10.7.4",
     "@react-router/node": "8.0.1",
     "@react-router/serve": "^8.0.1",
     "@tanstack/react-query": "^5.66.0",
@@ -47,8 +45,6 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@better-auth/cli": "1.4.21",
-    "@netlify/vite-plugin-react-router": "4.0.0",
     "@playwright/test": "1.61.1",
     "@react-router/dev": "8.0.1",
     "@testing-library/jest-dom": "6.9.1",
@@ -64,11 +60,10 @@
     "dotenv": "17.4.2",
     "drizzle-kit": "^0.31.10",
     "jsdom": "29.1.1",
-    "netlify-cli": "^26.1.0",
     "pg-connection-string": "2.14.0",
     "toml": "^3.0.0",
     "typescript": "6.0.3",
-    "vite": "8.0.11",
+    "vite": "8.1.4",
     "vitest": "4.1.5"
   }
 }

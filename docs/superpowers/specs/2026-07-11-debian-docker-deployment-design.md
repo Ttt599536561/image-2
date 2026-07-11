@@ -1,5 +1,10 @@
 # Debian Docker Deployment Design
 
+Status: approved target. The runtime is implemented and locally verified;
+production rollout is pending. Handler extraction in items 2 and 5 is deferred:
+the Docker routes and scheduler currently import compatibility modules from
+`netlify/functions`, but do not require the Netlify platform.
+
 ## Goal
 
 Run the application on a Debian server with Docker Compose, removing Netlify as
@@ -42,14 +47,15 @@ commands select a single responsibility:
    Node server entrypoint.
 2. Move request handlers currently owned by `netlify/functions` into server
    modules so route resources and the Node process use the same implementation.
+   This cleanup remains open and is tracked in `PROGRESS.md`.
 3. Replace `triggerBackground` with durable wake-up behavior. The HTTP submit
    endpoint enqueues only; the worker continuously polls/claims eligible rows.
    Scheduler timeout rescan remains a recovery path, not the primary dispatcher.
 4. Expose no internal generation execution endpoint in production. The existing
    test-only route may remain guarded by `DISPOSABLE_TEST_DB_DRIVER`.
-5. Move each scheduled-function body into a callable cron service. Scheduler
-   runs those services at the existing UTC schedules and logs failures; a failed
-   run exits nonzero only after logging/capture has occurred.
+5. Move each scheduled-function body into a callable cron service. The current
+   scheduler directly calls compatibility handler bodies at the existing UTC
+   schedules; platform-neutral extraction remains open.
 
 ## Data and Correctness
 
@@ -72,8 +78,7 @@ The repository will include:
 - A multi-stage `Dockerfile` that builds React Router output and runs Node in
   production mode.
 - `compose.yaml` defining Caddy, web, worker, and scheduler with restart
-  policies, health checks, read-only source-free runtime images, and a private
-  service network.
+  policies, health checks, a private service network, and a non-root Node image.
 - A Caddy configuration for HTTPS and websocket-safe reverse proxying.
 - An environment template containing every required production variable but no
   secret values.

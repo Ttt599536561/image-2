@@ -1,9 +1,9 @@
-// Scheduled Function（北京 00:30 = UTC 16:30，schedule 在 netlify.toml）：余额对账（真相源 §22 / 10 §11.3）。
-// 物化余额 vs 权威余额 SUM(lots.remaining 未过期)，不平 → 先告警再以批次为准修正。**必须排在过期 cron(00:10) 之后**
+// Balance reconciliation job. Docker schedule: 北京 00:30 = UTC 16:30（scripts/scheduler.ts）。
+// 物化余额 vs 权威余额 SUM(lots.remaining 未过期)，不平 → 先告警再以批次为准修正。**必须排在过期任务(00:10) 之后**
 // （先清过期，未过期口径才一致）。
 //
 // 🔴 红线：SUM 走 ::text + BigInt（毫积分跨 JSON 防精度丢，§11.4）；drift 是 bug 信号（先告警再修正，根因得查事务）；
-//    cron try/catch → alert(cron_failed) + Sentry。
+//    job try/catch → alert(cron_failed) + Sentry。
 import { alert } from "../../src/server/alert.server";
 import { reconcileBalances } from "../../src/server/money/reconcile.server";
 import { captureException } from "../../src/server/sentry.server";

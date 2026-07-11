@@ -2,9 +2,9 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "netlify",
-      "runtimeExecutable": "npx",
-      "runtimeArgs": ["netlify", "dev"],
+      "name": "disposable-test",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:disposable:test"],
       "port": 8888
     },
     {

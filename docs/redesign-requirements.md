@@ -1,8 +1,8 @@
 # AI 图像工坊 · 产品需求规格（v2 重构）
 
-> 状态：v2 基线已落地；2026-07-11“系统/自定义 Key + 多任务生成”增补已批准、待实施。本文件是 v2 的**完整产品规格**；增补细则以 [批准版 PRD](../tasks/prd-user-api-key-modes.md) 为准。
+> 状态：v2 基线和 2026-07-11“系统/自定义 Key + 多任务生成”本地实现均已完成；生产 rollout 状态见 [PROGRESS.md](PROGRESS.md)。本文件是 v2 的**完整产品规格**；增补细则以 [批准版 PRD](../tasks/prd-user-api-key-modes.md) 为准。
 > 关联：[requirements.md](requirements.md)（v1 现状）、[development.md](development.md)（现有架构）、[test-cases.md](test-cases.md)（v1 用例）。
-> 更新：2026-07-11。历史段落描述既有 system-only 基线；与新增 §25 冲突时，以 §25 和批准版 PRD 为准。
+> 更新：2026-07-11。产品规则以本文件 §25 和批准版 PRD 为准；实施/发布状态只看 [PROGRESS.md](PROGRESS.md)。
 
 ## 1. 背景与目标
 
@@ -36,8 +36,8 @@
 - **模式化并发**：system 每用户默认 2、后台可调；custom 不设账户并发或提交限流，允许多任务连续提交。
 - 深色模式 + 暖色点缀。
 
-### 2.2 本期 Out of Scope / 后续
-- 图生图（参考图）：**新需求 2026-06-22，✅ 已实现**（Composer「参考图」入口已激活）。前置探测（`scripts/relay-edits-probe.ts`）实测中转 `POST /v1/images/edits`（`gpt-image-2`，multipart）→ 200 返回编辑图（含 quality/background 字段）。实现：上传**单张**参考图 → `/api/uploads`（魔数嗅探权威类型 + ≤4MB + 每用户限流）存 `uploads/<userId>/` → `GenerateRequest.inputImageKey`（入队 owner-scope 校验前缀）→ `generations.input_image_key` 列（迁移 0003）→ 管线 `callRelay` 有图走 edits multipart，**计费同 0.07、不限付费用户**；`callRelay` 走 `/images/edits` 时**强制 `response_format=b64_json`**——让中转**内联回 b64**、避免它默认回美西临时 url 致 `putToR2` 跨境二次下载变慢（曾超 5min 前端轮询窗）。参考图**「用后即弃」**（不进 7/60 天保留期，靠孤儿清理 cron 回收，known-set 保护在途）。详见 PROGRESS「第二批待开发队列」。
+### 2.2 已追加 / Out of Scope
+- 图生图（参考图）已实现：单张 PNG/JPEG/WEBP、魔数校验、≤4MB、owner-scoped 临时上传，worker 调 `/images/edits` 并强制 `b64_json`；参考图不进资产保留期，由孤儿清理回收。当前状态见 [PROGRESS.md](PROGRESS.md)。
 - 优化提示词：不实现，**按钮占位**。
 - 一次多图（`n`>1）：不做，每次一张。
 - 真实支付页 / 订阅：不做（走兑换码）。
@@ -56,7 +56,7 @@
 
 - 必须登录才能用；独立注册/登录页。
 - 凭据：**邮箱 + 密码**；不做邮箱验证；找回密码后置。
-- 密码用 `bcryptjs`（纯 JS，适配 serverless）加盐哈希存储。
+- 密码用 `bcryptjs`（纯 JS、无 native 依赖）加盐哈希存储。
 - 会话维持用 session/JWT。
 - 账号仅用于身份/历史/积分隔离，无资料页、社交登录。
 
@@ -76,7 +76,7 @@
 
 ### 5.1 Composer 构成
 默认一排药丸 + 发送键：
-- **参考图（+）**：占位"敬请期待"。
+- **参考图（+）**：上传单张 PNG/JPEG/WEBP，显示预览与移除；提交后进入图生图。
 - **模型**：**全站固定 `gpt-image-2`**，不提供模型选择（Composer 不再有模型药丸；如需可在某处只读展示"当前模型 gpt-image-2"）。因此看板不做"模型占比"。
 - **比例（尺寸唯一入口）**：点击弹浮层，复用现有 6 个场景选项：`智能 auto / 1:1 1024×1024 / 2:3 1024×1536 / 3:2 1536×1024 / 9:16 1088×1920 / 16:9 1920×1088`。
 - **高级设置**：浮层，含**质量、背景**两项。**审核（moderation）全站固定「宽松」(low)**，不作为可选项。
@@ -86,7 +86,7 @@
 - **生成前**按模式显示：system 为“本次消耗 0.07 积分 / 剩余 Y 积分”；custom 为“不扣积分”。每次仍只生成 1 张。
 
 ### 5.2 成功态（操作挂在每一轮结果上）
-单张成品图 + "已完成"标记。每轮结果旁的按钮只作用于该轮：**下载 / 重新生成（回填提示词+参数到输入框，可改再发）/ 复制提示词 / 查看原始响应(脱敏) / 存入资产库**。"用作参考"属图生图，本期不做。
+单张成品图 + "已完成"标记。每轮结果旁的按钮只作用于该轮：**下载 / 重新生成（回填提示词+参数到输入框，可改再发）/ 复制提示词 / 查看原始响应(脱敏) / 存入资产库**。图生图从 Composer 的参考图入口上传，本期不增加结果图上的“用作参考”快捷动作。
 
 ### 5.3 失败
 报错沿用现有映射（404/502 upstream/502 无法连达/504/CORS），**脱敏**防站长 Key 泄露；失败格明确"未扣/已退积分"。**生成中不可取消**——任务一旦开始就跑到成功或失败/超时为止（无取消按钮、无"已取消"态）。
@@ -111,7 +111,7 @@
 - **免费用户**：生成图默认保存 **7 天**。
 - **付费用户**（**曾兑换过任意兑换码**的账号）：保存 **60 天**。
 - **升级即顺延**：免费用户首次兑换成为付费后，其**已有旧图保留期统一顺延到 60 天**。
-- 到期由定时任务（cron，可用 Netlify Scheduled Functions）**自动清理**：删对象存储文件 + 删/标记数据库记录。
+- 到期由 scheduler cron **自动清理**：删对象存储文件 + 删/标记数据库记录。
 - **过期前提醒**：缩略图角标显示倒计时（如"3 天后过期"）+ 醒目"下载保留"入口；过期前站内提醒一次。
 
 ## 7. 兑换码与充值页
@@ -158,7 +158,7 @@
 - **全局参数（后台可改、不写死）**：单张扣费价（0.07）、新用户赠送额（0.14）、**新用户赠送有效期（天，默认 30）**、保留期天数（免费 7 / 付费 60）。
 - **数据看板（本期最小 7 卡）**：①今日注册数 ②今日成功/失败次数 + **失败原因 Top**（system 保留七值语义，custom 用 §25 十值，读取/聚合取并集并支持按 mode 下钻）③累计总图数 ④今日/累计收入 ⑤积分发放 vs 消耗 + 账面负债 ⑥队列健康 ⑦平均生图时长。再加：付费转化率/ARPU、DAU、尺寸占比。
 - **操作审计日志（本期做）**：管理员敏感操作（调积分、改密、封禁、生成/作废码、改配置/定价/文案/Key）留痕（管理员 ID、时间、对象、动作、变更前后值、IP、原因）；**只追加、管理员不可删改自己的记录**。
-- **站内通知配置 / 管理（新需求 2026-06-22）**：现状——站内通知**仅 `image_expiring`**（图片到期前 1 天 cron 自动产出）。本需求让管理员能在后台**创建并下发站内通知**，让前台铃铛不只有自动到期提醒。
+- **站内通知配置 / 管理（已实现）**：支持 `image_expiring`、后台 `announcement` 与灵感审核 `inspiration_reviewed`，前台铃铛统一展示。
   - ① **广播公告（✅ 已实现）**：通知类型 `announcement`（payload `{title, body, link?}`），后台撰写 → 选目标（全体 / 仅付费 `has_paid=true`）→ 下发；前台铃铛按类型渲染（Megaphone + 摘要，link 站内 navigate / 外链 window.open）。实现：`api.admin.notifications`(`requireAdmin`) + `notifications.server.broadcastAnnouncement`（per-user 批量插 `notifications`，`dedupe_key=announcement:<aid>:<uid>` 幂等、INSERT+审计同事务）+ `_admin.notifications.tsx` 撰写页 + `NotificationBell` 分支。link 安全分类器 `src/lib/announcementLink`（站内单层路径 / http(s) 外链）挡开放重定向。
     - **①增强：编辑 / 删除已发公告（新需求 2026-06-22，✅ 已实现）**：后台「已发公告」列表（按公告 id 聚合，显示目标〔审计回捞〕/ 接收数 / 已读数 / 时间）+ 每条**编辑**（批量改同一 `announcement:<aid>:%` 的 payload，可勾「重新提醒」=重置 `read_at` 重弹红点）/ **删除**（批量删该波 `notifications` 行）→ **同步用户端**。审计 `edit_announcement` / `delete_announcement`、二次确认、同事务。0 行命中→404。aid 经 `z.uuid()` → LIKE 无通配注入。
   - ② **用户端公告体验（新需求 2026-06-22，✅ 已实现）**：点铃铛公告 → **弹出详情弹窗**（完整 title/body/link 按钮/时间 + 知道了，关闭不删）；**看完仍保留**——铃铛列表改拉近 50 条全部（已读+未读）、未读淡陶土高亮·已读灰显、红点只计未读、关闭弹窗不删通知（修正现状「打开即已读 + 只查 unread → 看完消失」）。**连带修**：`image_expiring` 到期提醒在 cron 删图时连带删除（`deleteExpiredImages`），免拉全部后残留提醒滞留/挤占公告名额。
@@ -229,30 +229,30 @@
 - **custom 并发**：不读取 `max_concurrency`，不做账户并发、提交限流、余额或系统预算拦截；允许前一张未完成时继续提交。仅保留同一次点击的防双击保护。本站 compute/DB/存储与流量成本风险已由站长接受。
 - **system 计费即防滥用主闸**：2 次免费(0.14 积分)用完即需付费，天然限制白嫖。
 - **本期不加**注册 IP 限流 / 全站每日赠送上限（你的决定）。残留风险：不验证邮箱可批量注册薅"2 次免费"——单账号仅 0.14 积分、损失有限，先接受。
-- **Key / 成本防护**：system 继续使用积分闸与单日预算熔断。custom 使用用户自己的 Key，明确不计系统预算且不加平台并发/限流；仍由本站承担后台函数、数据库、对象存储与流量成本，该敞口已接受。两种模式都依赖 generation 抢占状态机防同一任务重复执行。
+- **Key / 成本防护**：system 继续使用积分闸与单日预算熔断。custom 使用用户自己的 Key，明确不计系统预算且不加平台并发/限流；仍由本站承担 worker、数据库、对象存储与流量成本，该敞口已接受。两种模式都依赖 generation 抢占状态机防同一任务重复执行。
 
 ## 15. 系统架构（技术选型已定稿；三步演进）
 
-> **技术选型已锁定（完整技术设计见开发文档）。** 栈：部署 **Netlify**（Background Functions 15min 跑 5min 生图 / Scheduled Functions 跑 cron / 阶段一 **DB-as-queue**）；DB **Neon Postgres**（钱/码走 Pool/WS 事务 + `FOR UPDATE`，看板 HTTP）；ORM **Drizzle**；前端 **React Router 8.0.1 framework 模式** + Vite 8 + React 19；鉴权 **Better Auth**；存储为 **Supabase Storage 的 S3 兼容公有桶**，代码使用厂商中立 `STORAGE_*`（`r2.server.ts`/`putToR2` 仅是历史命名）；API 手写 REST + TanStack Query v5 + Zod 4；样式 tokens.css + CSS Modules；质量 Vitest、Playwright、Sentry、GitHub Actions。已排除 Next.js/TanStack Start、MySQL/PlanetScale、Supabase Auth/Database；Supabase Storage 是当前采用项。
+> **技术选型已锁定（完整技术设计见开发文档）。** 目标部署为 **Debian Docker Compose**（Caddy + SSR web + worker + scheduler，DB-as-queue）；DB **Neon Postgres**（钱/码走 Pool/WS 事务 + `FOR UPDATE`，看板 HTTP）；ORM **Drizzle**；前端 **React Router 8 framework 模式** + Vite 8 + React 19；鉴权 **Better Auth**；存储为 **Supabase Storage 的 S3 兼容公有桶**；API 手写 REST + TanStack Query v5 + Zod 4；质量为 Vitest、Playwright、Sentry、GitHub Actions。生产 Docker rollout 尚未执行。
 >
-> **⚠️ 因「中转 api.tangguo.xin = 同步阻塞」的 4 条成本约束**：① system 保留单日预算熔断，custom 明确绕过且风险已接受；② 持续实测单图 GB-hour compute 与存储成本；③ generations 抢占式状态机防平台重试/cron 重扫重复下单；④ system 只读服务端全局 Key，custom 只读 generation-scoped 加密临时凭据。
+> **因「中转 api.tangguo.xin = 同步阻塞」的 4 条成本约束**：① system 保留单日预算熔断，custom 明确绕过且风险已接受；② 持续实测单图 worker/主机与存储成本；③ generations 抢占式状态机防 worker 重领/scheduler 重扫重复下单；④ system 只读服务端全局 Key，custom 只读 generation-scoped 加密临时凭据。
 >
 > **安全边界**：构建期继续断言 system/基础设施 secret 永不进 bundle；另以运行时哨兵证明 custom Key 只存在于按 user ID 命名空间化的 `localStorage`、本次 HTTPS 请求体与服务端临时密文，不进入日志、错误、事件、审计或响应。
 
 **第一步 · 已完成的现状修复（保持回归）**
-- `generate-background` 已是 Netlify Background Function；[generate.ts](../netlify/functions/generate.ts) 只 `await` 一次短触发请求以保证请求发出，不等待 relay/job 结果。禁止改回 `void fetch`，也禁止在同步 handler 内等待生图。
+- 生成由独立 worker 消费 durable queue；同步 HTTP handler 只入队并返回 `202`，不得在请求内等待 relay/job。
 - v1 system 路径曾把已删除的 `src/server/imageProxy.ts` 中 Key 从请求体 `apiKey` 改为服务端 `RELAY_API_KEY` 并删除旧全局密钥 UI；新 custom 只按 §25 的受控链路实现，不恢复旧请求/jobStore 传 Key 方案。
-- 前端继续**短轮询**，但目标契约改为 owner-scoped 批量查询当前会话所有非终态 generation。system/custom 均以服务端 `deadline_at` 为准、创建后最多 5 分钟；不上 SSE/WebSocket。
+- 前端使用 owner-scoped 批量短轮询查询当前会话所有非终态 generation。system/custom 均以服务端 `deadline_at` 为准、创建后最多 5 分钟；不上 SSE/WebSocket。
 
 **第二步 · 上数据库 + 可靠队列（落地积分必做）**
-- **数据库**：Serverless Postgres（**Neon**），承载用户/积分账本/批次/兑换码/会话/生成/图片/审计/事件等强一致数据。**Netlify Blobs 是 KV、最终一致、无原子操作，绝不放余额/兑换码/job 态**；**job 态迁 generations 表**（避免 60s 一致性坑）。**调用模式区分**：兑换核销可用 **HTTP 单语句**（`UPDATE…RETURNING` 已原子）；但**扣费/FIFO 扣批次/注册原子发放等多语句事务必须走 transaction（Pool / WebSocket）模式**——Neon HTTP 单语句模式不支持 `FOR UPDATE`/跨语句事务，用错幂等防双花会落空。DB client 单 handler 内开-用-关、不跨请求复用。
-- **队列（阶段一 = DB-as-queue，已定）**：不引独立队列服务——用 **generations 表做状态机**（`queued→claimed→running→succeeded/failed`）+ Background Function 消费 + Scheduled Function 5min 兜底重扫。去重/幂等靠 `generation_id` 部分唯一索引 + **抢占式中间态**：后台函数入口 `UPDATE…WHERE status='queued' RETURNING` 抢占（抢不到即退，挡平台自动重试 1/2min 与 cron 重扫的重复扣费/重复下单）；调中转前按 generation_id 查重或带请求级幂等键防重复下单。**Netlify Async Workloads / Upstash QStash 留作量大后的平滑升级**（仍在 Netlify 内、不锁平台）。
+- **数据库**：Neon Postgres 承载用户、积分账本、批次、兑换码、会话、生成、图片、审计和事件。job 态以 **`generations` 表**为准。兑换核销可用 HTTP 单语句；扣费/FIFO/注册发放等多语句事务必须走 Pool/WebSocket。常驻进程复用 pool 并在退出时关闭。
+- **队列**：不引独立队列服务——用 **generations 表状态机**（`queued→claimed→running→succeeded/failed`）+ worker 消费 + scheduler deadline 重扫。去重/幂等靠 `generation_id` 和原子抢占 `UPDATE…WHERE status='queued' RETURNING`。量大后才评估 Redis/Valkey + BullMQ，业务状态仍以 generations 为准。
 - **对象存储**：结果图从中转站临时 URL/base64 落到 **Supabase Storage（S3 兼容）**；DB 只存 `storage_key + public_url`，前端永远读稳定 URL。供应商由服务端 `STORAGE_*` 配置，历史 helper 名不代表当前供应商。
 - **幂等主键**：一个 `generation_id` 贯穿"提交 → 生图 → 落图 → 扣费"。
 - **扣费事务**：成功时单事务内「锁批次 → FIFO 扣减 → insert images → debit → 更新余额 → 标记成功」（可执行步骤与部分唯一索引见 §22 / §16）。
-- **provider 回调**：对接中转站时优先用其 webhook 回调替代"函数里 sleep 轮询 provider"；保持两层解耦——前端↔本站短轮询、本站↔provider webhook。
+- **provider 调用**：当前 relay 为同步接口，由常驻 worker 调用并受 `deadline_at` 约束；前端只轮询本站状态，不直连 provider。
 
-**第三步 · 规模化（延后）**：并发/时长继续增长再迁独立常驻 worker + Redis/BullMQ。
+**第三步 · 规模化（延后）**：先按实测扩 worker；只有 PostgreSQL polling 吞吐不足时再评估 Redis/Valkey + BullMQ。
 
 ## 16. 数据库 Schema（草案，参考调研）
 
@@ -306,24 +306,25 @@ Neon Postgres。**金额一律用整数**（定死）：积分列用**毫积分 
 ## 18. 与现有实现的衔接
 
 - **复用**：尺寸选项 [sizeOptions.ts](../src/components/composer/sizeOptions.ts)、响应解析 [imageGeneration.ts](../src/api/imageGeneration.ts)、脱敏 [redaction.ts](../src/lib/redaction.ts)、异步代理骨架 [src/server](../src/server) + [netlify/functions](../netlify/functions)。
-- **既有重构**：已删除的 v1 `src/App.tsx` 双栏壳 → Composer 三栏壳；质量/背景/审核进高级设置；移除 v1 无身份、无隔离的全局前端密钥链路；修 generate.ts 真后台函数。
-- **🔑 v1 apiKey 清理与新 custom 例外的边界**：旧 `imageProxy.ts → proxyGeneration.ts → jobStore` 明文 Key 链路仍属禁止。新 custom Key 只允许按 user ID 存本地、经统一 `/api/generate` 上送并立即转 generation-scoped 密文；后台触发载荷只含 `generationId`，任何普通 generation/job/log/response 字段仍不得携带 Key。
+- **既有重构**：已删除的 v1 `src/App.tsx` 双栏壳 → Composer 三栏壳；质量/背景/审核进高级设置；移除 v1 无身份、无隔离的全局前端密钥链路；生成任务由持久 worker 执行。
+- **🔑 v1 apiKey 清理与新 custom 例外的边界**：旧 `imageProxy.ts → proxyGeneration.ts → jobStore` 明文 Key 链路仍属禁止。新 custom Key 只允许按 user ID 存本地、经统一 `/api/generate` 上送并立即转 generation-scoped 密文；任何普通 generation/job/log/response 字段或兼容触发载荷仍不得携带 Key。
 - **净新增**：注册登录、Postgres、对象存储、队列、积分账本、兑换码、后台管理、并发控制。
 
 ## 19. 待确认
 
 > **产品决策已全部拍板。** system 保留赠送、FIFO、余额、默认并发、单日预算与成功扣费；custom 使用用户自己的单 Key、固定 Base URL、零扣费、零余额/预算/并发/提交限流且不自动回退 system。两种模式共用 `/api/generate`、图片存储和 5 分钟 deadline。完整矩阵见 §25。
 >
-> **技术侧仍需实施验证但不再需要产品选择**：Neon 事务与连接上限、AES-GCM/KMS 等价临时凭据实现、批量状态查询性能、5 分钟终态竞争、单图 compute/存储成本。
+> **技术实现已完成本地验证**：Neon 事务、AES-GCM 临时凭据、批量状态和 5 分钟终态竞争已有自动化证据。生产 Compose smoke、连接/吞吐上限与单图成本仍需实测，状态只看 [PROGRESS.md](PROGRESS.md)。
 >
 > **残留风险（已接受）**：不验证邮箱 → 新号 0.14 免费额度可被批量注册薅、烧共享 Key/compute 额度（由单日预算熔断兜底）。日后若被规模化薅再补防护。
 
-## 20. 分期路线（建议）
+## 20. 历史分期
 
-- **阶段一 · 前端形态**：Composer 五态 + 尺寸/参数药丸 + 灵感画廊 + 深色/暖色；修 generate.ts 真后台 + 代理读 env key。（用 mock 账号/积分跑通体验）
-- **阶段二 · 账号+积分+存储（公开上线前必需）**：注册登录 + Neon + 对象存储 + 队列 + 积分账本 + 扣费 + 兑换码 + 充值页 + 后台管理 + 历史/资产库/本次面板 + 并发控制 + **工程一致性/幂等（§22）**。
-- **合规/审核**：本期**不做**（站长决定，§21）；如需合法公开再回补。
-- **阶段三 · 增强**：搜索、资产库高级管理、灵感库运营化、客服/RBAC（§23）、优化提示词；（更远）图生图、一次多图、单图编辑。
+- [x] 阶段一：Composer、五态、灵感画廊和主题。
+- [x] 阶段二：账号、Neon、对象存储、积分/兑换、后台、历史与资产库。
+- [x] 阶段三已选范围：搜索、资产增强、灵感运营与图生图。
+
+未选择的客服/RBAC、一次多图、单图编辑和应用层合规能力不属于当前待发布清单。
 
 ## 21. 内容审核与合规（本期不做，站长决定）
 
@@ -340,7 +341,7 @@ Neon Postgres。**金额一律用整数**（定死）：积分列用**毫积分 
 - **同号并发双花**：扣费用 `SELECT...FOR UPDATE` 行锁或 SERIALIZABLE。
 - **兑换码**：单条 `UPDATE...WHERE code=? AND status='active' RETURNING`，`affected=1` 才入账；台账 `(code,user_id)` 唯一；错误码区分 404/410/400/429。
 - **注册=原子发放**：注册在**单事务**内 `insert users + credit_accounts + 建 signup 批次(credit_lots, 30 天到期) + grant 流水`，以 `uq_grant_signup`(ref_id=user_id) 幂等（重试不重发 0.14，杜绝"建号成功但没发积分"窗口）。
-- **中转 = 同步阻塞（已确认，无 webhook）**：在 Background Function 内长 await（最长 5min）取结果；幂等不靠 webhook，而靠 **generation 抢占式状态机 + `generation_id` 部分唯一索引**——后台函数入口 `UPDATE…WHERE status='queued' RETURNING` 抢占（挡平台自动重试 1/2min + cron 重扫的重入），扣费 `uq_debit(ref_id=generation_id)` 防重复扣；调中转前按 generation_id 查重或带请求级幂等键防重复下单（中转是否支持请求级幂等键待确认）。
+- **中转 = 同步阻塞（已确认，无 webhook）**：由 worker 长 await（最长 5min）取结果；幂等靠 **generation 抢占式状态机 + `generation_id` 部分唯一索引**，扣费再以 `uq_debit(ref_id=generation_id)` 防重复扣。
 - **并发与 deadline**：system 入队仍按 in-flight COUNT 对 `max_concurrency`；custom 不做该判断。两种模式创建 generation 时写 `deadline_at=created_at+5min`，上游 fetch 最迟在 `deadline_at-30s` abort；状态读取可原子把过期 `queued/claimed/running` 收为 `failed/provider_timeout`，cron 仅作兜底。成功与超时用状态谓词/行锁保证只一个终态生效；无取消逻辑。
 - **余额对账**：每日 cron 比对物化余额与 `SUM(credit_lots.remaining 未过期)`，不一致告警、以批次为准。
 - **积分过期（FIFO + 幂等）**：发放即建批次 `credit_lots`（含 `expires_at`，**null=永久**）；消费 `ORDER BY expires_at ASC NULLS LAST` 扣 `remaining`（先扣最早过期、永久批次最后扣；同一事务、行锁防并发双花）；每日 cron 把 `expires_at<now() 且 remaining>0` 的批次清零 + 写 `expire` 流水（幂等键=lot_id，**永久批次跳过**），同步物化余额。
@@ -376,7 +377,7 @@ Neon Postgres。**金额一律用整数**（定死）：积分列用**毫积分 
 
 ## 25. 系统 Key / 自定义 Key 与多任务生成（2026-07-11 批准增补）
 
-> 本节是当前待实施功能的产品摘要；字段、错误码、安全边界和逐条验收以 [批准版 PRD](../tasks/prd-user-api-key-modes.md) 为准。当前生产代码 `42d8a0b` 仍是 system-only，完成状态看 [PROGRESS.md](PROGRESS.md)。
+> 本节是批准功能的产品摘要；字段、错误码、安全边界和逐条验收以 [批准版 PRD](../tasks/prd-user-api-key-modes.md) 为准。生产 rollout 状态看 [PROGRESS.md](PROGRESS.md)。
 
 | 维度 | system | custom |
 |---|---|---|
@@ -401,7 +402,7 @@ Neon Postgres。**金额一律用整数**（定死）：积分列用**毫积分 
 
 - 新客户端必须显式发送 `credentialMode: "system" | "custom"`；旧请求缺 mode 且无 Key 时兼容为 system，缺 mode/system 却携带 Key 时固定 400。custom 必含 trim 后非空且最多 500 字符的 `customApiKey`；客户端永不提交 Base URL。
 - 入队成功统一返回 `202 {generationId,conversationId,status,credentialMode,deadlineAt}`，客户端用服务端 deadline 校正乐观值。
-- 自定义凭据与 generation 必须原子创建或具有等价补偿；后台载荷只含 `generationId`。临时凭据终态立即删除；数据库时钟计算孤儿 10 分钟到期、5 分钟 cron，正常调度下最迟 15 分钟物理删除。
+- 自定义凭据与 generation 必须原子创建或具有等价补偿；任何兼容任务载荷只含 `generationId`。临时凭据终态立即删除；数据库时钟计算孤儿 10 分钟到期、scheduler 每 5 分钟清理，正常调度下最迟 15 分钟物理删除。
 - Key 明文不得进入 generation 普通字段、图片、events、audit、Sentry、日志、错误字符串、用户/管理员响应；relay 边界脱敏器须覆盖本次真实 system（含 app_config 值）/custom Key。成功路径只返回解析图片，不带出原始 response body。
 - custom 有服务端缺省关闭的运维开关。关闭时返回 `503 CUSTOM_KEY_MODES_DISABLED` 且零写入；UI 保留已存 Key但禁用 custom 提交，不能静默切 system；已打开页面首次收到 503 后立即刷新开关并进入暂停态。回滚先关入口，再以受审计脚本收口在途 custom 和删除凭据，清零前不得删除或轮换主密钥。
 
