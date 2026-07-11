@@ -140,6 +140,7 @@ describe("disposable test environment guard", () => {
   it("masks ambient production credentials even when they are absent from the root env", () => {
     const target: Record<string, string | undefined> = {
       PATH: "local-tool-path",
+      PGPORT: "6543",
       RELAY_BASE_URL: "inherited-relay-placeholder",
       SENTRY_DSN: "inherited-observability-placeholder",
       SOME_SERVICE_TOKEN: "inherited-token-placeholder",
@@ -154,12 +155,19 @@ describe("disposable test environment guard", () => {
 
     expect(target).toEqual({
       PATH: "local-tool-path",
+      PGPORT: "",
       RELAY_BASE_URL: "",
       SENTRY_DSN: "",
       SOME_SERVICE_TOKEN: "",
       E2E_REDEEM_CODE: "",
       CUSTOM_KEY_MODES_ENABLED: "true",
     });
+  });
+
+  it("rejects libpq target overrides in the disposable env", () => {
+    expect(() => validateDisposableTestEnv({ ...validEnv(), PGPORT: "6543" })).toThrow(
+      "must define the database target only in its URLs",
+    );
   });
 
   it("allows only loopback browser-test targets without exposing a rejected URL", () => {

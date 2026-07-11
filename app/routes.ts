@@ -7,6 +7,9 @@ export default [
   route("api/auth/*", "routes/api.auth.$.ts"),
   // 阶段二 ⑤：前台读/写 API（资源路由，无 UI，server-only；读供客户端 refetch、写=REST/action）。
   route("api/me", "routes/api.me.ts"),
+  route("api/generate", "routes/api.generate.ts"),
+  route("api/generate-status", "routes/api.generate-status.ts"),
+  route("api/local-storage", "routes/api.local-storage.ts"),
   route("api/conversations", "routes/api.conversations.ts"),
   route("api/conversations/:id", "routes/api.conversations.$id.ts"),
   route("api/images", "routes/api.images.ts"),

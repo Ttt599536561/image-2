@@ -16,6 +16,16 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
+import {
+  deleteLocalStorageObject,
+  deleteLocalStorageObjects,
+  isLocalTestStorageEnabled,
+  listLocalStorageObjects,
+  localStoragePublicUrl,
+  readLocalStorageObject,
+  storageKeyFromLocalPublicUrl,
+  writeLocalStorageObject,
+} from "./local-storage.server";
 
 function env(name: string): string {
   const v = process.env[name];
@@ -53,11 +63,13 @@ export interface PutResult {
 /** 中转返回（临时 URL 或 base64）→ 公有 URL（§7.2）。前端只读它。
  *  STORAGE_PUBLIC_BASE_URL：Supabase 公有桶 = https://<ref>.supabase.co/storage/v1/object/public/<bucket>（结尾不带 /）。 */
 export function publicUrl(storageKey: string): string {
+  if (isLocalTestStorageEnabled()) return localStoragePublicUrl(storageKey);
   return `${env("STORAGE_PUBLIC_BASE_URL")}/${storageKey}`;
 }
 
 /** 反 publicUrl：本桶公有 URL → storage key；非本桶（外链）→ null。用于从 cover_url 派生 cover_key。 */
 export function storageKeyFromPublicUrl(url: string): string | null {
+  if (isLocalTestStorageEnabled()) return storageKeyFromLocalPublicUrl(url);
   const base = process.env.STORAGE_PUBLIC_BASE_URL;
   if (!base) return null;
   const prefix = `${base.replace(/\/+$/, "")}/`;
@@ -78,6 +90,10 @@ export function buildStorageKey(userId: string, generationId: string): string {
 }
 
 async function putObject(key: string, body: Uint8Array, contentType: string): Promise<void> {
+  if (isLocalTestStorageEnabled()) {
+    await writeLocalStorageObject(key, body);
+    return;
+  }
   await getR2Client().send(
     new PutObjectCommand({
       Bucket: env("STORAGE_BUCKET"),
@@ -196,6 +212,18 @@ export async function copyToInspirationSubmission(
   srcKey: string,
   userId: string,
 ): Promise<{ storageKey: string; publicUrl: string; contentType: string; bytes: number }> {
+  if (isLocalTestStorageEnabled()) {
+    const source = await readLocalStorageObject(srcKey);
+    const ext = srcKey.split(".").pop()?.toLowerCase() || "png";
+    const storageKey = buildInspirationSubmissionKey(userId, ext);
+    await writeLocalStorageObject(storageKey, source.bytes);
+    return {
+      storageKey,
+      publicUrl: publicUrl(storageKey),
+      contentType: source.contentType,
+      bytes: source.bytes.byteLength,
+    };
+  }
   const res = await getR2Client().send(
     new GetObjectCommand({ Bucket: env("STORAGE_BUCKET"), Key: srcKey }),
   );
@@ -224,6 +252,7 @@ export async function putUserUpload(args: {
 export async function getUploadObject(
   storageKey: string,
 ): Promise<{ bytes: Uint8Array; contentType: string; filename: string }> {
+  if (isLocalTestStorageEnabled()) return readLocalStorageObject(storageKey);
   const res = await getR2Client().send(
     new GetObjectCommand({ Bucket: env("STORAGE_BUCKET"), Key: storageKey }),
   );
@@ -238,6 +267,10 @@ export async function getUploadObject(
 
 /** 删单个对象（清理 cron 单 key 失败兜底，§7.5）。 */
 export async function deleteFromR2(storageKey: string): Promise<void> {
+  if (isLocalTestStorageEnabled()) {
+    await deleteLocalStorageObject(storageKey);
+    return;
+  }
   await getR2Client().send(new DeleteObjectCommand({ Bucket: env("STORAGE_BUCKET"), Key: storageKey }));
 }
 
@@ -248,6 +281,7 @@ export async function deleteFromR2(storageKey: string): Promise<void> {
  */
 export async function deleteManyFromR2(storageKeys: string[]): Promise<string[]> {
   if (storageKeys.length === 0) return [];
+  if (isLocalTestStorageEnabled()) return deleteLocalStorageObjects(storageKeys);
   const client = getR2Client();
   const bucket = env("STORAGE_BUCKET");
   const failed: string[] = [];
@@ -271,6 +305,7 @@ export interface StorageObject {
  * （每页 ≤1000，默认上限 10 页=1万对象/轮，未尽部分下轮再扫）。返回 {key,lastModified(ms)}。
  */
 export async function listStorageObjects(maxPages = 10): Promise<StorageObject[]> {
+  if (isLocalTestStorageEnabled()) return listLocalStorageObjects();
   const client = getR2Client();
   const bucket = env("STORAGE_BUCKET");
   const out: StorageObject[] = [];

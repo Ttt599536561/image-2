@@ -1,11 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PutResult } from "../../src/server/r2.server";
+import { deleteFromR2 } from "../../src/server/r2.server";
+import { readLocalStorageObject } from "../../src/server/local-storage.server";
 import { encryptCustomApiKey } from "../../src/server/generation/credential.server";
 import { runGenerationJob, type ProcessDeps } from "../../src/server/generation/process";
 import { type TestCtx, newCtx } from "./_helpers";
 
 const originalKey = process.env.CUSTOM_KEY_JOB_ENCRYPTION_KEY;
 const apiKey = "fictional-runtime-credential";
+const ONE_PIXEL_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+  "base64",
+);
 let ctx: TestCtx;
 
 beforeEach(() => {
@@ -53,6 +59,23 @@ describe("custom generation pipeline", () => {
     expect(await ctx.credentials(generationId)).toHaveLength(0);
     expect(await runGenerationJob(generationId, { callRelay, putToR2: storage })).toBe("lost");
     expect(callRelay).toHaveBeenCalledOnce();
+  });
+
+  it("persists a successful custom image in disposable local storage", async () => {
+    const userId = await ctx.createUser({ balanceMp: 0 });
+    const generationId = await createCustom(userId);
+
+    expect(
+      await runGenerationJob(generationId, {
+        callRelay: async () => ({ images: [{ b64_json: ONE_PIXEL_PNG.toString("base64") }] }),
+      }),
+    ).toBe("succeeded");
+
+    const [image] = await ctx.images(generationId);
+    expect(image.public_url).toContain("/api/local-storage?key=");
+    const stored = await readLocalStorageObject(String(image.storage_key));
+    expect(Buffer.from(stored.bytes)).toEqual(ONE_PIXEL_PNG);
+    await deleteFromR2(String(image.storage_key));
   });
 
   it("never falls back to system when the custom credential fails", async () => {

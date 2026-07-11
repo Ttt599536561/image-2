@@ -26,10 +26,12 @@
   from = "/api/generate"
   to = "/.netlify/functions/generate"
   status = 200
+  force = true
 [[redirects]]
   from = "/api/generate-status"
   to = "/.netlify/functions/generate-status"
   status = 200
+  force = true
 
 # ⑦ Scheduled Functions（cron · 真相源 10 §11.1）。时区：cron 用 UTC，「每日 0 点」按北京(UTC+8) 折算为 UTC 16:00。
 # 错峰：超时重扫每分钟；旧预算键清理 00:00；积分过期 00:10 → 余额对账 00:30（过期必先于对账，未过期口径才一致）；

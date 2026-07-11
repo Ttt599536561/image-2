@@ -42,8 +42,34 @@ const PRODUCTION_SERVICE_PREFIXES = [
   "VERCEL",
 ] as const;
 
+const POSTGRES_CLIENT_ENV_NAMES = new Set([
+  "PGDATABASE",
+  "PGHOST",
+  "PGHOSTADDR",
+  "PGOPTIONS",
+  "PGPASSWORD",
+  "PGPORT",
+  "PGSERVICE",
+  "PGSERVICEFILE",
+  "PGSSLCERT",
+  "PGSSLKEY",
+  "PGSSLMODE",
+  "PGSSLROOTCERT",
+  "PGUSER",
+]);
+
+const POSTGRES_TARGET_OVERRIDE_NAMES = [
+  "PGDATABASE",
+  "PGHOST",
+  "PGHOSTADDR",
+  "PGPORT",
+  "PGSERVICE",
+  "PGSERVICEFILE",
+] as const;
+
 function isProductionSensitiveEnvName(name: string): boolean {
   const normalized = name.toUpperCase();
+  if (POSTGRES_CLIENT_ENV_NAMES.has(normalized)) return true;
   if (
     PRODUCTION_SERVICE_PREFIXES.some(
       (prefix) => normalized === prefix || normalized.startsWith(`${prefix}_`),
@@ -178,6 +204,9 @@ export function validateDisposableTestEnv(
   }
   if (!testEnv.DATABASE_URL || !testEnv.DATABASE_URL_UNPOOLED) {
     throw new Error("[money-test] .env.test must provide both disposable test database URLs");
+  }
+  if (POSTGRES_TARGET_OVERRIDE_NAMES.some((name) => envValues(testEnv, name).length > 0)) {
+    throw new Error("[money-test] .env.test must define the database target only in its URLs");
   }
 
   let testFingerprints: Set<string>;
