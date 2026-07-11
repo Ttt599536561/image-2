@@ -11,6 +11,9 @@ test-results/
 .env.*
 !.env.example
 !deploy/.env.production.example
+deploy/.env.production
+deploy/backups/
+deploy/*.state
 *.log
 *.tsbuildinfo
 deno.lock

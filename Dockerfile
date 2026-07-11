@@ -20,6 +20,7 @@ COPY --from=build /app/scripts ./scripts
 COPY --from=build /app/netlify ./netlify
 COPY --from=build /app/drizzle ./drizzle
 COPY --from=build /app/drizzle.config.ts ./drizzle.config.ts
+RUN mkdir -p /app/data/media && chown -R node:node /app/data
 USER node
 EXPOSE 3000
 CMD ["npm", "run", "start:web"]
