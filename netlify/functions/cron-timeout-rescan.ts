@@ -5,7 +5,7 @@
 //
 // 🔴 红线：cron 非 -background 后缀；handler try/catch → alert(cron_failed) + Sentry，绝不静默吞；扫描走 HTTP。
 import { alert } from "../../src/server/alert.server";
-import { dispatchStaleQueued, rescanTimeouts } from "../../src/server/generation/scan.server";
+import { rescanTimeouts } from "../../src/server/generation/scan.server";
 import { captureException } from "../../src/server/sentry.server";
 
 export default async function handler(): Promise<Response> {
@@ -14,8 +14,7 @@ export default async function handler(): Promise<Response> {
     if (timedOut.length > 0) {
       await alert("queue_timeout_rescan", { count: timedOut.length, ids: timedOut.map((g) => g.id) });
     }
-    const redispatched = await dispatchStaleQueued();
-    return Response.json({ ok: true, timedOut: timedOut.length, redispatched: redispatched.length });
+    return Response.json({ ok: true, timedOut: timedOut.length });
   } catch (e) {
     await captureException(e, { cron: "timeout-rescan" });
     await alert("cron_failed", { cron: "timeout-rescan" });

@@ -3,6 +3,7 @@ import { index, layout, type RouteConfig, route } from "@react-router/dev/routes
 // 集中路由表（路由真相源，docs/dev 08 §9.2）。下划线前缀 = pathless 布局。
 // 阶段一：受保护前台挂 _app（mock 放行）；鉴权页挂 _auth；/admin 留阶段二。
 export default [
+  route("healthz", "routes/healthz.ts"),
   // 阶段二 ②：Better Auth catch-all 资源路由（/api/auth/*），无 UI（05 §6.1）。
   route("api/auth/*", "routes/api.auth.$.ts"),
   // 阶段二 ⑤：前台读/写 API（资源路由，无 UI，server-only；读供客户端 refetch、写=REST/action）。

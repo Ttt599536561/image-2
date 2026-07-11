@@ -5,7 +5,6 @@ import { GenerateRequest, generateRequestErrorCode } from "../../src/contracts/g
 import { requireUserStrict } from "../../src/lib/guard";
 import { enqueueGeneration } from "../../src/server/generation/enqueue";
 import { isCustomKeyModesEnabled } from "../../src/server/generation/feature.server";
-import { triggerBackground } from "../../src/server/generation/trigger";
 
 export default async function handler(req: Request): Promise<Response> {
   try {
@@ -37,7 +36,6 @@ export default async function handler(req: Request): Promise<Response> {
       user: { id: ctx.userId, maxConcurrency: ctx.maxConcurrency },
       input,
     });
-    await triggerBackground(accepted.generationId); // 等短触发请求，不等待 background job
     // conversationId 回前端：首次提交在 "/" 入队后据此 navigate(/c/:id)（08 §9.2）。
     return Response.json({ ...accepted, status: "queued" }, { status: 202 });
   } catch (e) {
