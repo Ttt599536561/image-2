@@ -36,7 +36,7 @@
 | 功能实施 | [x] 本地完成，生产待部署 |
 | 当前微任务 | 本地功能实现与验证已完成；账本仅作历史审计，不再机械逐项勾选 |
 | 下一微任务 | 生产发布闸：迁移、暗部署、受控 smoke、启用 custom 与回滚演练（未执行） |
-| 最近验证 | 2026-07-11：分支 `codex/user-api-key-modes`，本地功能提交 `0d48d90`，起始实现基线 `34969f59e2ef07909009bd163dc4dbe64d5fb5b0`。`npm run test:run` 177/177，`npm run test:money` 73/73，`npm run typecheck`、`npm run build`、`npm run assert-no-secrets`、`git diff --check` 均通过；`npm run test:e2e` 为 6 passed / 1 skipped。未部署生产、未执行生产 smoke、未启用生产 custom 开关。P0-04 未开始。 |
+| 最近验证 | 2026-07-11：分支 `codex/user-api-key-modes`，本地功能提交 `0d48d90`，起始实现基线 `34969f59e2ef07909009bd163dc4dbe64d5fb5b0`。历史 P0-04 已由 merge commit `d77b987` 完成。`npm run test:run` 177/177，`npm run test:money` 73/73，`npm run typecheck`、`npm run build`、`npm run assert-no-secrets`、`git diff --check` 均通过；`npm run test:e2e` 为 6 passed / 1 skipped。未部署生产、未执行生产 smoke、未启用生产 custom 开关。 |
 
 ### P0：基线与验证地基（技术蓝图 0）
 
@@ -45,7 +45,7 @@
 | [x] | P0-01 | 只读记录当前分支、HEAD、merge-base、工作树、`main`/生产/UGC/Key 文档提交，发现事实冲突即停。 | `git status --short --branch`; `git log --graph --decorate --oneline -12`; `git merge-base HEAD main` |
 | [x] | P0-02 | 从当前文档分支 HEAD 创建/切到 `codex/user-api-key-modes`；只保存分支，不合并、不解决冲突。 | `git status --short --branch`; `git branch --show-current` 精确为目标分支 |
 | [x] | P0-03 | 逐文件审查并提交当前已批准的文档修改，确认 staging 中没有业务代码、env 或凭据；有不明文件即停。 | `git diff --cached --name-only`; `git diff --cached --check`; staged 路径仅为 `CLAUDE.md`、`docs/**`、`tasks/**` |
-| [ ] | P0-04 | 执行 `git merge --no-ff main`，只记录冲突文件清单，不在本任务解决任何冲突。 | `git diff --name-only --diff-filter=U`; `git status --short --branch` |
+| [x] | P0-04 | 执行 `git merge --no-ff main`，只记录冲突文件清单，不在本任务解决任何冲突。历史 merge commit：`d77b987`。 | `git diff --name-only --diff-filter=U`; `git status --short --branch` |
 | [ ] | P0-05 | 只解决 `CLAUDE.md` 冲突，保留 UGC 已上线与 Key 待实施两组事实。 | `git diff --check`; `rg -n -e "^<<<<<<<" -e "^=======" -e "^>>>>>>>" CLAUDE.md` 无命中 |
 | [ ] | P0-06 | 只解决 `docs/PROGRESS.md` 冲突；里程碑 13 保持已上线、14 保持待实施。 | `git diff --check`; `rg -n -e "^<<<<<<<" -e "^=======" -e "^>>>>>>>" docs/PROGRESS.md` 无命中 |
 | [ ] | P0-07 | 只解决 `docs/dev/09-admin.md` 冲突，兼容 UGC 当前态与 Key 目标态。 | `git diff --check`; 该文件无冲突标记且不含真实凭据 |
