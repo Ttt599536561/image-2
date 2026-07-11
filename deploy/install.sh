@@ -9,6 +9,7 @@ DEPLOY_DIR="$PROJECT_ROOT/deploy"
 ENV_PATH="$DEPLOY_DIR/.env.production"
 ENV_ARGUMENT='deploy/.env.production'
 STATE_PATH="$DEPLOY_DIR/install.state"
+UPGRADE_STATE_PATH="$DEPLOY_DIR/upgrade.state"
 
 # shellcheck source=deploy/install-lib.sh
 source "$DEPLOY_DIR/install-lib.sh"
@@ -22,6 +23,7 @@ WEB_HOST_PORT=''
 WEB_BIND_ADDRESS='127.0.0.1'
 COMPOSE_PROFILES=''
 RESUME=false
+UPGRADE=false
 
 STATE_STAGE='none'
 STATE_VERSION='1'
@@ -36,13 +38,16 @@ CUSTOM_KEY_JOB_ENCRYPTION_KEY=''
 DIAGNOSTICS_ENABLED=false
 DIAGNOSTIC_SERVICES=(web)
 INSTALL_LOCK_FD=''
+UPGRADE_PHASE='not_started'
+UPGRADE_MAINTENANCE_STARTED=false
 
 usage() {
   printf '%s\n' \
     '用法：' \
     '  sudo bash deploy/install.sh --domain images.example.com' \
     '  sudo bash deploy/install.sh --existing-proxy --public-url https://images.example.com [--port 18081]' \
-    '  sudo bash deploy/install.sh --resume'
+    '  sudo bash deploy/install.sh --resume' \
+    '  sudo bash deploy/install.sh --upgrade'
 }
 
 cleanup_secrets() {
@@ -142,13 +147,25 @@ print_failure_diagnostics() {
   else
     redact_text "$output" >&2
   fi
-  printf '%s\n' '修复问题后继续执行：sudo bash deploy/install.sh --resume' >&2
+  if [[ "$UPGRADE" == true ]]; then
+    printf '%s\n' '升级失败后不要运行 --resume；请先按 deploy/backups 中的最新备份执行 deploy/restore.sh。' >&2
+  else
+    printf '%s\n' '修复问题后继续执行：sudo bash deploy/install.sh --resume' >&2
+  fi
 }
 
 on_exit() {
   local status=$?
   trap - EXIT
   set +e
+  if ((status != 0)) && [[ "$UPGRADE_MAINTENANCE_STARTED" == true ]]; then
+    if [[ "$COMPOSE_PROFILES" == 'caddy' ]]; then
+      compose stop caddy >/dev/null 2>&1 || true
+    fi
+    compose stop web worker scheduler >/dev/null 2>&1 || true
+    write_upgrade_state "$status" >/dev/null 2>&1 || true
+    printf '%s\n' 'Upgrade failed after the backup maintenance window began. Writers remain stopped; restore the latest backup with deploy/restore.sh after emptying the target volumes.' >&2
+  fi
   if ((status != 0)) && [[ "$DIAGNOSTICS_ENABLED" == true ]]; then
     print_failure_diagnostics
   fi
@@ -168,6 +185,7 @@ parse_args() {
   local public_url_seen=false
   local port_seen=false
   local resume_seen=false
+  local upgrade_seen=false
 
   (($# > 0)) || {
     die '必须选择一种部署模式'
@@ -232,12 +250,30 @@ parse_args() {
         RESUME=true
         shift
         ;;
+      --upgrade)
+        [[ "$upgrade_seen" == false ]] || {
+          die '--upgrade 不能重复'
+          return 2
+        }
+        upgrade_seen=true
+        UPGRADE=true
+        shift
+        ;;
       *)
         die "未知参数：$1"
         return 2
         ;;
     esac
   done
+
+  if [[ "$UPGRADE" == true ]]; then
+    if [[ "$domain_seen" == true || "$proxy_seen" == true || "$public_url_seen" == true || "$port_seen" == true || "$resume_seen" == true ]]; then
+      die '--upgrade 只能单独使用'
+      return 2
+    fi
+    MODE='upgrade'
+    return 0
+  fi
 
   if [[ "$RESUME" == true ]]; then
     if [[ "$domain_seen" == true || "$proxy_seen" == true || "$public_url_seen" == true || "$port_seen" == true ]]; then
@@ -746,6 +782,58 @@ prepare_resume() {
   load_install_state
 }
 
+prepare_upgrade() {
+  private_file_is_safe "$ENV_PATH" || {
+    die "upgrade requires a private existing environment file: $ENV_PATH"
+    return 1
+  }
+  [[ -f "$STATE_PATH" && ! -L "$STATE_PATH" ]] || {
+    die 'upgrade requires an existing install.state'
+    return 1
+  }
+  clear_loaded_deploy_variables
+  load_deploy_env "$ENV_PATH" || return 1
+  unexport_sensitive_variables
+  validate_loaded_environment || return 1
+  load_install_state || return 1
+  [[ "$STATE_STAGE" == 'complete' ]] || {
+    die 'upgrade requires a completed install.state'
+    return 1
+  }
+  validate_previous_upgrade_state
+}
+
+validate_previous_upgrade_state() {
+  [[ -e "$UPGRADE_STATE_PATH" || -L "$UPGRADE_STATE_PATH" ]] || return 0
+  private_file_is_safe "$UPGRADE_STATE_PATH" || {
+    die 'existing upgrade.state is unsafe'
+    return 1
+  }
+  local line key encoded decoded version='' phase='' status=''
+  declare -A seen=()
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" == *=* ]] || { die 'upgrade.state contains an invalid line'; return 1; }
+    key="${line%%=*}"
+    encoded="${line#*=}"
+    case "$key" in
+      STATE_VERSION|PHASE|STATUS) ;;
+      *) die 'upgrade.state contains an unknown key'; return 1 ;;
+    esac
+    [[ -z "${seen[$key]+present}" ]] || { die 'upgrade.state contains a duplicate key'; return 1; }
+    seen["$key"]=1
+    decoded="$(dotenv_unquote "$encoded")" || { die 'upgrade.state contains an invalid value'; return 1; }
+    case "$key" in
+      STATE_VERSION) version="$decoded" ;;
+      PHASE) phase="$decoded" ;;
+      STATUS) status="$decoded" ;;
+    esac
+  done <"$UPGRADE_STATE_PATH"
+  [[ "$version" == 1 && "$phase" == complete && "$status" == 0 ]] || {
+    die 'previous upgrade did not complete; restore the latest backup before another upgrade'
+    return 1
+  }
+}
+
 collect_resume_admin_inputs() {
   ADMIN_EMAIL=''
   ADMIN_PASSWORD=''
@@ -944,6 +1032,72 @@ run_deployment_stages() {
   fi
 }
 
+write_upgrade_state() {
+  local status="$1" temp_path
+  temp_path="$(mktemp "${UPGRADE_STATE_PATH}.tmp.XXXXXX")" || return 1
+  if ! {
+    printf 'STATE_VERSION="1"\n'
+    printf 'PHASE="%s"\n' "$UPGRADE_PHASE"
+    printf 'STATUS="%s"\n' "$status"
+  } >"$temp_path"; then
+    rm -f -- "$temp_path"
+    return 1
+  fi
+  chmod 0600 "$temp_path" || { rm -f -- "$temp_path"; return 1; }
+  mv -fT -- "$temp_path" "$UPGRADE_STATE_PATH" || { rm -f -- "$temp_path"; return 1; }
+}
+
+run_upgrade() {
+  DIAGNOSTICS_ENABLED=true
+  DIAGNOSTIC_SERVICES=(web worker scheduler)
+  compose config --quiet
+  UPGRADE_PHASE='backup_starting'
+  write_upgrade_state 0 || die 'cannot initialize upgrade.state'
+
+  # backup.sh deliberately does not acquire the installer lock: this process
+  # already owns it. It keeps the original writers stopped on success so the
+  # migration and replacement happen in one maintenance window.
+  local backup_lock_fd=''
+  exec {backup_lock_fd}>&"$INSTALL_LOCK_FD" || {
+    die 'cannot pass the installer lock to backup'
+    return 1
+  }
+  if BACKUP_LOCK_FD="$backup_lock_fd" BACKUP_LOCK_INHERITED=1 \
+    BACKUP_LEAVE_STOPPED_ON_SUCCESS=1 bash "$DEPLOY_DIR/backup.sh"; then
+    :
+  else
+    local backup_status=$?
+    exec {backup_lock_fd}>&-
+    UPGRADE_PHASE='backup_failed'
+    write_upgrade_state "$backup_status" || true
+    return "$backup_status"
+  fi
+  exec {backup_lock_fd}>&-
+
+  UPGRADE_MAINTENANCE_STARTED=true
+  UPGRADE_PHASE='backup_complete'
+  write_upgrade_state 0 || die 'cannot record completed upgrade backup'
+  UPGRADE_PHASE='building'
+  write_upgrade_state 0 || die 'cannot record upgrade build phase'
+  compose build web
+  UPGRADE_PHASE='migrating'
+  write_upgrade_state 0 || die 'cannot record upgrade migration phase'
+  compose run --rm \
+    -e MIGRATE_CONFIRM=APPLY_PRODUCTION_MIGRATIONS \
+    web npm run db:migrate:production
+  UPGRADE_PHASE='starting_services'
+  write_upgrade_state 0 || die 'cannot record upgrade service phase'
+  compose up -d --remove-orphans web worker scheduler
+  if [[ "$COMPOSE_PROFILES" == 'caddy' ]]; then
+    compose --profile caddy up -d caddy
+  fi
+  UPGRADE_PHASE='health_check'
+  write_upgrade_state 0 || die 'cannot record upgrade health phase'
+  wait_for_web_health
+  UPGRADE_PHASE='complete'
+  write_upgrade_state 0 || die 'cannot record upgrade completion'
+}
+
 print_success() {
   printf '%s\n' \
     '' \
@@ -966,7 +1120,11 @@ main() {
   fi
   acquire_install_lock
 
-  if [[ "$MODE" == 'resume' ]]; then
+  if [[ "$MODE" == 'upgrade' ]]; then
+    preflight_common
+    prepare_upgrade
+    run_upgrade
+  elif [[ "$MODE" == 'resume' ]]; then
     preflight_common
     prepare_resume
   else

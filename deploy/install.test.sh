@@ -414,6 +414,9 @@ test_cli_validation_stops_before_preflight_and_prompts() {
     '--existing-proxy --public-url https://images.example.com --public-url https://other.example.com'
     '--existing-proxy --public-url https://images.example.com --port 18081 --port 18082'
     '--resume --domain images.example.com'
+    '--upgrade --resume'
+    '--upgrade --domain images.example.com'
+    '--upgrade --upgrade'
   )
   local arguments output
   for arguments in "${cases[@]}"; do
@@ -1064,6 +1067,77 @@ test_cleanup_unsets_database_urls() {
   fi
 }
 
+write_fake_upgrade_backup() {
+  cat >"$CASE_ROOT/deploy/backup.sh" <<'FAKE_BACKUP'
+#!/usr/bin/env bash
+set -euo pipefail
+[[ "${BACKUP_LOCK_INHERITED-}" == 1 && "${BACKUP_LEAVE_STOPPED_ON_SUCCESS-}" == 1 ]] || exit 93
+[[ "${BACKUP_LOCK_FD-}" =~ ^[0-9]+$ && -e "/proc/$$/fd/$BACKUP_LOCK_FD" ]] || exit 93
+[[ "$(readlink -f "/proc/$$/fd/$BACKUP_LOCK_FD")" == "$(readlink -f "$INSTALL_LOCK_PATH")" ]] || exit 93
+flock -n "$BACKUP_LOCK_FD" || exit 93
+{
+  printf 'backup'
+  printf ' %q' "$@"
+  printf '\n'
+} >>"$FAKE_DOCKER_LOG"
+for variable_name in RELAY_API_KEY POSTGRES_PASSWORD DATABASE_URL DATABASE_URL_UNPOOLED BETTER_AUTH_SECRET CUSTOM_KEY_JOB_ENCRYPTION_KEY; do
+  [[ -z "${!variable_name-}" ]] || {
+    printf 'secret inherited by backup: %s\n' "$variable_name" >&2
+    exit 94
+  }
+done
+[[ ! -e "$FAKE_STATE/backup-fails" ]] || exit 95
+FAKE_BACKUP
+  chmod 0700 "$CASE_ROOT/deploy/backup.sh"
+}
+
+test_upgrade_backs_up_before_build_and_stops_on_backup_failure() {
+  make_fixture upgrade
+  run_success_proxy_install
+  write_fake_upgrade_backup
+
+  local env_hash docker_log output
+  env_hash="$(sha256sum "$CASE_ROOT/deploy/.env.production" | awk '{print $1}')"
+  : >"$FAKE_STATE/docker.log"
+  run_without_input --upgrade
+  assert_equal 0 "$RUN_STATUS" 'upgrade should succeed with an existing deployment'
+  assert_equal "$env_hash" "$(sha256sum "$CASE_ROOT/deploy/.env.production" | awk '{print $1}')" \
+    'upgrade must preserve the existing production env byte-for-byte'
+  docker_log="$(<"$FAKE_STATE/docker.log")"
+  assert_ordered "$docker_log" \
+    'docker info' \
+    'docker compose version' \
+    'docker compose --env-file deploy/.env.production config --quiet' \
+    'backup' \
+    'docker compose --env-file deploy/.env.production build web' \
+    'docker compose --env-file deploy/.env.production run --rm -e MIGRATE_CONFIRM=APPLY_PRODUCTION_MIGRATIONS web npm run db:migrate:production' \
+    'docker compose --env-file deploy/.env.production up -d --remove-orphans web worker scheduler'
+  assert_not_contains "$docker_log" ' down ' 'upgrade must never run Compose down'
+  assert_not_contains "$docker_log" ' down -v ' 'upgrade must never delete named volumes'
+
+  : >"$FAKE_STATE/backup-fails"
+  : >"$FAKE_STATE/docker.log"
+  run_without_input --upgrade
+  assert_equal 95 "$RUN_STATUS" 'backup failure status must abort upgrade unchanged'
+  docker_log="$(<"$FAKE_STATE/docker.log")"
+  output="$(<"$RUN_OUTPUT")"
+  assert_contains "$docker_log" 'backup' 'upgrade must attempt a backup'
+  assert_not_contains "$docker_log" 'build web' 'backup failure must precede image build'
+  assert_not_contains "$docker_log" 'db:migrate:production' 'backup failure must precede migrations'
+  assert_not_contains "$docker_log" 'up -d --remove-orphans' 'backup failure must precede service replacement'
+  assert_not_contains "$output" 'secret inherited by backup' 'upgrade must unexport loaded secrets before backup'
+  assert_not_contains "$output" 'install.sh --resume' 'failed upgrade diagnostics must never recommend resume'
+  assert_contains "$output" 'restore.sh' 'failed upgrade diagnostics must direct the operator to restore'
+
+  rm -f "$FAKE_STATE/backup-fails"
+  : >"$FAKE_STATE/docker.log"
+  run_without_input --upgrade
+  [[ "$RUN_STATUS" -ne 0 ]] || fail_assertion 'an incomplete prior upgrade must block another upgrade'
+  docker_log="$(<"$FAKE_STATE/docker.log")"
+  assert_not_contains "$docker_log" 'backup' 'prior failed upgrade state must be checked before a new backup'
+  assert_not_contains "$docker_log" 'build web' 'prior failed upgrade state must be checked before build'
+}
+
 run_test 'CLI validation before preflight and prompts' test_cli_validation_stops_before_preflight_and_prompts
 run_test 'platform, disk, Docker, and repository preflight' test_preflight_rejects_platform_disk_and_repo_before_prompts
 run_test 'domain and 80/443 validation before prompts' test_domain_validation_and_ports_stop_before_prompts
@@ -1087,6 +1161,7 @@ run_test 'administrator email canonicalization' test_admin_email_is_canonicalize
 run_test 'probe timeout zero boundary' test_probe_timeout_rejects_zero_remaining
 run_test 'sensitive variables are unexported before validation' test_sensitive_variables_are_unexported_before_validation
 run_test 'cleanup removes database URLs' test_cleanup_unsets_database_urls
+run_test 'upgrade backup ordering and failure short-circuit' test_upgrade_backs_up_before_build_and_stops_on_backup_failure
 
 if ((FAIL_COUNT > 0)); then
   printf '%d installer test(s) failed\n' "$FAIL_COUNT" >&2
