@@ -5,9 +5,15 @@ export function isLocalTestStorageEnabled(env: NodeJS.ProcessEnv = process.env):
   return env.DISPOSABLE_TEST_DB_DRIVER === "pg";
 }
 
+export function isLocalStorageEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.STORAGE_DRIVER === "local" || isLocalTestStorageEnabled(env);
+}
+
 function storageRoot(): string {
   return resolve(
-    process.env.LOCAL_TEST_STORAGE_ROOT || resolve(process.cwd(), ".local-test-storage"),
+    process.env.LOCAL_STORAGE_ROOT ||
+      process.env.LOCAL_TEST_STORAGE_ROOT ||
+      resolve(process.cwd(), ".local-test-storage"),
   );
 }
 
@@ -109,17 +115,19 @@ async function resolveWritableStoragePath(storageKey: string): Promise<string> {
 }
 
 export function localStoragePublicUrl(storageKey: string): string {
-  const url = new URL("/api/local-storage", process.env.BETTER_AUTH_URL || "http://localhost:8888");
-  url.searchParams.set("key", storageKey);
-  return url.toString();
+  return `/media/${storageSegments(storageKey).map(encodeURIComponent).join("/")}`;
 }
 
 export function storageKeyFromLocalPublicUrl(value: string): string | null {
   try {
-    const url = new URL(value);
-    if (url.pathname !== "/api/local-storage") return null;
-    const key = url.searchParams.get("key");
-    if (!key) return null;
+    const url = new URL(value, "http://local-storage.invalid");
+    const prefix = "/media/";
+    if (!url.pathname.startsWith(prefix)) return null;
+    const encodedSegments = url.pathname.slice(prefix.length).split("/");
+    if (encodedSegments.some((segment) => !segment)) return null;
+    const segments = encodedSegments.map((segment) => decodeURIComponent(segment));
+    if (segments.some((segment) => segment.includes("/") || segment.includes("\\"))) return null;
+    const key = segments.join("/");
     storagePath(key);
     return key;
   } catch {
