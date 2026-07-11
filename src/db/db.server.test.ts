@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 interface MockPoolInstance {
   options: Record<string, unknown>;
@@ -14,6 +14,26 @@ const dbMocks = vi.hoisted(() => ({
   pgPools: [] as MockPoolInstance[],
   pgRows: [] as Array<Record<string, unknown>>,
 }));
+
+const originalDatabaseEnv = {
+  DATABASE_DRIVER: process.env.DATABASE_DRIVER,
+  DATABASE_URL: process.env.DATABASE_URL,
+  DATABASE_URL_UNPOOLED: process.env.DATABASE_URL_UNPOOLED,
+  DISPOSABLE_TEST_DB_DRIVER: process.env.DISPOSABLE_TEST_DB_DRIVER,
+};
+
+let loadedDb: typeof import("./db.server") | undefined;
+
+async function loadDb(): Promise<typeof import("./db.server")> {
+  loadedDb ??= await import("./db.server");
+  return loadedDb;
+}
+
+function restoreEnv(name: keyof typeof originalDatabaseEnv): void {
+  const value = originalDatabaseEnv[name];
+  if (value === undefined) delete process.env[name];
+  else process.env[name] = value;
+}
 
 vi.mock("@neondatabase/serverless", () => ({
   neon: dbMocks.neon,
@@ -56,6 +76,7 @@ function pgPoolFor(connectionString: string): MockPoolInstance {
 describe("database driver selection", () => {
   beforeEach(() => {
     vi.resetModules();
+    loadedDb = undefined;
     dbMocks.neon.mockReset();
     dbMocks.neonPools.length = 0;
     dbMocks.pgPools.length = 0;
@@ -66,22 +87,31 @@ describe("database driver selection", () => {
     process.env.DATABASE_URL_UNPOOLED = "postgres://transaction";
   });
 
+  afterEach(async () => {
+    await loadedDb?.closeDbPools();
+    loadedDb = undefined;
+    restoreEnv("DATABASE_DRIVER");
+    restoreEnv("DATABASE_URL");
+    restoreEnv("DATABASE_URL_UNPOOLED");
+    restoreEnv("DISPOSABLE_TEST_DB_DRIVER");
+  });
+
   it("selects standard PostgreSQL when DATABASE_DRIVER is pg", async () => {
-    const { usesPgDriver } = await import("./db.server");
+    const { usesPgDriver } = await loadDb();
 
     expect(usesPgDriver({ DATABASE_DRIVER: "pg" })).toBe(true);
     expect(usesPgDriver({ DATABASE_DRIVER: "neon" })).toBe(false);
   });
 
   it("preserves the disposable PostgreSQL test driver", async () => {
-    const { usesPgDriver } = await import("./db.server");
+    const { usesPgDriver } = await loadDb();
 
     expect(usesPgDriver({ DISPOSABLE_TEST_DB_DRIVER: "pg" })).toBe(true);
   });
 
   it("reuses a PostgreSQL transaction pool with the unpooled URL", async () => {
     process.env.DATABASE_DRIVER = "pg";
-    const { closeDbPools, getPool } = await import("./db.server");
+    const { closeDbPools, getPool } = await loadDb();
 
     expect(getPool()).toBe(getPool());
     expect(dbMocks.neonPools).toHaveLength(0);
@@ -98,7 +128,7 @@ describe("database driver selection", () => {
   it("reuses a PostgreSQL read pool and parameterizes template values", async () => {
     process.env.DATABASE_DRIVER = "pg";
     dbMocks.pgRows = [{ id: "image-1" }];
-    const { closeDbPools, getSql } = await import("./db.server");
+    const { closeDbPools, getSql } = await loadDb();
 
     const firstSql = getSql();
     const secondSql = getSql();
@@ -125,7 +155,7 @@ describe("database driver selection", () => {
 
   it("closes and clears both PostgreSQL pools", async () => {
     process.env.DATABASE_DRIVER = "pg";
-    const { closeDbPools, getPool, getSql } = await import("./db.server");
+    const { closeDbPools, getPool, getSql } = await loadDb();
 
     const transactionPool = getPool();
     await getSql()`SELECT 1`;
@@ -143,7 +173,7 @@ describe("database driver selection", () => {
 
   it("uses cached PostgreSQL pools for the disposable test driver", async () => {
     process.env.DISPOSABLE_TEST_DB_DRIVER = "pg";
-    const { closeDbPools, getPool, getSql } = await import("./db.server");
+    const { closeDbPools, getPool, getSql } = await loadDb();
 
     expect(getPool()).toBe(getPool());
     await getSql()`SELECT 1`;
@@ -156,7 +186,7 @@ describe("database driver selection", () => {
   it("keeps Neon as the default driver", async () => {
     const neonSql = vi.fn();
     dbMocks.neon.mockReturnValue(neonSql);
-    const { closeDbPools, getPool, getSql } = await import("./db.server");
+    const { closeDbPools, getPool, getSql } = await loadDb();
 
     expect(getPool()).toBe(getPool());
     expect(getSql()).toBe(neonSql);

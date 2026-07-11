@@ -11,6 +11,9 @@
 import { neon, type NeonQueryFunction, Pool, neonConfig } from "@neondatabase/serverless";
 import { Pool as PgPool } from "pg";
 import ws from "ws";
+import { usesPgDriver } from "./db-driver.server";
+
+export { usesPgDriver };
 
 // Node 运行时需注入 ws 给 Neon Pool（浏览器/Edge 有原生 WebSocket 时不需要；此文件 server-only）。
 if (!neonConfig.webSocketConstructor) {
@@ -40,10 +43,6 @@ export interface DbPool {
 
 export interface SqlClient {
   (strings: TemplateStringsArray, ...values: any[]): Promise<any[]>;
-}
-
-export function usesPgDriver(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.DATABASE_DRIVER === "pg" || env.DISPOSABLE_TEST_DB_DRIVER === "pg";
 }
 
 let pgReadPool: PgPool | undefined;
