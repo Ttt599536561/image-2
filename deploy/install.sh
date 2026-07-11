@@ -745,18 +745,25 @@ verify_admin_roles() {
 
 seed_admin() {
   local seed_status=0
-  if SEED_ADMIN_EMAIL="$ADMIN_EMAIL" SEED_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
-    compose run --rm \
-      -e SEED_ADMIN_EMAIL \
-      -e SEED_ADMIN_PASSWORD \
-      web node --import tsx scripts/seed-admin.ts; then
+  local seed_output=''
+  if seed_output="$(
+    SEED_ADMIN_EMAIL="$ADMIN_EMAIL" SEED_ADMIN_PASSWORD="$ADMIN_PASSWORD" \
+      compose run --rm \
+        -e SEED_ADMIN_EMAIL \
+        -e SEED_ADMIN_PASSWORD \
+        web node --import tsx scripts/seed-admin.ts 2>&1
+  )"; then
     seed_status=0
   else
     seed_status=$?
   fi
 
-  unset SEED_ADMIN_EMAIL SEED_ADMIN_PASSWORD ADMIN_PASSWORD ADMIN_PASSWORD_CONFIRM
-  ((seed_status == 0)) || return "$seed_status"
+  unset SEED_ADMIN_EMAIL SEED_ADMIN_PASSWORD
+  [[ -z "$seed_output" ]] || redact_text "$seed_output"
+  if ((seed_status != 0)); then
+    return "$seed_status"
+  fi
+  unset ADMIN_PASSWORD ADMIN_PASSWORD_CONFIRM
   write_install_state admin_seeded
 }
 
@@ -793,10 +800,10 @@ run_deployment_stages() {
     write_install_state configured
   fi
 
+  DIAGNOSTIC_SERVICES=(postgres)
+  compose up -d postgres
+  wait_for_postgres
   if ! stage_at_least postgres_ready; then
-    DIAGNOSTIC_SERVICES=(postgres)
-    compose up -d postgres
-    wait_for_postgres
     write_install_state postgres_ready
   fi
 
@@ -820,10 +827,10 @@ run_deployment_stages() {
   DIAGNOSTIC_SERVICES=(postgres)
   verify_admin_roles
 
+  DIAGNOSTIC_SERVICES=(web worker scheduler)
+  [[ "$MODE" != 'domain' ]] || DIAGNOSTIC_SERVICES+=(caddy)
+  start_application_services
   if ! stage_at_least services_started; then
-    DIAGNOSTIC_SERVICES=(web worker scheduler)
-    [[ "$MODE" != 'domain' ]] || DIAGNOSTIC_SERVICES+=(caddy)
-    start_application_services
     write_install_state services_started
   fi
 

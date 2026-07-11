@@ -25,7 +25,7 @@ RUN_STATUS=0
 
 fail_assertion() {
   printf 'assertion failed: %s\n' "$1" >&2
-  return 1
+  exit 1
 }
 
 assert_equal() {
@@ -120,10 +120,39 @@ if [[ " $* " == *' ps '* ]]; then
   exit 0
 fi
 
+if [[ " $* " == *' scripts/seed-admin.ts '* && -e "$FAKE_STATE/seed-fails-with-secret" ]]; then
+  printf 'seed stdout leaked password: %s\n' "${SEED_ADMIN_PASSWORD-}"
+  printf 'seed stderr leaked password: %s\n' "${SEED_ADMIN_PASSWORD-}" >&2
+  printf 'service log leaked password: %s\n' "${SEED_ADMIN_PASSWORD-}" >"$FAKE_STATE/service-logs"
+  exit 92
+fi
+
 fail_match=''
 [[ ! -f "$FAKE_STATE/fail-match" ]] || fail_match="$(<"$FAKE_STATE/fail-match")"
 if [[ -n "$fail_match" && " $* " == *"$fail_match"* ]]; then
   exit 91
+fi
+
+if [[ " $* " == *' up -d postgres '* ]]; then
+  : >"$FAKE_STATE/postgres-up"
+  exit 0
+fi
+
+if [[ " $* " == *' exec -T postgres pg_isready '* ]]; then
+  if [[ -e "$FAKE_STATE/require-runtime-start" && ! -e "$FAKE_STATE/postgres-up" ]]; then
+    exit 70
+  fi
+  exit 0
+fi
+
+if [[ " $* " == *' up -d web worker scheduler '* ]]; then
+  : >"$FAKE_STATE/app-up"
+  exit 0
+fi
+
+if [[ " $* " == *' --profile caddy up -d caddy '* ]]; then
+  : >"$FAKE_STATE/caddy-up"
+  exit 0
 fi
 
 if [[ " $* " == *' scripts/seed-admin.ts '* ]]; then
@@ -134,6 +163,9 @@ if [[ " $* " == *' scripts/seed-admin.ts '* ]]; then
 fi
 
 if [[ " $* " == *' psql '* ]]; then
+  if [[ -e "$FAKE_STATE/require-runtime-start" && ! -e "$FAKE_STATE/postgres-up" ]]; then
+    exit 71
+  fi
   [[ -z "${SEED_ADMIN_EMAIL-}" && -z "${SEED_ADMIN_PASSWORD-}" ]] || exit 69
   printf 'seed-environment-cleared\n' >"$FAKE_STATE/seed-env-cleared"
   if [[ -f "$FAKE_STATE/roles" ]]; then
@@ -180,6 +212,12 @@ set -euo pipefail
 } >>"$FAKE_CURL_LOG"
 if [[ -f "$FAKE_STATE/curl-fails" ]]; then
   exit 7
+fi
+if [[ -e "$FAKE_STATE/require-runtime-start" && ! -e "$FAKE_STATE/app-up" ]]; then
+  exit 8
+fi
+if [[ -e "$FAKE_STATE/require-caddy" && ! -e "$FAKE_STATE/caddy-up" ]]; then
+  exit 9
 fi
 if [[ -f "$FAKE_STATE/http-code" ]]; then
   cat "$FAKE_STATE/http-code"
@@ -553,11 +591,31 @@ test_failure_diagnostics_redact_all_secrets() {
   assert_not_contains "$diagnostics" 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' 'diagnostics must redact generated base64 secrets'
 }
 
+test_seed_failure_redacts_password_and_preserves_exit_status() {
+  make_fixture seed-secret-failure
+  : >"$FAKE_STATE/seed-fails-with-secret"
+  local admin_password='seed-output-password!'
+  local input_file="$CASE_ROOT/input"
+  write_success_input "$input_file" 'seed-failure-relay-key' admin@example.com "$admin_password"
+  run_install "$input_file" --existing-proxy --public-url https://images.example.com --port 18081
+  assert_equal 92 "$RUN_STATUS" 'seed failure should preserve the Compose exit status'
+
+  local output state_contents
+  output="$(<"$RUN_OUTPUT")"
+  state_contents="$(<"$CASE_ROOT/deploy/install.state")"
+  assert_contains "$output" '[REDACTED]' 'seed output and diagnostics should show redaction markers'
+  assert_not_contains "$output" "$admin_password" 'seed stdout, stderr, and diagnostics must not reveal admin password'
+  assert_contains "$state_contents" 'STAGE="migrated"' 'seed failure should remain at migrated stage'
+  assert_not_contains "$state_contents" "$admin_password" 'seed failure state must not persist admin password'
+}
+
 test_completed_resume_preserves_env_and_skips_all_secret_prompts() {
   make_fixture resume-complete
   run_success_proxy_install
   local before_hash
   before_hash="$(sha256sum "$CASE_ROOT/deploy/.env.production" | awk '{print $1}')"
+  rm -f "$FAKE_STATE/postgres-up" "$FAKE_STATE/app-up"
+  : >"$FAKE_STATE/require-runtime-start"
   : >"$FAKE_STATE/docker.log"
   : >"$FAKE_STATE/curl.log"
 
@@ -571,8 +629,44 @@ test_completed_resume_preserves_env_and_skips_all_secret_prompts() {
   assert_not_contains "$output" '请输入管理员邮箱' 'completed resume must not prompt for admin email'
   assert_not_contains "$docker_log" 'seed-admin.ts' 'completed resume must not reseed admin'
   assert_contains "$docker_log" 'docker compose --env-file deploy/.env.production config --quiet' 'resume should validate Compose config'
+  assert_ordered "$docker_log" \
+    'docker compose --env-file deploy/.env.production up -d postgres' \
+    'docker compose --env-file deploy/.env.production exec -T postgres pg_isready' \
+    'docker compose --env-file deploy/.env.production exec -T postgres psql' \
+    'docker compose --env-file deploy/.env.production up -d web worker scheduler'
   assert_contains "$docker_log" 'docker compose --env-file deploy/.env.production exec -T postgres psql' 'resume should verify both admin roles'
   assert_contains "$output" 'https://images.example.com/admin/login' 'completed resume should print success output'
+}
+
+test_completed_domain_resume_restarts_caddy_without_rebuilding() {
+  make_fixture resume-complete-domain
+  local input_file="$CASE_ROOT/input"
+  write_success_input "$input_file"
+  run_install "$input_file" --domain images.example.com
+  assert_equal 0 "$RUN_STATUS" 'initial domain installation should succeed'
+  local before_hash
+  before_hash="$(sha256sum "$CASE_ROOT/deploy/.env.production" | awk '{print $1}')"
+
+  rm -f "$FAKE_STATE/postgres-up" "$FAKE_STATE/app-up" "$FAKE_STATE/caddy-up"
+  : >"$FAKE_STATE/require-runtime-start"
+  : >"$FAKE_STATE/require-caddy"
+  : >"$FAKE_STATE/docker.log"
+  : >"$FAKE_STATE/curl.log"
+  run_without_input --resume
+  assert_equal 0 "$RUN_STATUS" 'completed domain resume should recreate runtime containers'
+  assert_equal "$before_hash" "$(sha256sum "$CASE_ROOT/deploy/.env.production" | awk '{print $1}')" 'domain resume must preserve env bytes'
+
+  local docker_log
+  docker_log="$(<"$FAKE_STATE/docker.log")"
+  assert_ordered "$docker_log" \
+    'docker compose --env-file deploy/.env.production up -d postgres' \
+    'docker compose --env-file deploy/.env.production exec -T postgres pg_isready' \
+    'docker compose --env-file deploy/.env.production exec -T postgres psql' \
+    'docker compose --env-file deploy/.env.production up -d web worker scheduler' \
+    'docker compose --env-file deploy/.env.production --profile caddy up -d caddy'
+  assert_not_contains "$docker_log" 'build web' 'completed domain resume must not rebuild the image'
+  assert_not_contains "$docker_log" 'db:migrate:production' 'completed domain resume must not rerun migrations'
+  assert_not_contains "$docker_log" 'seed-admin.ts' 'completed domain resume must not reseed admin'
 }
 
 test_incomplete_admin_resume_prompts_only_admin_and_preserves_env() {
@@ -659,7 +753,9 @@ run_test 'proxy command order and private state' test_proxy_install_runs_exact_o
 run_test 'domain Caddy startup and output' test_domain_install_starts_caddy_and_reports_public_url
 run_test 'strict HTTP 204 health contract' test_health_requires_exact_http_204
 run_test 'failure diagnostics secret redaction' test_failure_diagnostics_redact_all_secrets
+run_test 'seed failure output redaction and status propagation' test_seed_failure_redacts_password_and_preserves_exit_status
 run_test 'completed resume without secret prompts or rotation' test_completed_resume_preserves_env_and_skips_all_secret_prompts
+run_test 'completed domain resume recreates runtime containers' test_completed_domain_resume_restarts_caddy_without_rebuilding
 run_test 'incomplete admin resume prompts and continuation' test_incomplete_admin_resume_prompts_only_admin_and_preserves_env
 run_test 'unsafe resume files and unknown state rejection' test_resume_rejects_unsafe_env_state_and_unknown_stage
 
