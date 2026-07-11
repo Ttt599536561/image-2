@@ -72,7 +72,7 @@ describe("custom generation pipeline", () => {
     ).toBe("succeeded");
 
     const [image] = await ctx.images(generationId);
-    expect(image.public_url).toContain("/api/local-storage?key=");
+    expect(image.public_url).toContain("/media/");
     const stored = await readLocalStorageObject(String(image.storage_key));
     expect(Buffer.from(stored.bytes)).toEqual(ONE_PIXEL_PNG);
     await deleteFromR2(String(image.storage_key));

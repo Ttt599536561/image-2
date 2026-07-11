@@ -6,7 +6,6 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   deleteLocalStorageObject,
   isLocalStorageEnabled,
-  isLocalTestStorageEnabled,
   localStoragePublicUrl,
   readLocalStorageObject,
   storageKeyFromLocalPublicUrl,
@@ -165,8 +164,6 @@ describe("persistent local object storage", () => {
     expect(isLocalStorageEnabled({ STORAGE_DRIVER: "local" })).toBe(true);
     expect(isLocalStorageEnabled({ DISPOSABLE_TEST_DB_DRIVER: "pg" })).toBe(true);
     expect(isLocalStorageEnabled({ STORAGE_DRIVER: "s3" })).toBe(false);
-    expect(isLocalTestStorageEnabled({ STORAGE_DRIVER: "local" })).toBe(false);
-    expect(isLocalTestStorageEnabled({ DISPOSABLE_TEST_DB_DRIVER: "pg" })).toBe(true);
 
     const key = "root-precedence/probe.png";
     await writeLocalStorageObject(key, ONE_PIXEL_PNG);

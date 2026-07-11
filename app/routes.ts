@@ -4,6 +4,7 @@ import { index, layout, type RouteConfig, route } from "@react-router/dev/routes
 // 阶段一：受保护前台挂 _app（mock 放行）；鉴权页挂 _auth；/admin 留阶段二。
 export default [
   route("healthz", "routes/healthz.ts"),
+  route("media/*", "routes/media.$.ts"),
   // 阶段二 ②：Better Auth catch-all 资源路由（/api/auth/*），无 UI（05 §6.1）。
   route("api/auth/*", "routes/api.auth.$.ts"),
   // 阶段二 ⑤：前台读/写 API（资源路由，无 UI，server-only；读供客户端 refetch、写=REST/action）。
@@ -11,7 +12,6 @@ export default [
   route("api/generate", "routes/api.generate.ts"),
   route("api/generate-background", "routes/api.generate-background.ts"),
   route("api/generate-status", "routes/api.generate-status.ts"),
-  route("api/local-storage", "routes/api.local-storage.ts"),
   route("api/conversations", "routes/api.conversations.ts"),
   route("api/conversations/:id", "routes/api.conversations.$id.ts"),
   route("api/images", "routes/api.images.ts"),

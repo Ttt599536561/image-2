@@ -1,14 +1,20 @@
 import { httpError } from "../../src/contracts/error";
 import {
-  isLocalTestStorageEnabled,
+  isLocalStorageEnabled,
   readLocalStorageObject,
+  storageKeyFromLocalPublicUrl,
 } from "../../src/server/local-storage.server";
-import type { Route } from "./+types/api.local-storage";
+import type { Route } from "./+types/media.$";
+
+function notFound(): Response {
+  return httpError(404, "NOT_FOUND", "Resource not found");
+}
 
 export async function loader({ request }: Route.LoaderArgs): Promise<Response> {
-  if (!isLocalTestStorageEnabled()) return httpError(404, "NOT_FOUND", "资源不存在");
-  const storageKey = new URL(request.url).searchParams.get("key");
-  if (!storageKey) return httpError(404, "NOT_FOUND", "资源不存在");
+  if (!isLocalStorageEnabled()) return notFound();
+  const storageKey = storageKeyFromLocalPublicUrl(request.url);
+  if (!storageKey) return notFound();
+
   try {
     const object = await readLocalStorageObject(storageKey);
     const body = object.bytes.buffer.slice(
@@ -19,9 +25,10 @@ export async function loader({ request }: Route.LoaderArgs): Promise<Response> {
       headers: {
         "Content-Type": object.contentType,
         "Cache-Control": "public, max-age=31536000, immutable",
+        "X-Content-Type-Options": "nosniff",
       },
     });
   } catch {
-    return httpError(404, "NOT_FOUND", "资源不存在");
+    return notFound();
   }
 }

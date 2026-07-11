@@ -1,12 +1,8 @@
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 
-export function isLocalTestStorageEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.DISPOSABLE_TEST_DB_DRIVER === "pg";
-}
-
 export function isLocalStorageEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.STORAGE_DRIVER === "local" || isLocalTestStorageEnabled(env);
+  return env.STORAGE_DRIVER === "local" || env.DISPOSABLE_TEST_DB_DRIVER === "pg";
 }
 
 function storageRoot(): string {
