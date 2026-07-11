@@ -35,6 +35,7 @@ CUSTOM_KEY_JOB_ENCRYPTION_KEY=''
 
 DIAGNOSTICS_ENABLED=false
 DIAGNOSTIC_SERVICES=(web)
+INSTALL_LOCK_FD=''
 
 usage() {
   printf '%s\n' \
@@ -48,6 +49,39 @@ cleanup_secrets() {
   unset RELAY_API_KEY ADMIN_PASSWORD ADMIN_PASSWORD_CONFIRM
   unset SEED_ADMIN_EMAIL SEED_ADMIN_PASSWORD
   unset POSTGRES_PASSWORD BETTER_AUTH_SECRET CUSTOM_KEY_JOB_ENCRYPTION_KEY
+}
+
+release_install_lock() {
+  if [[ -n "${INSTALL_LOCK_FD:-}" ]]; then
+    flock -u "$INSTALL_LOCK_FD" 2>/dev/null || true
+    exec {INSTALL_LOCK_FD}>&-
+    INSTALL_LOCK_FD=''
+  fi
+}
+
+acquire_install_lock() {
+  local lock_path="${INSTALL_LOCK_PATH:-/run/lock/ai-image-workshop-install.lock}"
+  local lock_dir="${lock_path%/*}"
+  [[ "$lock_dir" != "$lock_path" && -d "$lock_dir" && ! -L "$lock_dir" ]] || {
+    die "安装锁目录不存在或不安全：$lock_dir"
+    return 1
+  }
+  if [[ -e "$lock_path" || -L "$lock_path" ]]; then
+    [[ -f "$lock_path" && ! -L "$lock_path" ]] || {
+      die "安装锁目标不是安全的普通文件：$lock_path"
+      return 1
+    }
+  fi
+  exec {INSTALL_LOCK_FD}>"$lock_path" || {
+    die "无法打开安装锁：$lock_path"
+    return 1
+  }
+  if ! flock -n "$INSTALL_LOCK_FD"; then
+    exec {INSTALL_LOCK_FD}>&-
+    INSTALL_LOCK_FD=''
+    die '另一个安装或续装进程正在运行'
+    return 1
+  fi
 }
 
 redact_text() {
@@ -106,6 +140,7 @@ on_exit() {
     print_failure_diagnostics
   fi
   cleanup_secrets
+  release_install_lock
   exit "$status"
 }
 
@@ -310,7 +345,7 @@ preflight_common() {
   }
 
   local required_command
-  for required_command in docker openssl ss curl df awk stat mktemp; do
+  for required_command in docker openssl ss curl df awk stat mktemp flock timeout; do
     command -v "$required_command" >/dev/null 2>&1 || {
       die "未找到必需命令：$required_command"
       return 1
@@ -353,6 +388,22 @@ preflight_common() {
     die '可用磁盘空间不足，至少需要 10 GiB'
     return 1
   }
+
+  local timeout_value timeout_name
+  for timeout_name in \
+    INSTALL_POSTGRES_HEALTH_TIMEOUT_SECONDS \
+    INSTALL_WEB_HEALTH_TIMEOUT_SECONDS \
+    INSTALL_PROBE_COMMAND_TIMEOUT_SECONDS; do
+    case "$timeout_name" in
+      INSTALL_POSTGRES_HEALTH_TIMEOUT_SECONDS) timeout_value="${INSTALL_POSTGRES_HEALTH_TIMEOUT_SECONDS:-120}" ;;
+      INSTALL_WEB_HEALTH_TIMEOUT_SECONDS) timeout_value="${INSTALL_WEB_HEALTH_TIMEOUT_SECONDS:-180}" ;;
+      INSTALL_PROBE_COMMAND_TIMEOUT_SECONDS) timeout_value="${INSTALL_PROBE_COMMAND_TIMEOUT_SECONDS:-5}" ;;
+    esac
+    [[ "$timeout_value" =~ ^[1-9][0-9]*$ ]] || {
+      die "健康检查超时配置无效：$timeout_name"
+      return 1
+    }
+  done
 }
 
 prepare_fresh_mode() {
@@ -568,25 +619,33 @@ write_install_state() {
     local temp_path=''
     # shellcheck disable=SC2329 # Invoked by the EXIT trap below.
     cleanup_state_temp() {
-      [[ -z "$temp_path" ]] || rm -f -- "$temp_path"
+      [[ -z "$temp_path" ]] || rm -f -- "$temp_path" 2>/dev/null || true
     }
     trap cleanup_state_temp EXIT
     trap 'exit 129' HUP
     trap 'exit 130' INT
     trap 'exit 143' TERM
-    temp_path="$(mktemp "${STATE_PATH}.tmp.XXXXXX")"
-    {
-      _write_deploy_env_line STATE_VERSION "$STATE_VERSION"
-      _write_deploy_env_line STAGE "$stage"
+    if ! temp_path="$(mktemp "${STATE_PATH}.tmp.XXXXXX")"; then
+      exit 1
+    fi
+    if ! {
+      _write_deploy_env_line STATE_VERSION "$STATE_VERSION" || exit 1
+      _write_deploy_env_line STAGE "$stage" || exit 1
       if [[ -n "$ADMIN_EMAIL" ]]; then
-        _write_deploy_env_line ADMIN_EMAIL "$ADMIN_EMAIL"
+        _write_deploy_env_line ADMIN_EMAIL "$ADMIN_EMAIL" || exit 1
       fi
-    } >"$temp_path"
-    chmod 0600 "$temp_path"
-    mv -fT -- "$temp_path" "$STATE_PATH"
+    } >"$temp_path"; then
+      exit 1
+    fi
+    if ! chmod 0600 "$temp_path"; then
+      exit 1
+    fi
+    if ! mv -fT -- "$temp_path" "$STATE_PATH"; then
+      exit 1
+    fi
     temp_path=''
     trap - EXIT HUP INT TERM
-  )
+  ) || return 1
   STATE_STAGE="$stage"
 }
 
@@ -709,14 +768,23 @@ collect_resume_admin_inputs() {
 }
 
 wait_for_postgres() {
-  local attempt
-  for ((attempt = 1; attempt <= 120; attempt += 1)); do
-    if compose exec -T postgres pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" >/dev/null 2>&1; then
+  local attempt remaining probe_timeout
+  local timeout_seconds="${INSTALL_POSTGRES_HEALTH_TIMEOUT_SECONDS:-120}"
+  local command_timeout="${INSTALL_PROBE_COMMAND_TIMEOUT_SECONDS:-5}"
+  local deadline=$((SECONDS + timeout_seconds))
+  for ((attempt = 1; attempt <= 120 && SECONDS < deadline; attempt += 1)); do
+    remaining=$((deadline - SECONDS))
+    probe_timeout="$command_timeout"
+    ((probe_timeout <= remaining)) || probe_timeout="$remaining"
+    if timeout --signal=KILL "$probe_timeout" \
+      docker compose --env-file "$ENV_ARGUMENT" exec -T postgres \
+      pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t 1 >/dev/null 2>&1; then
       return 0
     fi
+    ((SECONDS < deadline)) || break
     sleep 1
   done
-  die 'PostgreSQL 在 120 秒内未就绪'
+  die "PostgreSQL 在 ${timeout_seconds} 秒内未就绪"
 }
 
 verify_admin_roles() {
@@ -775,21 +843,30 @@ start_application_services() {
 }
 
 wait_for_web_health() {
-  local attempt http_code
-  for ((attempt = 1; attempt <= 180; attempt += 1)); do
+  local attempt http_code remaining probe_timeout
+  local timeout_seconds="${INSTALL_WEB_HEALTH_TIMEOUT_SECONDS:-180}"
+  local command_timeout="${INSTALL_PROBE_COMMAND_TIMEOUT_SECONDS:-5}"
+  local deadline=$((SECONDS + timeout_seconds))
+  for ((attempt = 1; attempt <= 180 && SECONDS < deadline; attempt += 1)); do
     http_code=''
-    if http_code="$(curl \
+    remaining=$((deadline - SECONDS))
+    probe_timeout="$command_timeout"
+    ((probe_timeout <= remaining)) || probe_timeout="$remaining"
+    if http_code="$(timeout --signal=KILL "$probe_timeout" curl \
       --silent \
       --show-error \
+      --connect-timeout 2 \
+      --max-time 4 \
       --output /dev/null \
       --write-out '%{http_code}' \
       "http://127.0.0.1:${WEB_HOST_PORT}/healthz" 2>/dev/null)" \
       && [[ "$http_code" == '204' ]]; then
       return 0
     fi
+    ((SECONDS < deadline)) || break
     sleep 1
   done
-  die 'Web 健康检查在 180 秒内未返回 HTTP 204'
+  die "Web 健康检查在 ${timeout_seconds} 秒内未返回 HTTP 204"
 }
 
 run_deployment_stages() {
@@ -861,6 +938,7 @@ main() {
     usage >&2
     return "$parse_status"
   fi
+  acquire_install_lock
 
   if [[ "$MODE" == 'resume' ]]; then
     preflight_common

@@ -22,6 +22,10 @@ CASE_ROOT=''
 FAKE_STATE=''
 RUN_OUTPUT=''
 RUN_STATUS=0
+TEST_OUTER_TIMEOUT_SECONDS=30
+TEST_POSTGRES_HEALTH_TIMEOUT_SECONDS=120
+TEST_WEB_HEALTH_TIMEOUT_SECONDS=180
+TEST_PROBE_COMMAND_TIMEOUT_SECONDS=5
 
 fail_assertion() {
   printf 'assertion failed: %s\n' "$1" >&2
@@ -85,6 +89,7 @@ set -euo pipefail
 } >>"$FAKE_DOCKER_LOG"
 
 if [[ "${1-}" == 'info' ]]; then
+  while [[ -e "$FAKE_STATE/docker-info-blocks" ]]; do /bin/sleep 0.1; done
   [[ ! -e "$FAKE_STATE/docker-info-fails" ]]
   exit
 fi
@@ -139,6 +144,7 @@ if [[ " $* " == *' up -d postgres '* ]]; then
 fi
 
 if [[ " $* " == *' exec -T postgres pg_isready '* ]]; then
+  if [[ -e "$FAKE_STATE/postgres-probe-blocks" ]]; then /bin/sleep 30; fi
   if [[ -e "$FAKE_STATE/require-runtime-start" && ! -e "$FAKE_STATE/postgres-up" ]]; then
     exit 70
   fi
@@ -213,6 +219,7 @@ set -euo pipefail
 if [[ -f "$FAKE_STATE/curl-fails" ]]; then
   exit 7
 fi
+if [[ -e "$FAKE_STATE/curl-blocks" ]]; then /bin/sleep 30; fi
 if [[ -e "$FAKE_STATE/require-runtime-start" && ! -e "$FAKE_STATE/app-up" ]]; then
   exit 8
 fi
@@ -240,6 +247,33 @@ FAKE_DF
 set -euo pipefail
 printf 'sleep %s\n' "$*" >>"$FAKE_SLEEP_LOG"
 FAKE_SLEEP
+
+  cat >"$CASE_ROOT/fake-bin/mktemp" <<'FAKE_MKTEMP'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ -e "$FAKE_STATE/mktemp-fails" ]]; then exit 73; fi
+if [[ -e "$FAKE_STATE/state-write-fails" && "$*" == *'install.state.tmp.'* ]]; then
+  path="$FAKE_STATE/state-temp-directory"
+  mkdir -p "$path"
+  printf '%s\n' "$path"
+  exit 0
+fi
+exec /usr/bin/mktemp "$@"
+FAKE_MKTEMP
+
+  cat >"$CASE_ROOT/fake-bin/chmod" <<'FAKE_CHMOD'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ -e "$FAKE_STATE/state-chmod-fails" && "$*" == *'install.state.tmp.'* ]]; then exit 74; fi
+exec /usr/bin/chmod "$@"
+FAKE_CHMOD
+
+  cat >"$CASE_ROOT/fake-bin/mv" <<'FAKE_MV'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ -e "$FAKE_STATE/state-mv-fails" && "$*" == *'install.state'* ]]; then exit 75; fi
+exec /usr/bin/mv "$@"
+FAKE_MV
 
   chmod 0700 "$CASE_ROOT/fake-bin/"*
 }
@@ -273,16 +307,44 @@ run_install() {
       INSTALL_ALLOW_NON_ROOT=1 \
       INSTALL_OS_RELEASE_FILE="$CASE_ROOT/os-release" \
       INSTALL_MIN_FREE_KIB=1000 \
+      INSTALL_LOCK_PATH="$CASE_ROOT/install.lock" \
+      INSTALL_POSTGRES_HEALTH_TIMEOUT_SECONDS="$TEST_POSTGRES_HEALTH_TIMEOUT_SECONDS" \
+      INSTALL_WEB_HEALTH_TIMEOUT_SECONDS="$TEST_WEB_HEALTH_TIMEOUT_SECONDS" \
+      INSTALL_PROBE_COMMAND_TIMEOUT_SECONDS="$TEST_PROBE_COMMAND_TIMEOUT_SECONDS" \
       FAKE_STATE="$FAKE_STATE" \
       FAKE_DOCKER_LOG="$FAKE_STATE/docker.log" \
       FAKE_CURL_LOG="$FAKE_STATE/curl.log" \
       FAKE_SLEEP_LOG="$FAKE_STATE/sleep.log" \
-      bash deploy/install.sh "$@"
+      timeout "$TEST_OUTER_TIMEOUT_SECONDS" bash deploy/install.sh "$@"
   ) <"$input_file" >"$RUN_OUTPUT" 2>&1; then
     RUN_STATUS=0
   else
     RUN_STATUS=$?
   fi
+}
+
+run_background_install() {
+  local input_file="$1"
+  local output_file="$2"
+  shift 2
+  (
+    cd "$CASE_ROOT"
+    env \
+      PATH="$CASE_ROOT/fake-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+      INSTALL_ALLOW_NON_ROOT=1 \
+      INSTALL_OS_RELEASE_FILE="$CASE_ROOT/os-release" \
+      INSTALL_MIN_FREE_KIB=1000 \
+      INSTALL_LOCK_PATH="$CASE_ROOT/install.lock" \
+      INSTALL_POSTGRES_HEALTH_TIMEOUT_SECONDS="$TEST_POSTGRES_HEALTH_TIMEOUT_SECONDS" \
+      INSTALL_WEB_HEALTH_TIMEOUT_SECONDS="$TEST_WEB_HEALTH_TIMEOUT_SECONDS" \
+      INSTALL_PROBE_COMMAND_TIMEOUT_SECONDS="$TEST_PROBE_COMMAND_TIMEOUT_SECONDS" \
+      FAKE_STATE="$FAKE_STATE" \
+      FAKE_DOCKER_LOG="$FAKE_STATE/docker.log" \
+      FAKE_CURL_LOG="$FAKE_STATE/curl.log" \
+      FAKE_SLEEP_LOG="$FAKE_STATE/sleep.log" \
+      timeout 15 bash deploy/install.sh "$@"
+  ) <"$input_file" >"$output_file" 2>&1 &
+  BACKGROUND_PID=$!
 }
 
 run_without_input() {
@@ -743,6 +805,104 @@ test_resume_rejects_unsafe_env_state_and_unknown_stage() {
   [[ "$RUN_STATUS" -ne 0 ]] || fail_assertion 'symlink state target should be rejected'
 }
 
+test_concurrent_installer_is_rejected_before_prompts_or_writes() {
+  make_fixture concurrent-install
+  : >"$FAKE_STATE/docker-info-blocks"
+  local empty_input="$CASE_ROOT/empty.in"
+  local first_output="$CASE_ROOT/first.out"
+  : >"$empty_input"
+
+  BACKGROUND_PID=''
+  run_background_install "$empty_input" "$first_output" \
+    --existing-proxy --public-url https://images.example.com --port 18081
+
+  local _
+  for _ in {1..50}; do
+    [[ -f "$FAKE_STATE/docker.log" ]] && grep -Fxq 'docker info' "$FAKE_STATE/docker.log" && break
+    /bin/sleep 0.1
+  done
+  [[ -n "$BACKGROUND_PID" && -f "$FAKE_STATE/docker.log" ]] || fail_assertion 'first installer should reach Docker preflight while holding the lock'
+
+  TEST_OUTER_TIMEOUT_SECONDS=3
+  run_without_input --existing-proxy --public-url https://images.example.com --port 18081
+  local second_output
+  second_output="$(<"$RUN_OUTPUT")"
+  [[ "$RUN_STATUS" -ne 0 && "$RUN_STATUS" -ne 124 ]] || fail_assertion 'second installer should fail immediately instead of blocking in preflight'
+  assert_contains "$second_output" '正在运行' 'second installer should report the active installation lock'
+  assert_not_contains "$second_output" '请输入系统 Relay API Key' 'lock rejection must precede prompts'
+  [[ ! -e "$CASE_ROOT/deploy/.env.production" && ! -e "$CASE_ROOT/deploy/install.state" ]] \
+    || fail_assertion 'lock rejection must precede environment and state writes'
+  assert_equal 1 "$(grep -Fxc 'docker info' "$FAKE_STATE/docker.log")" 'second installer must not start preflight'
+
+  rm -f "$FAKE_STATE/docker-info-blocks"
+  wait "$BACKGROUND_PID" || true
+}
+
+test_blocking_health_probes_respect_monotonic_deadlines() {
+  local input_file output
+
+  make_fixture postgres-deadline
+  : >"$FAKE_STATE/postgres-probe-blocks"
+  input_file="$CASE_ROOT/input"
+  write_success_input "$input_file"
+  TEST_OUTER_TIMEOUT_SECONDS=8
+  TEST_POSTGRES_HEALTH_TIMEOUT_SECONDS=2
+  TEST_PROBE_COMMAND_TIMEOUT_SECONDS=1
+  run_install "$input_file" --existing-proxy --public-url https://images.example.com --port 18081
+  [[ "$RUN_STATUS" -ne 0 && "$RUN_STATUS" -ne 124 ]] || fail_assertion 'blocked PostgreSQL probe must fail within the installer deadline'
+  output="$(<"$RUN_OUTPUT")"
+  assert_contains "$output" 'PostgreSQL' 'PostgreSQL deadline failure should be clear'
+  assert_contains "$(<"$FAKE_STATE/docker.log")" 'pg_isready -U ai_image_workshop -d ai_image_workshop -t 1' 'PostgreSQL probe should bound pg_isready itself'
+
+  make_fixture web-deadline
+  : >"$FAKE_STATE/curl-blocks"
+  input_file="$CASE_ROOT/input"
+  write_success_input "$input_file"
+  TEST_OUTER_TIMEOUT_SECONDS=8
+  TEST_WEB_HEALTH_TIMEOUT_SECONDS=2
+  TEST_PROBE_COMMAND_TIMEOUT_SECONDS=1
+  run_install "$input_file" --existing-proxy --public-url https://images.example.com --port 18081
+  [[ "$RUN_STATUS" -ne 0 && "$RUN_STATUS" -ne 124 ]] \
+    || fail_assertion "blocked Web probe must fail within the installer deadline (status=$RUN_STATUS)"
+  output="$(<"$RUN_OUTPUT")"
+  assert_contains "$output" 'Web' 'Web deadline failure should be clear'
+  assert_contains "$(<"$FAKE_STATE/curl.log")" '--connect-timeout' 'curl probe should bound connection setup'
+  assert_contains "$(<"$FAKE_STATE/curl.log")" '--max-time' 'curl probe should bound the complete request'
+}
+
+test_state_write_failures_propagate_inside_conditionals() {
+  local marker output status state_before
+  local -a markers=(mktemp-fails state-write-fails state-chmod-fails state-mv-fails)
+
+  for marker in "${markers[@]}"; do
+    make_fixture "state-$marker"
+    printf 'STATE_VERSION="1"\nSTAGE="configured"\n' >"$CASE_ROOT/deploy/install.state"
+    chmod 0600 "$CASE_ROOT/deploy/install.state"
+    state_before="$(sha256sum "$CASE_ROOT/deploy/install.state" | awk '{print $1}')"
+    : >"$FAKE_STATE/$marker"
+    sed '$d' "$CASE_ROOT/deploy/install.sh" >"$CASE_ROOT/deploy/install-functions.sh"
+
+    output="$CASE_ROOT/state-write.out"
+    if (
+      cd "$CASE_ROOT"
+      export PATH="$CASE_ROOT/fake-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+      export FAKE_STATE
+      # Calling in an if condition disables Bash errexit inside functions; explicit checks must still propagate.
+      # Generated from the fixture installer above.
+      # shellcheck disable=SC1091
+      source deploy/install-functions.sh
+      if write_install_state postgres_ready; then exit 0; else exit $?; fi
+    ) >"$output" 2>&1; then
+      status=0
+    else
+      status=$?
+    fi
+
+    [[ "$status" -ne 0 ]] || fail_assertion "$marker must propagate a state write failure from conditional context"
+    assert_equal "$state_before" "$(sha256sum "$CASE_ROOT/deploy/install.state" | awk '{print $1}')" "$marker must preserve the previous state file"
+  done
+}
+
 run_test 'CLI validation before preflight and prompts' test_cli_validation_stops_before_preflight_and_prompts
 run_test 'platform, disk, Docker, and repository preflight' test_preflight_rejects_platform_disk_and_repo_before_prompts
 run_test 'domain and 80/443 validation before prompts' test_domain_validation_and_ports_stop_before_prompts
@@ -758,6 +918,9 @@ run_test 'completed resume without secret prompts or rotation' test_completed_re
 run_test 'completed domain resume recreates runtime containers' test_completed_domain_resume_restarts_caddy_without_rebuilding
 run_test 'incomplete admin resume prompts and continuation' test_incomplete_admin_resume_prompts_only_admin_and_preserves_env
 run_test 'unsafe resume files and unknown state rejection' test_resume_rejects_unsafe_env_state_and_unknown_stage
+run_test 'exclusive installer lock before prompts and writes' test_concurrent_installer_is_rejected_before_prompts_or_writes
+run_test 'bounded blocking health probes' test_blocking_health_probes_respect_monotonic_deadlines
+run_test 'conditional state write error propagation' test_state_write_failures_propagate_inside_conditionals
 
 if ((FAIL_COUNT > 0)); then
   printf '%d installer test(s) failed\n' "$FAIL_COUNT" >&2
