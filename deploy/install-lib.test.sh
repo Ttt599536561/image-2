@@ -280,8 +280,16 @@ set_render_fixture_inputs() {
 }
 
 test_compose_service_env_file_round_trip() {
-  if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
-    [[ "${DEPLOY_REQUIRE_DOCKER_INTEGRATION:-0}" != '1' ]] || fail_assertion 'Docker Compose integration was required but is unavailable'
+  local integration_required="${DEPLOY_REQUIRE_DOCKER_INTEGRATION:-0}"
+  local platform=''
+  platform="$(uname -s 2>/dev/null || true)"
+  if [[ "$integration_required" != '1' && "$platform" != 'Linux' ]]; then
+    return 0
+  fi
+  if ! command -v docker >/dev/null 2>&1 \
+    || ! docker compose version >/dev/null 2>&1 \
+    || ! docker info >/dev/null 2>&1; then
+    [[ "$integration_required" != '1' ]] || fail_assertion 'Docker Compose integration was required but is unavailable'
     return 0
   fi
 
@@ -319,6 +327,21 @@ test_compose_service_env_file_round_trip() {
   actual_base64="${actual_base64//$'\n'/}"
   assert_equal "$expected_base64" "$actual_base64" 'Compose service env_file must preserve exact application bytes'
   [[ ! -e "$marker" ]] || fail_assertion 'Compose env parsing must not execute command text'
+}
+
+test_compose_auto_probe_skips_non_linux() {
+  local docker_marker="$TEST_ROOT/non-linux-docker-called"
+  unset DEPLOY_REQUIRE_DOCKER_INTEGRATION
+  uname() {
+    printf '%s\n' 'MINGW64_NT-10.0-22631'
+  }
+  docker() {
+    printf 'called\n' >>"$docker_marker"
+    return 1
+  }
+
+  test_compose_service_env_file_round_trip
+  [[ ! -e "$docker_marker" ]] || fail_assertion 'automatic Compose probe must not invoke Docker outside Linux'
 }
 
 test_port_detection_and_selection() {
@@ -362,6 +385,64 @@ test_random_secret_formats() {
   if random_base64url invalid >/dev/null 2>&1; then
     fail_assertion 'non-numeric random byte count should be rejected'
   fi
+}
+
+test_random_base64url_rejects_failed_short_and_malformed_output() {
+  local output_file="$TEST_ROOT/base64url-random.out"
+
+  openssl() {
+    printf '%s' 'YWJj'
+    return 42
+  }
+  if random_base64url 3 >"$output_file" 2>/dev/null; then
+    fail_assertion 'failed openssl base64 command must propagate'
+  fi
+  [[ ! -s "$output_file" ]] || fail_assertion 'failed openssl base64 command must not emit a secret'
+
+  openssl() {
+    printf '%s' 'YQ=='
+  }
+  if random_base64url 3 >"$output_file" 2>/dev/null; then
+    fail_assertion 'short base64url output must be rejected'
+  fi
+  [[ ! -s "$output_file" ]] || fail_assertion 'short base64url output must not be emitted'
+
+  openssl() {
+    printf '%s' 'YW!j'
+  }
+  if random_base64url 3 >"$output_file" 2>/dev/null; then
+    fail_assertion 'malformed base64url output must be rejected'
+  fi
+  [[ ! -s "$output_file" ]] || fail_assertion 'malformed base64url output must not be emitted'
+}
+
+test_random_hex_rejects_failed_short_and_malformed_output() {
+  local output_file="$TEST_ROOT/hex-random.out"
+
+  openssl() {
+    printf '%s' 'deadbeef'
+    return 42
+  }
+  if random_hex 4 >"$output_file" 2>/dev/null; then
+    fail_assertion 'failed openssl hex command must propagate'
+  fi
+  [[ ! -s "$output_file" ]] || fail_assertion 'failed openssl hex command must not emit a secret'
+
+  openssl() {
+    printf '%s' 'dead'
+  }
+  if random_hex 4 >"$output_file" 2>/dev/null; then
+    fail_assertion 'short hex output must be rejected'
+  fi
+  [[ ! -s "$output_file" ]] || fail_assertion 'short hex output must not be emitted'
+
+  openssl() {
+    printf '%s' 'deadbee!'
+  }
+  if random_hex 4 >"$output_file" 2>/dev/null; then
+    fail_assertion 'malformed hex output must be rejected'
+  fi
+  [[ ! -s "$output_file" ]] || fail_assertion 'malformed hex output must not be emitted'
 }
 
 test_render_production_env_is_complete_private_and_safe() {
@@ -549,6 +630,79 @@ test_render_production_env_handles_mv_failure() {
   fi
 }
 
+test_render_production_env_rejects_directory_target() {
+  local target_path="$TEST_ROOT/render-directory-target"
+  mkdir "$target_path"
+  set_render_fixture_inputs
+
+  local render_status=0
+  if render_production_env "$target_path" >/dev/null 2>&1; then
+    render_status=0
+  else
+    render_status=$?
+  fi
+
+  [[ "$render_status" -ne 0 ]] || fail_assertion 'directory render target must be rejected'
+  [[ -d "$target_path" ]] || fail_assertion 'directory render target must remain a directory'
+  [[ -z "$(find "$target_path" -mindepth 1 -print -quit)" ]] || fail_assertion 'directory target must not receive a secret child'
+  if compgen -G "${target_path}.tmp.*" >/dev/null; then
+    fail_assertion 'directory target rejection must not leave sibling temporary files'
+  fi
+}
+
+test_render_production_env_rejects_symlink_to_directory() {
+  local real_directory="$TEST_ROOT/render-real-directory"
+  local target_path="$TEST_ROOT/render-directory-link"
+  mkdir "$real_directory"
+  ln -s "$real_directory" "$target_path"
+  set_render_fixture_inputs
+
+  local render_status=0
+  if render_production_env "$target_path" >/dev/null 2>&1; then
+    render_status=0
+  else
+    render_status=$?
+  fi
+
+  [[ "$render_status" -ne 0 ]] || fail_assertion 'symlink render target must be rejected'
+  [[ -L "$target_path" ]] || fail_assertion 'rejected symlink target must remain a symlink'
+  [[ -z "$(find "$real_directory" -mindepth 1 -print -quit)" ]] || fail_assertion 'symlink target directory must not receive a secret child'
+  if compgen -G "${target_path}.tmp.*" >/dev/null; then
+    fail_assertion 'symlink target rejection must not leave sibling temporary files'
+  fi
+}
+
+test_render_signal_exits_and_cleans_temp() {
+  local env_file="$TEST_ROOT/signal-target.env"
+  local continued_marker="$TEST_ROOT/signal-handler-continued"
+  printf '%s\n' 'KNOWN_GOOD_SIGNAL_CONFIG' >"$env_file"
+  chmod 0640 "$env_file"
+  local before_hash before_mode
+  before_hash="$(sha256sum "$env_file" | awk '{print $1}')"
+  before_mode="$(stat -c '%a' "$env_file")"
+  set_render_fixture_inputs
+
+  _write_deploy_env_line() {
+    kill -TERM "$BASHPID"
+    printf 'continued\n' >"$continued_marker"
+  }
+
+  local render_status=0
+  if render_production_env "$env_file" >/dev/null 2>&1; then
+    render_status=0
+  else
+    render_status=$?
+  fi
+
+  assert_equal '143' "$render_status" 'TERM during rendering must return conventional status 143'
+  [[ ! -e "$continued_marker" ]] || fail_assertion 'render execution must not continue after TERM'
+  assert_equal "$before_hash" "$(sha256sum "$env_file" | awk '{print $1}')" 'TERM must preserve existing target bytes'
+  assert_equal "$before_mode" "$(stat -c '%a' "$env_file")" 'TERM must preserve existing target mode'
+  if compgen -G "${env_file}.tmp.*" >/dev/null; then
+    fail_assertion 'TERM must clean the temporary file'
+  fi
+}
+
 run_test 'email validation' test_validate_email
 run_test 'password UTF-8 byte limits' test_validate_password_byte_limits
 run_test 'explicit y/N confirmation' test_confirm_yes_defaults_to_no
@@ -561,14 +715,20 @@ run_test 'dotenv quote and safe load round-trip' test_dotenv_quote_and_safe_load
 run_test 'Compose-compatible dotenv quote rules' test_dotenv_quote_matches_compose_rules
 run_test 'unsafe dotenv input rejection' test_load_deploy_env_rejects_unknown_malformed_and_unquoted_code
 run_test 'Compose service env_file exact round-trip' test_compose_service_env_file_round_trip
+run_test 'Compose auto-probe skips non-Linux' test_compose_auto_probe_skips_non_linux
 run_test 'port detection and first-free selection' test_port_detection_and_selection
 run_test 'random secret formats' test_random_secret_formats
+run_test 'base64url random output validation' test_random_base64url_rejects_failed_short_and_malformed_output
+run_test 'hex random output validation' test_random_hex_rejects_failed_short_and_malformed_output
 run_test 'private complete production dotenv rendering' test_render_production_env_is_complete_private_and_safe
 run_test 'required generated secrets' test_render_production_env_requires_caller_secrets
 run_test 'atomic render failure preserves target' test_render_production_env_preserves_existing_target_on_write_failure
 run_test 'mktemp failure preserves target' test_render_production_env_handles_mktemp_failure
 run_test 'temporary chmod failure preserves target' test_render_production_env_handles_temp_chmod_failure
 run_test 'mv failure preserves target' test_render_production_env_handles_mv_failure
+run_test 'directory render target rejection' test_render_production_env_rejects_directory_target
+run_test 'symlink render target rejection' test_render_production_env_rejects_symlink_to_directory
+run_test 'TERM exits render and cleans temp' test_render_signal_exits_and_cleans_temp
 
 if ((FAIL_COUNT > 0)); then
   printf '%d deployment helper test(s) failed\n' "$FAIL_COUNT" >&2

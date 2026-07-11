@@ -236,7 +236,13 @@ random_hex() {
     die '未找到 openssl'
     return 1
   }
-  openssl rand -hex "$byte_count"
+  local value
+  if ! value="$(openssl rand -hex "$byte_count")"; then
+    return 1
+  fi
+  local expected_length=$((byte_count * 2))
+  [[ ${#value} -eq "$expected_length" && "$value" =~ ^[0-9a-f]+$ ]] || return 1
+  printf '%s\n' "$value"
 }
 
 random_base64url() {
@@ -248,12 +254,16 @@ random_base64url() {
   }
 
   local value
-  value="$(openssl rand -base64 "$byte_count")"
+  if ! value="$(openssl rand -base64 "$byte_count")"; then
+    return 1
+  fi
   value="${value//$'\n'/}"
   value="${value//$'\r'/}"
   value="${value//+/-}"
   value="${value//\//_}"
   value="${value//=}"
+  local expected_length=$(((byte_count * 8 + 5) / 6))
+  [[ ${#value} -eq "$expected_length" && "$value" =~ ^[A-Za-z0-9_-]+$ ]] || return 1
   printf '%s\n' "$value"
 }
 
@@ -392,6 +402,12 @@ render_production_env() {
     die "部署环境目录不存在：$target_dir"
     return 1
   }
+  if [[ -e "$target_path" || -L "$target_path" ]]; then
+    [[ -f "$target_path" && ! -L "$target_path" ]] || {
+      die "部署环境目标必须是普通文件或不存在：$target_path"
+      return 1
+    }
+  fi
 
   (
     umask 077
@@ -400,7 +416,10 @@ render_production_env() {
     cleanup_rendered_env() {
       [[ -z "$temp_path" ]] || rm -f -- "$temp_path"
     }
-    trap cleanup_rendered_env EXIT HUP INT TERM
+    trap cleanup_rendered_env EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
     temp_path="$(mktemp "${target_path}.tmp.XXXXXX")" || exit 1
 
     local -a entries=(
@@ -433,7 +452,7 @@ render_production_env() {
     done >"$temp_path" || exit 1
 
     chmod 0600 "$temp_path" || exit 1
-    mv -f -- "$temp_path" "$target_path" || exit 1
+    mv -fT -- "$temp_path" "$target_path" || exit 1
     temp_path=''
     trap - EXIT HUP INT TERM
   )
