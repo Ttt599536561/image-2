@@ -22,7 +22,8 @@
     "test:e2e": "node --import tsx scripts/run-playwright-test.ts",
     "db:test:migrate": "node --import tsx scripts/migrate-test-database.ts",
     "assert-no-secrets": "node --env-file-if-exists=.env --import tsx scripts/assert-no-secrets-in-bundle.ts",
-    "docker:validate": "docker compose --env-file deploy/.env.production.example config --quiet"
+    "docker:validate": "docker compose --env-file deploy/.env.production.example config --quiet",
+    "test:deploy": "bash deploy/install-lib.test.sh"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1073.0",
