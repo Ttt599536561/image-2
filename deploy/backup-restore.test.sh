@@ -108,22 +108,49 @@ for variable_name in RELAY_API_KEY POSTGRES_PASSWORD DATABASE_URL DATABASE_URL_U
 done
 
 if [[ "${1-}" == volume && "${2-}" == inspect ]]; then
-  [[ ! -e "$FAKE_STATE/volume-inspect-fails" ]]
-  exit
+  volume_name="${*: -1}"
+  if grep -Fxq -- "$volume_name" "$FAKE_STATE/missing-volumes" 2>/dev/null &&
+    [[ ! -e "$FAKE_STATE/volume-$volume_name.created" ]]; then
+    exit 1
+  fi
+  if [[ " $* " == *' --format '* ]]; then
+    metadata_path="$FAKE_STATE/volume-$volume_name.metadata"
+    if [[ -f "$metadata_path" ]]; then
+      cat "$metadata_path"
+    else
+      printf 'local|ai-image-workshop|%s\n' "${volume_name#ai-image-workshop_}"
+    fi
+  else
+    printf '[{}]\n'
+  fi
+  exit 0
+fi
+
+if [[ "${1-}" == volume && "${2-}" == create ]]; then
+  volume_name="${*: -1}"
+  logical_name="${volume_name#ai-image-workshop_}"
+  [[ " $* " == *" --label com.docker.compose.project=ai-image-workshop "* ]] || exit 78
+  [[ " $* " == *" --label com.docker.compose.volume=$logical_name "* ]] || exit 78
+  : >"$FAKE_STATE/volume-$volume_name.created"
+  printf 'local|ai-image-workshop|%s\n' "$logical_name" >"$FAKE_STATE/volume-$volume_name.metadata"
+  printf '%s\n' "$volume_name"
+  exit 0
 fi
 
 if [[ "${1-}" == compose ]]; then
   [[ "${2-}" == --env-file && "${3-}" == deploy/.env.production ]] || exit 65
   shift 3
   command_line=" $* "
-  if [[ "$command_line" == *' ps --status running --services '* ]]; then
+  if [[ "$command_line" == *' ps --status running --status restarting --services '* ]]; then
     [[ ! -e "$FAKE_STATE/ps-fails" ]] || exit 72
-    [[ ! -f "$FAKE_STATE/running-services" ]] || cat "$FAKE_STATE/running-services"
+    [[ ! -f "$FAKE_STATE/active-writer-services" ]] || cat "$FAKE_STATE/active-writer-services"
     exit
   fi
-  if [[ "$command_line" == *' ps --status running -q '* ]]; then
+  if [[ "$command_line" == *' ps --status running --status restarting --status paused -q '* ]]; then
     [[ ! -e "$FAKE_STATE/ps-fails" ]] || exit 72
-    [[ ! -f "$FAKE_STATE/running-containers" ]] || cat "$FAKE_STATE/running-containers"
+    for status in running restarting paused; do
+      [[ ! -f "$FAKE_STATE/active-$status-containers" ]] || cat "$FAKE_STATE/active-$status-containers"
+    done
     exit
   fi
   if [[ "$command_line" == *' stop '* ]]; then
@@ -174,12 +201,15 @@ fi
 if [[ "${1-}" == run ]]; then
   command_line=" $* "
   if [[ "$command_line" == *' pg_restore --list /backup/database.dump '* ]]; then
+    [[ ! -e "$FAKE_STATE/dump-list-fails" ]]
     exit
   fi
   if [[ "$command_line" == *' tar -tzf /backup/media.tar.gz '* ]]; then
+    [[ ! -e "$FAKE_STATE/archive-list-fails" ]]
     exit
   fi
   if [[ "$command_line" == *' tar -tvzf /backup/media.tar.gz '* ]]; then
+    [[ ! -e "$FAKE_STATE/archive-list-fails" ]]
     exit
   fi
   if [[ "$command_line" == *' tar -czf media.tar.gz '* || "$command_line" == *' tar -czf /backup/media.tar.gz '* ]]; then
@@ -259,6 +289,7 @@ run_script() {
       BACKUP_POSTGRES_HEALTH_TIMEOUT_SECONDS=2 \
       BACKUP_WEB_HEALTH_TIMEOUT_SECONDS=2 \
       BACKUP_PROBE_COMMAND_TIMEOUT_SECONDS=1 \
+      BACKUP_LEAVE_STOPPED_ON_SUCCESS="${BACKUP_LEAVE_STOPPED_ON_SUCCESS:-0}" \
       INSTALL_LOCK_PATH="$FAKE_STATE/maintenance.lock" \
       FAKE_STATE="$FAKE_STATE" \
       FAKE_DOCKER_LOG="$FAKE_STATE/docker.log" \
@@ -312,7 +343,7 @@ assert_no_secret_leak() {
 test_backup_artifacts_quiescing_and_retention() {
   [[ -f "$BACKUP_SOURCE" ]] || fail_assertion 'deploy/backup.sh is missing'
   make_fixture backup-success
-  printf 'web\nscheduler\n' >"$FAKE_STATE/running-services"
+  printf 'web\nscheduler\n' >"$FAKE_STATE/active-writer-services"
   local index timestamp
   for index in 1 2 3 4 5 6 7 8; do
     printf -v timestamp '2026070%dT120000Z' "$index"
@@ -322,6 +353,12 @@ test_backup_artifacts_quiescing_and_retention() {
     printf 'manifest\n' >"$CASE_ROOT/deploy/backups/$timestamp/manifest.env"
     (cd "$CASE_ROOT/deploy/backups/$timestamp" && sha256sum database.dump media.tar.gz manifest.env >SHA256SUMS)
   done
+  local malformed="$CASE_ROOT/deploy/backups/20260711T120000Z"
+  mkdir -p "$malformed"
+  printf 'db\n' >"$malformed/database.dump"
+  printf 'media\n' >"$malformed/media.tar.gz"
+  printf 'manifest\n' >"$malformed/manifest.env"
+  (cd "$malformed" && sha256sum database.dump >SHA256SUMS)
   mkdir -p "$CASE_ROOT/deploy/backups/keep-me"
   printf 'unknown\n' >"$CASE_ROOT/deploy/backups/keep-file"
 
@@ -338,15 +375,18 @@ test_backup_artifacts_quiescing_and_retention() {
   local docker_log
   docker_log="$(<"$FAKE_STATE/docker.log")"
   assert_ordered "$docker_log" \
-    'ps --status running --services' \
+    'ps --status running --status restarting --services' \
     'stop web scheduler' \
     'pg_dump' \
     'ai-image-workshop_media_data:/source:ro' \
     'start web scheduler'
   assert_not_contains "$docker_log" 'start worker' 'backup must not start a service that was originally stopped'
   assert_contains "$docker_log" ' -Fc' 'database dump must use PostgreSQL custom format'
-  assert_equal 7 "$(find "$CASE_ROOT/deploy/backups" -mindepth 1 -maxdepth 1 -type d -name '20??????T??????Z' | wc -l | tr -d ' ')" \
-    'retention must keep only seven completed timestamp backups'
+  [[ ! -d "$CASE_ROOT/deploy/backups/20260701T120000Z" && ! -d "$CASE_ROOT/deploy/backups/20260702T120000Z" ]] \
+    || fail_assertion 'retention must remove valid backups older than the newest seven valid copies'
+  [[ -d "$CASE_ROOT/deploy/backups/20260703T120000Z" ]] \
+    || fail_assertion 'malformed checksum manifests must not consume retention slots or evict valid backups'
+  [[ -d "$malformed" ]] || fail_assertion 'retention must preserve malformed directories for operator inspection'
   [[ -d "$CASE_ROOT/deploy/backups/keep-me" && -f "$CASE_ROOT/deploy/backups/keep-file" ]] \
     || fail_assertion 'retention must preserve unknown entries'
   assert_not_contains "$(<"$directory/manifest.env")" 'secret' 'manifest must not contain secrets'
@@ -356,7 +396,7 @@ test_backup_artifacts_quiescing_and_retention() {
 test_backup_failure_and_signal_restore_exact_services() {
   [[ -f "$BACKUP_SOURCE" ]] || fail_assertion 'deploy/backup.sh is missing'
   make_fixture backup-failure
-  printf 'web\nworker\n' >"$FAKE_STATE/running-services"
+  printf 'web\nworker\n' >"$FAKE_STATE/active-writer-services"
   : >"$FAKE_STATE/dump-fails"
   BACKUP_TIMESTAMP=20260712T120001Z run_backup
   assert_equal 73 "$RUN_STATUS" 'pg_dump failure status must be preserved'
@@ -388,6 +428,60 @@ test_backup_probe_failure_has_no_mutation() {
   assert_not_contains "$docker_log" ' tar -czf ' 'probe failure must not archive media'
 }
 
+test_backup_internal_leave_stopped_requires_inherited_lock() {
+  make_fixture backup-standalone-stop-flag
+  printf 'web\n' >"$FAKE_STATE/active-writer-services"
+  BACKUP_LEAVE_STOPPED_ON_SUCCESS=1 BACKUP_TIMESTAMP=20260712T120004Z run_backup
+  [[ "$RUN_STATUS" -ne 0 ]] || fail_assertion 'standalone backup must reject the internal leave-stopped flag'
+  local docker_log=''
+  [[ ! -f "$FAKE_STATE/docker.log" ]] || docker_log="$(<"$FAKE_STATE/docker.log")"
+  assert_not_contains "$docker_log" ' stop ' 'invalid standalone leave-stopped mode must fail before stopping writers'
+  assert_not_contains "$docker_log" ' pg_dump ' 'invalid standalone leave-stopped mode must fail before backup mutation'
+}
+
+test_volume_ownership_is_verified_before_backup_or_restore_writes() {
+  local volume metadata docker_log directory input
+  for volume in ai-image-workshop_media_data ai-image-workshop_postgres_data; do
+    make_fixture "backup-volume-${volume##*_}"
+    metadata="$FAKE_STATE/volume-$volume.metadata"
+    if [[ "$volume" == ai-image-workshop_media_data ]]; then
+      printf 'local|another-project|media_data\n' >"$metadata"
+    else
+      printf 'nfs|ai-image-workshop|postgres_data\n' >"$metadata"
+    fi
+    BACKUP_TIMESTAMP=20260712T120005Z run_backup
+    [[ "$RUN_STATUS" -ne 0 ]] || fail_assertion "backup must reject unowned volume: $volume"
+    docker_log="$(<"$FAKE_STATE/docker.log")"
+    assert_not_contains "$docker_log" ' ps ' 'volume ownership must be checked before writer discovery'
+    assert_not_contains "$docker_log" ' pg_dump ' 'unowned volumes must be rejected before backup writes'
+  done
+
+  make_fixture restore-volume-ownership
+  directory="$(make_restore_fixture)"
+  input="$CASE_ROOT/confirm.in"
+  printf 'RESTORE ai-image-workshop\n' >"$input"
+  printf 'local||media_data\n' >"$FAKE_STATE/volume-ai-image-workshop_media_data.metadata"
+  run_restore "$input" "$directory"
+  [[ "$RUN_STATUS" -ne 0 ]] || fail_assertion 'restore must reject an unlabeled existing media volume'
+  docker_log="$(<"$FAKE_STATE/docker.log")"
+  assert_not_contains "$docker_log" ' tar -xzf ' 'unowned media volume must be rejected before extraction'
+  [[ ! -e "$FAKE_STATE/database-written" ]] || \
+    fail_assertion 'unowned media volume must be rejected before database writes'
+
+  make_fixture restore-new-owned-volumes
+  directory="$(make_restore_fixture)"
+  input="$CASE_ROOT/confirm.in"
+  printf 'RESTORE ai-image-workshop\n' >"$input"
+  printf 'ai-image-workshop_media_data\nai-image-workshop_postgres_data\n' >"$FAKE_STATE/missing-volumes"
+  run_restore "$input" "$directory"
+  assert_equal 0 "$RUN_STATUS" 'restore must create and verify missing owned volumes'
+  docker_log="$(<"$FAKE_STATE/docker.log")"
+  assert_contains "$docker_log" 'volume create --label com.docker.compose.project=ai-image-workshop --label com.docker.compose.volume=media_data ai-image-workshop_media_data' \
+    'media volume creation must include exact Compose ownership labels'
+  assert_contains "$docker_log" 'volume create --label com.docker.compose.project=ai-image-workshop --label com.docker.compose.volume=postgres_data ai-image-workshop_postgres_data' \
+    'PostgreSQL volume creation must include exact Compose ownership labels'
+}
+
 test_restore_checksum_and_path_guards_precede_docker() {
   [[ -f "$RESTORE_SOURCE" ]] || fail_assertion 'deploy/restore.sh is missing'
   make_fixture restore-checksum
@@ -399,6 +493,9 @@ test_restore_checksum_and_path_guards_precede_docker() {
   run_restore "$input" "$directory"
   [[ "$RUN_STATUS" -ne 0 ]] || fail_assertion 'checksum mismatch must refuse restore'
   [[ ! -e "$FAKE_STATE/docker.log" ]] || fail_assertion 'checksum mismatch must precede all Docker starts and volume mounts'
+  [[ ! -e "$CASE_ROOT/deploy/restore.state" ]] || fail_assertion 'checksum failure must not initialize restore.state'
+  assert_not_contains "$(<"$RUN_OUTPUT")" 'empty both target volumes' \
+    'checksum failure must not instruct the operator to clear volumes'
 
   outside="$CASE_ROOT/outside"
   mkdir -p "$outside"
@@ -406,6 +503,25 @@ test_restore_checksum_and_path_guards_precede_docker() {
   run_restore "$input" "$CASE_ROOT/deploy/backups/../..//outside"
   [[ "$RUN_STATUS" -ne 0 ]] || fail_assertion 'restore traversal must be rejected'
   [[ ! -s "$FAKE_STATE/docker.log" ]] || fail_assertion 'path rejection must precede Docker'
+  [[ ! -e "$CASE_ROOT/deploy/restore.state" ]] || fail_assertion 'path rejection must not initialize restore.state'
+
+  directory="$(make_restore_fixture 20260711T120001Z)"
+  : >"$FAKE_STATE/dump-list-fails"
+  : >"$FAKE_STATE/docker.log"
+  run_restore "$input" "$directory"
+  [[ "$RUN_STATUS" -ne 0 ]] || fail_assertion 'invalid database dump must refuse restore'
+  [[ ! -e "$CASE_ROOT/deploy/restore.state" ]] || fail_assertion 'dump validation failure must not initialize restore.state'
+  assert_not_contains "$(<"$RUN_OUTPUT")" 'empty both target volumes' \
+    'dump validation failure must not instruct the operator to clear volumes'
+
+  rm -f "$FAKE_STATE/dump-list-fails"
+  : >"$FAKE_STATE/archive-list-fails"
+  : >"$FAKE_STATE/docker.log"
+  run_restore "$input" "$directory"
+  [[ "$RUN_STATUS" -ne 0 ]] || fail_assertion 'invalid media archive must refuse restore'
+  [[ ! -e "$CASE_ROOT/deploy/restore.state" ]] || fail_assertion 'archive validation failure must not initialize restore.state'
+  assert_not_contains "$(<"$RUN_OUTPUT")" 'empty both target volumes' \
+    'archive validation failure must not instruct the operator to clear volumes'
 }
 
 test_restore_running_confirmation_and_empty_volume_guards() {
@@ -415,17 +531,31 @@ test_restore_running_confirmation_and_empty_volume_guards() {
   directory="$(make_restore_fixture)"
   input="$CASE_ROOT/confirm.in"
   printf 'RESTORE ai-image-workshop\n' >"$input"
-  printf 'container-id\n' >"$FAKE_STATE/running-containers"
-  run_restore "$input" "$directory"
-  [[ "$RUN_STATUS" -ne 0 ]] || fail_assertion 'running services must refuse restore'
-  assert_not_contains "$(<"$FAKE_STATE/docker.log")" ' tar -xzf ' 'running guard must precede media writes'
+  local status
+  for status in running restarting paused; do
+    : >"$FAKE_STATE/docker.log"
+    printf 'container-id\n' >"$FAKE_STATE/active-$status-containers"
+    run_restore "$input" "$directory"
+    [[ "$RUN_STATUS" -ne 0 ]] || fail_assertion "$status services must refuse restore"
+    assert_not_contains "$(<"$FAKE_STATE/docker.log")" ' tar -xzf ' "$status guard must precede media writes"
+    [[ ! -e "$CASE_ROOT/deploy/restore.state" ]] || fail_assertion "$status guard must not initialize restore.state"
+    assert_not_contains "$(<"$RUN_OUTPUT")" 'empty both target volumes' \
+      "$status guard must not instruct the operator to clear volumes"
+    rm -f "$FAKE_STATE/active-$status-containers"
+  done
 
-  rm -f "$FAKE_STATE/running-containers"
   : >"$FAKE_STATE/docker.log"
+  printf 'preserve-existing-state\n' >"$CASE_ROOT/deploy/restore.state"
+  chmod 0600 "$CASE_ROOT/deploy/restore.state"
   printf 'restore ai-image-workshop\n' >"$input"
   run_restore "$input" "$directory"
   [[ "$RUN_STATUS" -ne 0 ]] || fail_assertion 'confirmation must be exact and case-sensitive'
   assert_not_contains "$(<"$FAKE_STATE/docker.log")" ' find /target ' 'bad confirmation must precede volume mounts'
+  assert_equal 'preserve-existing-state' "$(<"$CASE_ROOT/deploy/restore.state")" \
+    'bad confirmation must not overwrite restore.state'
+  assert_not_contains "$(<"$RUN_OUTPUT")" 'empty both target volumes' \
+    'bad confirmation must not instruct the operator to clear volumes'
+  rm -f "$CASE_ROOT/deploy/restore.state"
 
   printf 'RESTORE ai-image-workshop\n' >"$input"
   : >"$FAKE_STATE/media-nonempty"
@@ -453,7 +583,7 @@ test_restore_successful_order_and_secret_isolation() {
   assert_equal 0 "$RUN_STATUS" 'valid restore should succeed'
   docker_log="$(<"$FAKE_STATE/docker.log")"
   assert_ordered "$docker_log" \
-    'ps --status running -q' \
+    'ps --status running --status restarting --status paused -q' \
     'ai-image-workshop_media_data:/target:ro' \
     'ai-image-workshop_postgres_data:/target:ro' \
     'tar -xzf /backup/media.tar.gz' \
@@ -472,6 +602,8 @@ test_restore_successful_order_and_secret_isolation() {
 run_test 'backup artifacts, exact quiescing, retention, and secrets' test_backup_artifacts_quiescing_and_retention
 run_test 'backup failure and signal restore exact services' test_backup_failure_and_signal_restore_exact_services
 run_test 'backup probe failure has no mutation' test_backup_probe_failure_has_no_mutation
+run_test 'backup internal leave-stopped flag requires inherited lock' test_backup_internal_leave_stopped_requires_inherited_lock
+run_test 'volume ownership before backup and restore writes' test_volume_ownership_is_verified_before_backup_or_restore_writes
 run_test 'restore checksum and path guards precede Docker' test_restore_checksum_and_path_guards_precede_docker
 run_test 'restore running, confirmation, and empty-volume guards' test_restore_running_confirmation_and_empty_volume_guards
 run_test 'restore success order and secret isolation' test_restore_successful_order_and_secret_isolation

@@ -1091,30 +1091,13 @@ FAKE_BACKUP
   chmod 0700 "$CASE_ROOT/deploy/backup.sh"
 }
 
-test_upgrade_backs_up_before_build_and_stops_on_backup_failure() {
-  make_fixture upgrade
+test_upgrade_backup_failure_is_retryable_and_success_does_not_fall_through() {
+  make_fixture upgrade-backup-retry
   run_success_proxy_install
   write_fake_upgrade_backup
 
   local env_hash docker_log output
   env_hash="$(sha256sum "$CASE_ROOT/deploy/.env.production" | awk '{print $1}')"
-  : >"$FAKE_STATE/docker.log"
-  run_without_input --upgrade
-  assert_equal 0 "$RUN_STATUS" 'upgrade should succeed with an existing deployment'
-  assert_equal "$env_hash" "$(sha256sum "$CASE_ROOT/deploy/.env.production" | awk '{print $1}')" \
-    'upgrade must preserve the existing production env byte-for-byte'
-  docker_log="$(<"$FAKE_STATE/docker.log")"
-  assert_ordered "$docker_log" \
-    'docker info' \
-    'docker compose version' \
-    'docker compose --env-file deploy/.env.production config --quiet' \
-    'backup' \
-    'docker compose --env-file deploy/.env.production build web' \
-    'docker compose --env-file deploy/.env.production run --rm -e MIGRATE_CONFIRM=APPLY_PRODUCTION_MIGRATIONS web npm run db:migrate:production' \
-    'docker compose --env-file deploy/.env.production up -d --remove-orphans web worker scheduler'
-  assert_not_contains "$docker_log" ' down ' 'upgrade must never run Compose down'
-  assert_not_contains "$docker_log" ' down -v ' 'upgrade must never delete named volumes'
-
   : >"$FAKE_STATE/backup-fails"
   : >"$FAKE_STATE/docker.log"
   run_without_input --upgrade
@@ -1127,15 +1110,81 @@ test_upgrade_backs_up_before_build_and_stops_on_backup_failure() {
   assert_not_contains "$docker_log" 'up -d --remove-orphans' 'backup failure must precede service replacement'
   assert_not_contains "$output" 'secret inherited by backup' 'upgrade must unexport loaded secrets before backup'
   assert_not_contains "$output" 'install.sh --resume' 'failed upgrade diagnostics must never recommend resume'
-  assert_contains "$output" 'restore.sh' 'failed upgrade diagnostics must direct the operator to restore'
+  assert_not_contains "$output" 'restore.sh' 'backup failure must not require destructive restore'
 
   rm -f "$FAKE_STATE/backup-fails"
   : >"$FAKE_STATE/docker.log"
   run_without_input --upgrade
-  [[ "$RUN_STATUS" -ne 0 ]] || fail_assertion 'an incomplete prior upgrade must block another upgrade'
+  assert_equal 0 "$RUN_STATUS" 'backup failure must allow a clean upgrade retry'
+  assert_equal "$env_hash" "$(sha256sum "$CASE_ROOT/deploy/.env.production" | awk '{print $1}')" \
+    'upgrade must preserve the existing production env byte-for-byte'
   docker_log="$(<"$FAKE_STATE/docker.log")"
-  assert_not_contains "$docker_log" 'backup' 'prior failed upgrade state must be checked before a new backup'
-  assert_not_contains "$docker_log" 'build web' 'prior failed upgrade state must be checked before build'
+  assert_ordered "$docker_log" \
+    'docker info' \
+    'docker compose version' \
+    'docker compose --env-file deploy/.env.production config --quiet' \
+    'backup' \
+    'docker compose --env-file deploy/.env.production build web' \
+    'docker compose --env-file deploy/.env.production run --rm -e MIGRATE_CONFIRM=APPLY_PRODUCTION_MIGRATIONS web npm run db:migrate:production' \
+    'docker compose --env-file deploy/.env.production up -d --remove-orphans web worker scheduler'
+  assert_not_contains "$docker_log" ' up -d postgres' 'successful upgrade must not fall through to install PostgreSQL startup'
+  assert_not_contains "$docker_log" 'pg_isready' 'successful upgrade must not fall through to install health stages'
+  assert_not_contains "$docker_log" ' psql ' 'successful upgrade must not fall through to administrator verification'
+  assert_not_contains "$docker_log" ' up -d web worker scheduler' 'successful upgrade must not repeat application startup'
+  assert_not_contains "$docker_log" ' down ' 'upgrade must never run Compose down'
+  assert_not_contains "$docker_log" ' down -v ' 'upgrade must never delete named volumes'
+}
+
+test_upgrade_build_failure_restarts_old_writers_and_is_retryable() {
+  make_fixture upgrade-build-retry
+  local input_file="$CASE_ROOT/input"
+  write_success_input "$input_file"
+  run_install "$input_file" --domain images.example.com
+  assert_equal 0 "$RUN_STATUS" 'domain deployment prerequisite should succeed'
+  write_fake_upgrade_backup
+
+  printf 'build web' >"$FAKE_STATE/fail-match"
+  : >"$FAKE_STATE/docker.log"
+  run_without_input --upgrade
+  assert_equal 91 "$RUN_STATUS" 'build failure status must be preserved'
+  local docker_log output
+  docker_log="$(<"$FAKE_STATE/docker.log")"
+  output="$(<"$RUN_OUTPUT")"
+  assert_ordered "$docker_log" 'backup' 'build web' 'start web worker scheduler'
+  assert_not_contains "$docker_log" 'stop caddy' 'pre-migration failure must leave the original Caddy container untouched'
+  assert_not_contains "$output" 'restore.sh' 'build failure before migration must not require restore'
+
+  rm -f "$FAKE_STATE/fail-match"
+  : >"$FAKE_STATE/docker.log"
+  run_without_input --upgrade
+  assert_equal 0 "$RUN_STATUS" 'build failure must allow a clean upgrade retry'
+  docker_log="$(<"$FAKE_STATE/docker.log")"
+  assert_contains "$docker_log" 'backup' 'retry must create a fresh backup'
+  assert_contains "$docker_log" 'db:migrate:production' 'retry must reach migrations'
+}
+
+test_upgrade_migration_failure_blocks_retry_and_requires_restore() {
+  make_fixture upgrade-migration-failure
+  run_success_proxy_install
+  write_fake_upgrade_backup
+
+  printf 'db:migrate:production' >"$FAKE_STATE/fail-match"
+  : >"$FAKE_STATE/docker.log"
+  run_without_input --upgrade
+  assert_equal 91 "$RUN_STATUS" 'migration failure status must be preserved'
+  local docker_log output
+  docker_log="$(<"$FAKE_STATE/docker.log")"
+  output="$(<"$RUN_OUTPUT")"
+  assert_contains "$docker_log" 'stop web worker scheduler' 'migration failure must keep writers stopped'
+  assert_contains "$output" 'restore.sh' 'migration failure must require restore'
+
+  rm -f "$FAKE_STATE/fail-match"
+  : >"$FAKE_STATE/docker.log"
+  run_without_input --upgrade
+  [[ "$RUN_STATUS" -ne 0 ]] || fail_assertion 'migration-started state must block another upgrade'
+  docker_log="$(<"$FAKE_STATE/docker.log")"
+  assert_not_contains "$docker_log" 'backup' 'blocked retry must not create another backup'
+  assert_not_contains "$docker_log" 'build web' 'blocked retry must not rebuild'
 }
 
 run_test 'CLI validation before preflight and prompts' test_cli_validation_stops_before_preflight_and_prompts
@@ -1161,7 +1210,9 @@ run_test 'administrator email canonicalization' test_admin_email_is_canonicalize
 run_test 'probe timeout zero boundary' test_probe_timeout_rejects_zero_remaining
 run_test 'sensitive variables are unexported before validation' test_sensitive_variables_are_unexported_before_validation
 run_test 'cleanup removes database URLs' test_cleanup_unsets_database_urls
-run_test 'upgrade backup ordering and failure short-circuit' test_upgrade_backs_up_before_build_and_stops_on_backup_failure
+run_test 'upgrade backup retry and no install fallthrough' test_upgrade_backup_failure_is_retryable_and_success_does_not_fall_through
+run_test 'upgrade build failure retry' test_upgrade_build_failure_restarts_old_writers_and_is_retryable
+run_test 'upgrade migration failure restore boundary' test_upgrade_migration_failure_blocks_retry_and_requires_restore
 
 if ((FAIL_COUNT > 0)); then
   printf '%d installer test(s) failed\n' "$FAIL_COUNT" >&2

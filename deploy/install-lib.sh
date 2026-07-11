@@ -204,6 +204,30 @@ load_deploy_env() {
   done
 }
 
+strict_backup_checksums_are_valid() {
+  local backup_directory="${1-}"
+  [[ -d "$backup_directory" && ! -L "$backup_directory" ]] || return 1
+
+  local -a lines=()
+  mapfile -t lines <"$backup_directory/SHA256SUMS" || return 1
+  ((${#lines[@]} == 3)) || return 1
+
+  local line hash file
+  local -A seen=()
+  for line in "${lines[@]}"; do
+    [[ "$line" =~ ^([0-9a-fA-F]{64})[[:space:]][[:space:]](database\.dump|media\.tar\.gz|manifest\.env)$ ]] || return 1
+    hash="${BASH_REMATCH[1]}"
+    file="${BASH_REMATCH[2]}"
+    [[ -z "${seen[$file]+present}" ]] || return 1
+    seen["$file"]="$hash"
+  done
+  for file in database.dump media.tar.gz manifest.env; do
+    [[ -n "${seen[$file]+present}" ]] || return 1
+  done
+
+  (cd "$backup_directory" && sha256sum --check --strict SHA256SUMS >/dev/null 2>&1)
+}
+
 port_is_free() {
   local port="${1-}"
   [[ "$port" =~ ^[0-9]+$ ]] || return 2

@@ -40,6 +40,7 @@ DIAGNOSTIC_SERVICES=(web)
 INSTALL_LOCK_FD=''
 UPGRADE_PHASE='not_started'
 UPGRADE_MAINTENANCE_STARTED=false
+UPGRADE_MIGRATION_STARTED=false
 
 usage() {
   printf '%s\n' \
@@ -148,7 +149,11 @@ print_failure_diagnostics() {
     redact_text "$output" >&2
   fi
   if [[ "$UPGRADE" == true ]]; then
-    printf '%s\n' '升级失败后不要运行 --resume；请先按 deploy/backups 中的最新备份执行 deploy/restore.sh。' >&2
+    if [[ "$UPGRADE_MIGRATION_STARTED" == true ]]; then
+      printf '%s\n' '升级迁移已开始；请按 deploy/backups 中的最新备份执行 deploy/restore.sh。' >&2
+    else
+      printf '%s\n' '升级尚未开始迁移；旧服务已恢复，可重试：sudo bash deploy/install.sh --upgrade' >&2
+    fi
   else
     printf '%s\n' '修复问题后继续执行：sudo bash deploy/install.sh --resume' >&2
   fi
@@ -159,12 +164,14 @@ on_exit() {
   trap - EXIT
   set +e
   if ((status != 0)) && [[ "$UPGRADE_MAINTENANCE_STARTED" == true ]]; then
-    if [[ "$COMPOSE_PROFILES" == 'caddy' ]]; then
-      compose stop caddy >/dev/null 2>&1 || true
+    if [[ "$UPGRADE_MIGRATION_STARTED" == true ]]; then
+      compose stop web worker scheduler >/dev/null 2>&1 || true
+      write_upgrade_state "$status" >/dev/null 2>&1 || true
+    else
+      compose start web worker scheduler >/dev/null 2>&1 || true
+      UPGRADE_PHASE='retryable'
+      write_upgrade_state "$status" >/dev/null 2>&1 || true
     fi
-    compose stop web worker scheduler >/dev/null 2>&1 || true
-    write_upgrade_state "$status" >/dev/null 2>&1 || true
-    printf '%s\n' 'Upgrade failed after the backup maintenance window began. Writers remain stopped; restore the latest backup with deploy/restore.sh after emptying the target volumes.' >&2
   fi
   if ((status != 0)) && [[ "$DIAGNOSTICS_ENABLED" == true ]]; then
     print_failure_diagnostics
@@ -828,10 +835,28 @@ validate_previous_upgrade_state() {
       STATUS) status="$decoded" ;;
     esac
   done <"$UPGRADE_STATE_PATH"
-  [[ "$version" == 1 && "$phase" == complete && "$status" == 0 ]] || {
-    die 'previous upgrade did not complete; restore the latest backup before another upgrade'
+  [[ "$version" == 1 && "$status" =~ ^[0-9]+$ ]] || {
+    die 'upgrade.state contains an invalid version or status'
     return 1
   }
+  case "$phase" in
+    complete)
+      [[ "$status" == 0 ]] || {
+        die 'previous upgrade changed the database; restore the latest backup before another upgrade'
+        return 1
+      }
+      ;;
+    retryable | backup_starting | backup_failed | backup_complete | building)
+      ;;
+    migrating | starting_services | health_check)
+      die 'previous upgrade changed the database; restore the latest backup before another upgrade'
+      return 1
+      ;;
+    *)
+      die 'upgrade.state contains an unknown phase'
+      return 1
+      ;;
+  esac
 }
 
 collect_resume_admin_inputs() {
@@ -1054,9 +1079,8 @@ run_upgrade() {
   UPGRADE_PHASE='backup_starting'
   write_upgrade_state 0 || die 'cannot initialize upgrade.state'
 
-  # backup.sh deliberately does not acquire the installer lock: this process
-  # already owns it. It keeps the original writers stopped on success so the
-  # migration and replacement happen in one maintenance window.
+  # backup.sh validates and reuses this process's inherited operation lock. It
+  # keeps the original writers stopped so migration shares one maintenance window.
   local backup_lock_fd=''
   exec {backup_lock_fd}>&"$INSTALL_LOCK_FD" || {
     die 'cannot pass the installer lock to backup'
@@ -1068,7 +1092,7 @@ run_upgrade() {
   else
     local backup_status=$?
     exec {backup_lock_fd}>&-
-    UPGRADE_PHASE='backup_failed'
+    UPGRADE_PHASE='retryable'
     write_upgrade_state "$backup_status" || true
     return "$backup_status"
   fi
@@ -1082,6 +1106,7 @@ run_upgrade() {
   compose build web
   UPGRADE_PHASE='migrating'
   write_upgrade_state 0 || die 'cannot record upgrade migration phase'
+  UPGRADE_MIGRATION_STARTED=true
   compose run --rm \
     -e MIGRATE_CONFIRM=APPLY_PRODUCTION_MIGRATIONS \
     web npm run db:migrate:production
@@ -1124,6 +1149,8 @@ main() {
     preflight_common
     prepare_upgrade
     run_upgrade
+    print_success
+    return 0
   elif [[ "$MODE" == 'resume' ]]; then
     preflight_common
     prepare_resume

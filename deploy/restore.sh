@@ -19,6 +19,8 @@ POSTGRES_STARTED=false
 APPLICATION_STARTED=false
 CADDY_STARTED=false
 MEDIA_WRITE_STARTED=false
+MUTATION_STARTED=false
+RESTORE_STATE_INITIALIZED=false
 RESTORE_PHASE='validated'
 BACKUP_DIR=''
 OPERATION_LOCK_FD=''
@@ -187,22 +189,7 @@ verify_backup_files() {
     [[ -f "$BACKUP_DIR/$file" && ! -L "$BACKUP_DIR/$file" ]] || die "backup is missing $file"
   done
 
-  local -a lines=()
-  mapfile -t lines <"$BACKUP_DIR/SHA256SUMS"
-  (( ${#lines[@]} == 3 )) || die 'SHA256SUMS must contain exactly three entries'
-  local line hash file
-  declare -A seen=()
-  for line in "${lines[@]}"; do
-    [[ "$line" =~ ^([0-9a-fA-F]{64})[[:space:]][[:space:]](database\.dump|media\.tar\.gz|manifest\.env)$ ]] || die 'SHA256SUMS contains an unexpected entry'
-    hash="${BASH_REMATCH[1]}"
-    file="${BASH_REMATCH[2]}"
-    [[ -z "${seen[$file]+present}" ]] || die 'SHA256SUMS contains a duplicate entry'
-    seen["$file"]="$hash"
-  done
-  for file in database.dump media.tar.gz manifest.env; do
-    [[ -n "${seen[$file]+present}" ]] || die 'SHA256SUMS does not cover every payload'
-  done
-  (cd "$BACKUP_DIR" && sha256sum --check --strict SHA256SUMS >/dev/null) || die 'backup checksum verification failed'
+  strict_backup_checksums_are_valid "$BACKUP_DIR" || die 'backup checksum manifest or payload verification failed'
 }
 
 parse_manifest() {
@@ -230,7 +217,7 @@ parse_manifest() {
 
 running_project_guard() {
   local output
-  if ! output="$(compose ps --status running -q 2>/dev/null)"; then
+  if ! output="$(compose ps --status running --status restarting --status paused -q 2>/dev/null)"; then
     die 'unable to determine whether the Compose project is running'
     return 1
   fi
@@ -246,13 +233,26 @@ require_confirmation() {
 
 ensure_volume() {
   local name="$1"
+  local logical_name="${name#"${COMPOSE_PROJECT_NAME}_"}"
   if ! docker volume inspect "$name" >/dev/null 2>&1; then
     docker volume create \
       --label "com.docker.compose.project=$COMPOSE_PROJECT_NAME" \
-      --label "com.docker.compose.volume=${name#"${COMPOSE_PROJECT_NAME}_"}" \
+      --label "com.docker.compose.volume=$logical_name" \
       "$name" >/dev/null
     CREATED_VOLUMES+=("$name")
   fi
+  validate_owned_volume "$name" "$logical_name"
+}
+
+validate_owned_volume() {
+  local volume_name="$1"
+  local logical_name="$2"
+  local metadata
+  metadata="$(docker volume inspect --format \
+    '{{.Driver}}|{{index .Labels "com.docker.compose.project"}}|{{index .Labels "com.docker.compose.volume"}}' \
+    "$volume_name")" || die "cannot inspect Docker volume ownership: $volume_name"
+  [[ "$metadata" == "local|$COMPOSE_PROJECT_NAME|$logical_name" ]] || \
+    die "Docker volume ownership is invalid: $volume_name"
 }
 
 assert_volume_empty() {
@@ -359,10 +359,14 @@ on_exit() {
     if [[ "$POSTGRES_STARTED" == true ]]; then
       compose stop postgres >/dev/null 2>&1 || true
     fi
-    write_restore_state "$status" || true
+    if [[ "$RESTORE_STATE_INITIALIZED" == true ]]; then
+      write_restore_state "$status" || true
+    fi
     cleanup_new_empty_volumes || true
-    printf 'Restore failed for %s at phase %s. Keep application services stopped; empty both target volumes before retrying this backup.\n' \
-      "${BACKUP_DIR:-unknown}" "$RESTORE_PHASE" >&2
+    if [[ "$MUTATION_STARTED" == true ]]; then
+      printf 'Restore failed for %s at phase %s. Keep application services stopped; empty both target volumes before retrying this backup.\n' \
+        "${BACKUP_DIR:-unknown}" "$RESTORE_PHASE" >&2
+    fi
   fi
   release_operation_lock
   cleanup_secrets
@@ -389,6 +393,7 @@ main() {
   require_confirmation
   RESTORE_PHASE='confirmed'
   write_restore_state 0 || die 'cannot initialize restore.state before mutation'
+  RESTORE_STATE_INITIALIZED=true
 
   local media_volume="${COMPOSE_PROJECT_NAME}_media_data"
   local postgres_volume="${COMPOSE_PROJECT_NAME}_postgres_data"
@@ -404,6 +409,7 @@ main() {
   RESTORE_PHASE='media_restoring'
   write_restore_state 0 || die 'cannot record media restore start'
   MEDIA_WRITE_STARTED=true
+  MUTATION_STARTED=true
   docker run --rm \
     --volume "${media_volume}:/target" \
     --volume "$BACKUP_DIR:/backup:ro" \

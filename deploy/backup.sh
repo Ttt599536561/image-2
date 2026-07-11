@@ -18,6 +18,7 @@ RUNNING_SERVICES_OUTPUT=''
 RUNNING_APP_SERVICES=()
 SERVICES_MAY_NEED_RESTART=0
 OPERATION_LOCK_FD=''
+INHERITED_LOCK_VALIDATED=0
 
 # install-lib.sh contains function definitions only; deployment values are parsed below.
 # shellcheck source=deploy/install-lib.sh
@@ -31,6 +32,10 @@ acquire_operation_lock() {
   local lock_path="${INSTALL_LOCK_PATH:-/run/lock/ai-image-workshop-install.lock}"
   local lock_dir="${lock_path%/*}"
   command -v flock >/dev/null 2>&1 || die 'flock is required for backup'
+  if [[ "${BACKUP_LEAVE_STOPPED_ON_SUCCESS:-0}" == 1 ]] &&
+    [[ "${BACKUP_LOCK_INHERITED:-0}" != 1 || -z "${BACKUP_LOCK_FD-}" ]]; then
+    die 'leave-stopped mode requires a verified inherited operation lock'
+  fi
   if [[ -n "${BACKUP_LOCK_FD-}" ]]; then
     [[ "${BACKUP_LOCK_INHERITED:-0}" == 1 ]] || die 'backup lock descriptor requires inherited-lock mode'
     [[ "${BACKUP_LOCK_FD}" =~ ^[0-9]+$ ]] || die 'invalid inherited backup lock descriptor'
@@ -41,6 +46,7 @@ acquire_operation_lock() {
     [[ "$actual_lock" == "$expected_lock" ]] || die 'inherited backup lock does not match operation lock'
     flock -n "$BACKUP_LOCK_FD" || die 'inherited backup lock is not held'
     OPERATION_LOCK_FD="$BACKUP_LOCK_FD"
+    INHERITED_LOCK_VALIDATED=1
     return 0
   fi
   [[ "$lock_dir" != "$lock_path" && -d "$lock_dir" && ! -L "$lock_dir" ]] || die 'backup lock directory is unsafe'
@@ -55,6 +61,7 @@ acquire_operation_lock() {
   fi
 }
 
+# shellcheck disable=SC2329 # Called by the EXIT trap callback below.
 release_operation_lock() {
   if [[ -n "$OPERATION_LOCK_FD" ]]; then
     if [[ "${BACKUP_LOCK_INHERITED:-0}" != 1 ]]; then
@@ -123,6 +130,22 @@ validate_backup_environment() {
   }
 }
 
+validate_owned_volume() {
+  local volume_name="$1"
+  local logical_name="$2"
+  local metadata
+  metadata="$(docker volume inspect --format \
+    '{{.Driver}}|{{index .Labels "com.docker.compose.project"}}|{{index .Labels "com.docker.compose.volume"}}' \
+    "$volume_name")" || {
+    die "Required Docker volume is missing: $volume_name"
+    return 1
+  }
+  [[ "$metadata" == "local|$COMPOSE_PROJECT_NAME|$logical_name" ]] || {
+    die "Docker volume ownership is invalid: $volume_name"
+    return 1
+  }
+}
+
 safe_remove_backup_directory() {
   local target="$1"
   local allowed_kind="$2"
@@ -164,7 +187,7 @@ retain_recent_backups() {
       [[ -f "$candidate/$artifact" && ! -L "$candidate/$artifact" ]] || complete=0
     done
     ((complete == 1)) || continue
-    (cd "$candidate" && sha256sum --check --strict SHA256SUMS >/dev/null 2>&1) || continue
+    strict_backup_checksums_are_valid "$candidate" || continue
     completed_backups+=("$candidate")
   done
   shopt -u nullglob
@@ -190,6 +213,7 @@ retain_recent_backups() {
   done
 }
 
+# shellcheck disable=SC2329 # Invoked by the EXIT trap installed below.
 restart_and_cleanup() {
   local original_status=$?
   local final_status="$original_status"
@@ -197,7 +221,7 @@ restart_and_cleanup() {
   trap - EXIT HUP INT TERM
   set +e
 
-  if ((original_status != 0 || ${BACKUP_LEAVE_STOPPED_ON_SUCCESS:-0} != 1)) &&
+  if ((original_status != 0 || INHERITED_LOCK_VALIDATED != 1 || ${BACKUP_LEAVE_STOPPED_ON_SUCCESS:-0} != 1)) &&
     ((SERVICES_MAY_NEED_RESTART == 1 && ${#RUNNING_APP_SERVICES[@]} > 0)); then
     compose start "${RUNNING_APP_SERVICES[@]}"
     operation_status=$?
@@ -222,6 +246,7 @@ restart_and_cleanup() {
   exit "$final_status"
 }
 
+# shellcheck disable=SC2329 # Invoked by the signal traps installed below.
 exit_for_signal() {
   local signal_status="$1"
   trap - HUP INT TERM
@@ -241,13 +266,8 @@ load_deploy_env "$ENV_PATH"
 unexport_deploy_variables
 validate_backup_environment
 
-for required_volume in "${COMPOSE_PROJECT_NAME}_postgres_data" "$MEDIA_VOLUME"; do
-  docker volume inspect "$required_volume" >/dev/null 2>&1 || {
-    die "Required Docker volume is missing: $required_volume"
-    release_operation_lock
-    exit 1
-  }
-done
+validate_owned_volume "${COMPOSE_PROJECT_NAME}_postgres_data" postgres_data
+validate_owned_volume "$MEDIA_VOLUME" media_data
 
 if [[ -e "$BACKUPS_ROOT" || -L "$BACKUPS_ROOT" ]]; then
   [[ -d "$BACKUPS_ROOT" && ! -L "$BACKUPS_ROOT" ]] || {
@@ -276,7 +296,7 @@ BACKUP_DIR="$BACKUPS_ROOT_RESOLVED/$BACKUP_TIMESTAMP_VALUE"
   exit 1
 }
 
-if RUNNING_SERVICES_OUTPUT="$(compose ps --status running --services web worker scheduler)"; then
+if RUNNING_SERVICES_OUTPUT="$(compose ps --status running --status restarting --services web worker scheduler)"; then
   :
 else
   probe_status=$?
