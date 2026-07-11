@@ -5,6 +5,9 @@
 // 跑：① 起 server（netlify dev，加载 .env 的 Neon/Storage/中转）→ ② E2E_BASE_URL=http://localhost:8888 npx playwright test
 //   中转建议用桩/录制响应避免真烧钱（10 §11.10）。
 import { defineConfig, devices } from "@playwright/test";
+import { assertLoopbackTestUrl } from "./scripts/test-env-guard";
+
+const baseURL = assertLoopbackTestUrl(process.env.E2E_BASE_URL || "http://localhost:8888");
 
 export default defineConfig({
   testDir: "tests/e2e",
@@ -13,8 +16,14 @@ export default defineConfig({
   fullyParallel: false,
   retries: 0,
   reporter: "list",
+  webServer: {
+    command: "npm run dev:ui:test",
+    url: `${baseURL}/login`,
+    reuseExistingServer: false,
+    timeout: 120_000,
+  },
   use: {
-    baseURL: process.env.E2E_BASE_URL || "http://localhost:8888",
+    baseURL,
     trace: "on-first-retry",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],

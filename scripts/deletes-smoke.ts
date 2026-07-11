@@ -1,6 +1,6 @@
 // Wave C 删除路径冒烟（对真 Neon）：#3 删会话（级联+owner-scope）+ #12 后台删生成记录（硬删+审计+账本保留）。
 // R2 用桩 key（deleteManyFromR2 对不存在 key 是幂等 no-op，不烧真对象）。
-// 跑：node --env-file=.env --import tsx scripts/deletes-smoke.ts
+// 跑：node --import tsx scripts/test-env-guard.ts scripts/deletes-smoke.ts
 import { randomInt } from "node:crypto";
 import { REDEEM_ALPHABET } from "../src/contracts/redeem";
 import { getSql } from "../src/db/db.server";
@@ -58,7 +58,7 @@ async function topUp(userId: string): Promise<string> {
 async function makeGeneration(userId: string): Promise<{ conversationId: string; generationId: string }> {
   const { generationId, conversationId } = await enqueueGeneration({
     user: { id: userId, maxConcurrency: 2 },
-    input: { prompt: "测试删除路径", size: "1024x1024" },
+    input: { prompt: "测试删除路径", size: "1024x1024", credentialMode: "system" },
   });
   const outcome = await runGenerationJob(generationId, stubDeps());
   if (outcome !== "succeeded") throw new Error(`runGenerationJob 非 succeeded: ${outcome}`);

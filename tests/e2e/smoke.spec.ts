@@ -8,8 +8,14 @@
 import { expect, test } from "@playwright/test";
 
 const REDEEM_CODE = process.env.E2E_REDEEM_CODE;
+const LEGACY_SMOKE_ENABLED = process.env.E2E_LEGACY_SMOKE_ENABLED === "true";
 
 test.describe("@smoke 关键路径", () => {
+  test.skip(
+    !LEGACY_SMOKE_ENABLED,
+    "legacy real-generation smoke requires explicit approval in the disposable test env",
+  );
+
   test("注册 → 生图 → 兑换 → 余额增加", async ({ page }) => {
     const email = `e2e+${Date.now()}@example.com`;
     const password = "test123456";

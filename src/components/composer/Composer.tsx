@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { type Ref, useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import type { Background, GenerateParams, Quality } from "../../contracts/generate";
+import type { Background, CredentialMode, GenerateParams, Quality } from "../../contracts/generate";
 import { UPLOAD_ACCEPT } from "../../contracts/upload";
 import { PRICE_PER_IMAGE_MP } from "../../lib/credits";
 import { formatCredits } from "../../lib/format";
@@ -31,6 +31,8 @@ export interface ComposerProps {
   disabled?: boolean;
   canAfford: boolean;
   balanceMp: number;
+  credentialMode: CredentialMode;
+  customEnabled: boolean;
   // 单图价（毫积分）；父级从 /api/me 实时取，缺省回退常量（首帧/无数据兜底）。
   pricePerImageMp?: number;
   variant?: "full" | "compact";
@@ -47,6 +49,8 @@ export function Composer({
   disabled = false,
   canAfford,
   balanceMp,
+  credentialMode,
+  customEnabled,
   pricePerImageMp = PRICE_PER_IMAGE_MP,
   variant = "full",
   textareaRef,
@@ -105,13 +109,14 @@ export function Composer({
     onChange({ ...request, [key]: value });
 
   const canSend = !disabled && request.prompt.trim().length > 0;
+  const modeCanGenerate = credentialMode === "custom" ? customEnabled : canAfford;
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       if (!canSend) return;
-      if (canAfford) onSubmit();
-      else navigate("/billing"); // 积分不足时回车也给反馈→去充值
+      if (modeCanGenerate) onSubmit();
+      else if (credentialMode === "system") navigate("/billing");
     }
   };
 
@@ -129,6 +134,7 @@ export function Composer({
           type="file"
           accept={UPLOAD_ACCEPT.join(",")}
           hidden
+          disabled={disabled}
           onChange={onFileChange}
         />
       ) : null}
@@ -162,6 +168,7 @@ export function Composer({
         value={request.prompt}
         onChange={(e) => set("prompt", e.target.value)}
         onKeyDown={handleKeyDown}
+        disabled={disabled}
         rows={variant === "full" ? 3 : 1}
       />
 
@@ -189,6 +196,7 @@ export function Composer({
               type="button"
               className={`${styles.pill} ${sizePop.open ? styles.pillActive : ""}`}
               onClick={() => sizePop.setOpen((o) => !o)}
+              disabled={disabled}
             >
               <Crop size={15} />
               比例 · {sizeLabel(request.size)}
@@ -205,6 +213,7 @@ export function Composer({
                         key={opt.value}
                         type="button"
                         className={`${styles.sizeCard} ${active ? styles.sizeCardActive : ""}`}
+                        disabled={disabled}
                         onClick={() => {
                           set("size", opt.value);
                           sizePop.setOpen(false);
@@ -237,6 +246,7 @@ export function Composer({
               type="button"
               className={`${styles.pill} ${advPop.open ? styles.pillActive : ""}`}
               onClick={() => advPop.setOpen((o) => !o)}
+              disabled={disabled}
             >
               <SlidersHorizontal size={15} />
               高级设置
@@ -259,6 +269,7 @@ export function Composer({
                         key={q.value}
                         type="button"
                         className={`${styles.segBtn} ${(request.quality ?? "auto") === q.value ? styles.segBtnActive : ""}`}
+                        disabled={disabled}
                         onClick={() => {
                           set("quality", q.value as Quality);
                           advPop.setOpen(false);
@@ -277,6 +288,7 @@ export function Composer({
                         key={b.value}
                         type="button"
                         className={`${styles.segBtn} ${(request.background ?? "auto") === b.value ? styles.segBtnActive : ""}`}
+                        disabled={disabled}
                         onClick={() => {
                           set("background", b.value as Background);
                           advPop.setOpen(false);
@@ -299,18 +311,22 @@ export function Composer({
         </div>
 
         <div className={styles.right}>
-          {canAfford ? (
+          {credentialMode === "custom" ? (
+            <span className={styles.costHint}>
+              {customEnabled ? "使用自定义 Key · 本站不扣积分" : "自定义 Key 暂停使用"}
+            </span>
+          ) : canAfford ? (
             <span className={styles.costHint}>
               本次消耗 <span className={styles.costStrong}>{formatCredits(pricePerImageMp)}</span>{" "}
               积分 / 剩余 {formatCredits(balanceMp)} 积分
             </span>
           ) : null}
-          {canAfford ? (
+          {credentialMode === "custom" || canAfford ? (
             <button
               type="button"
               className={styles.send}
               onClick={onSubmit}
-              disabled={!canSend}
+              disabled={!canSend || !modeCanGenerate}
               aria-label="生成"
             >
               <ArrowUp size={18} />

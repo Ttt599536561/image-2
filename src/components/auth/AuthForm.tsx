@@ -1,5 +1,5 @@
 import { AlertTriangle, Sparkles } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router";
 import { authClient } from "../../lib/auth-client";
 import styles from "./Auth.module.css";
@@ -30,9 +30,13 @@ export function AuthForm({ mode, admin = false }: { mode: "login" | "register"; 
   const [error, setError] = useState<string | null>(null);
   const [showLoginLink, setShowLoginLink] = useState(false);
   const [pending, setPending] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+
+  useEffect(() => setHydrated(true), []);
 
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!hydrated) return;
     setError(null);
     setShowLoginLink(false);
     const mail = email.trim();
@@ -162,7 +166,12 @@ export function AuthForm({ mode, admin = false }: { mode: "login" | "register"; 
         </div>
       ) : null}
 
-      <button type="submit" className={styles.submit} disabled={pending}>
+      <button
+        type="submit"
+        className={styles.submit}
+        disabled={!hydrated || pending}
+        data-auth-ready={hydrated}
+      >
         {admin ? "登录后台" : mode === "login" ? "登录" : "注册"}
       </button>
 

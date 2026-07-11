@@ -1,6 +1,6 @@
 // §10 重命名会话冒烟（对真 Neon）：改名生效 + owner-scope（改不动别人的）+ 不存在→404 + 不动 updated_at。
 // 不需积分/中转：直接 INSERT conversations 行即可（rename 是纯 owner-scoped UPDATE）。
-// 跑：node --env-file=.env --import tsx scripts/rename-smoke.ts
+// 跑：node --import tsx scripts/test-env-guard.ts scripts/rename-smoke.ts
 import { getSql } from "../src/db/db.server";
 import { auth } from "../src/lib/auth";
 import {

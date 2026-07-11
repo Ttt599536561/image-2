@@ -1,20 +1,21 @@
 // ★server-only：Better Auth 单实例（05 §6.1）。email+password（不验邮箱）+ admin 插件 + bcryptjs。
 // 🔴 红线：generateId 'uuid'（字面量，native uuid 列与业务 users.id 同型）；bcrypt 72 字节断言在 password.hash 内；
 //    secret/URL 只在服务端（构建期断言不进 bundle，00 §1.4）。不启用 multi-session 插件（少一个攻击面）。
-import { Pool, neonConfig } from "@neondatabase/serverless";
+import { neonConfig } from "@neondatabase/serverless";
 import { betterAuth } from "better-auth";
 import { APIError } from "better-auth/api";
 import { admin } from "better-auth/plugins";
 import bcrypt from "bcryptjs";
 import ws from "ws";
 import { onSessionCreated, onUserRegistered } from "./auth-hooks";
+import { createAuthPool } from "./auth-pool";
 
 if (!neonConfig.webSocketConstructor) {
   neonConfig.webSocketConstructor = ws;
 }
 
 // Better Auth 自管 user/session/account/verification —— 直连 Neon（与业务库同库，05 §6.2）。
-const pool = new Pool({ connectionString: process.env.DATABASE_URL_UNPOOLED });
+const pool = createAuthPool();
 
 export const auth = betterAuth({
   database: pool,

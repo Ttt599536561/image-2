@@ -1,10 +1,12 @@
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import type { ConversationDetail, ConversationListResponse } from "../contracts/conversation";
 import { GenerateAcceptedResponse, type GenerateParams } from "../contracts/generate";
+import type { MeResponse } from "../contracts/me";
 import { UploadResponse } from "../contracts/upload";
 import { ApiError, apiPost, apiPostForm } from "../lib/api-client";
+import type { UserApiConfig } from "../lib/userApiConfig";
 
 // 提交一轮生成（08 §9.7）。⚡ 乐观立即跳转：
 //  - 点击瞬间生成 cid/gid、把"排队中的乐观 turn"写进会话详情缓存、立即 navigate(/c/cid)，
@@ -18,14 +20,45 @@ export interface UseGenerationOptions {
 }
 
 type Turn = ConversationDetail["generations"][number];
+const ACTIVE_ENQUEUE_IDS_KEY = ["generation-active-enqueue-ids"] as const;
 
-function makeOptimisticTurn(gid: string, req: GenerateParams, createdAt: string): Turn {
+function beginEnqueue(qc: ReturnType<typeof useQueryClient>, generationId: string): void {
+  qc.setQueryData<string[]>(ACTIVE_ENQUEUE_IDS_KEY, (current = []) =>
+    current.includes(generationId) ? current : [...current, generationId],
+  );
+}
+
+function finishEnqueue(qc: ReturnType<typeof useQueryClient>, generationId: string): void {
+  qc.setQueryData<string[]>(ACTIVE_ENQUEUE_IDS_KEY, (current = []) =>
+    current.filter((id) => id !== generationId),
+  );
+}
+
+export function useActiveGenerationEnqueueIds(): string[] {
+  return useQuery<string[]>({
+    queryKey: ACTIVE_ENQUEUE_IDS_KEY,
+    queryFn: async () => [],
+    initialData: [],
+    enabled: false,
+    staleTime: Number.POSITIVE_INFINITY,
+    gcTime: Number.POSITIVE_INFINITY,
+  }).data;
+}
+
+function makeOptimisticTurn(
+  gid: string,
+  req: GenerateParams,
+  createdAt: string,
+  config: UserApiConfig,
+): Turn {
   return {
     id: gid,
     prompt: req.prompt,
     size: req.size,
     quality: req.quality ?? null,
     background: req.background ?? null,
+    credentialMode: config.mode,
+    deadlineAt: new Date(Date.parse(createdAt) + 5 * 60_000).toISOString(),
     status: "queued",
     errorCode: null,
     error: null,
@@ -48,8 +81,18 @@ export function useGeneration(conversationId: string | null, opts: UseGeneration
   onErrorRef.current = opts.onError;
 
   const submit = useCallback(
-    (req: GenerateParams, file: File | null = null, onAccepted?: () => void) => {
+    (
+      req: GenerateParams,
+      config: UserApiConfig,
+      file: File | null = null,
+      onAccepted?: () => void,
+    ) => {
       if (submittingRef.current) return; // 双闸：同步 ref
+      const customApiKey = config.apiKey.trim();
+      if (config.mode === "custom" && !customApiKey) {
+        onErrorRef.current?.(new ApiError(400, "CUSTOM_KEY_REQUIRED", "请先填写并保存自定义 Key"));
+        return;
+      }
       submittingRef.current = true;
       setIsSubmitting(true);
 
@@ -58,7 +101,8 @@ export function useGeneration(conversationId: string | null, opts: UseGeneration
       const gid = crypto.randomUUID();
       const now = new Date().toISOString();
       const title = req.prompt.slice(0, 20) || "新对话";
-      const turn = makeOptimisticTurn(gid, req, now);
+      const turn = makeOptimisticTurn(gid, req, now, config);
+      beginEnqueue(qc, gid);
 
       // 乐观写会话详情缓存（新建=造一条；续聊=追加一轮）。
       qc.setQueryData<ConversationDetail>(["conversation", cid], (old) =>
@@ -74,8 +118,6 @@ export function useGeneration(conversationId: string | null, opts: UseGeneration
         );
         navigate(`/c/${cid}`); // ⚡ 立即跳转：clientLoader 命中刚写的缓存 → 即时渲染生图骨架
       }
-      onAccepted?.(); // 立即清空 composer（乐观；失败时 turn 标 failed 可重试，prompt 留在 turn 上）
-
       // 独立 async：不绑组件生命周期。导航后旧组件卸载，但 qc 是单例、操作仍命中活缓存。
       void (async () => {
         try {
@@ -88,27 +130,77 @@ export function useGeneration(conversationId: string | null, opts: UseGeneration
           }
           const accepted = await apiPost(
             "/api/generate",
-            { ...req, credentialMode: "system", conversationId: cid, generationId: gid, inputImageKey },
+            {
+              ...req,
+              credentialMode: config.mode,
+              ...(config.mode === "custom" ? { customApiKey } : {}),
+              conversationId: cid,
+              generationId: gid,
+              inputImageKey,
+            },
             GenerateAcceptedResponse,
           );
+          qc.setQueryData<ConversationDetail>(["conversation", cid], (old) =>
+            old
+              ? {
+                  ...old,
+                  generations: old.generations.map((generation) =>
+                    generation.id === gid
+                      ? {
+                          ...generation,
+                          credentialMode: accepted.credentialMode,
+                          deadlineAt: accepted.deadlineAt,
+                        }
+                      : generation,
+                  ),
+                }
+              : old,
+          );
+          onAccepted?.();
           // 服务端已建会话 + queued 行（同 cid/gid）→ 拉真数据校正缓存 + 刷新侧栏。
           qc.invalidateQueries({ queryKey: ["conversation", accepted.conversationId] });
           qc.invalidateQueries({ queryKey: ["conversations"] });
         } catch (e) {
           const err = e instanceof ApiError ? e : new ApiError(500, "INTERNAL", "服务异常，请重试");
+          if (err.code === "CUSTOM_KEY_MODES_DISABLED") {
+            qc.setQueryData<ConversationDetail>(["conversation", cid], (old) =>
+              old
+                ? { ...old, generations: old.generations.filter((generation) => generation.id !== gid) }
+                : old,
+            );
+            if (isNew) {
+              qc.removeQueries({ queryKey: ["conversation", cid], exact: true });
+              qc.setQueriesData<ConversationListResponse>({ queryKey: ["conversations"] }, (old) =>
+                old
+                  ? {
+                      ...old,
+                      items: old.items.filter((conversation) => conversation.id !== cid),
+                      total: Math.max(0, old.total - 1),
+                    }
+                  : old,
+              );
+            }
+            qc.setQueryData<MeResponse>(["me", "balance"], (old) =>
+              old ? { ...old, customKeyModesEnabled: false } : old,
+            );
+            qc.invalidateQueries({ queryKey: ["me", "balance"] });
+            if (isNew) navigate("/", { replace: true, state: { openKeySettings: true } });
+          } else {
           // 把该乐观 turn 标 failed（友好中文卡由 ConversationView 据 error 兜底；可点重试）。
-          qc.setQueryData<ConversationDetail>(["conversation", cid], (old) =>
-            old
-              ? {
-                  ...old,
-                  generations: old.generations.map((g) =>
-                    g.id === gid ? { ...g, status: "failed", errorCode: null, error: err.message } : g,
-                  ),
-                }
-              : old,
-          );
+            qc.setQueryData<ConversationDetail>(["conversation", cid], (old) =>
+              old
+                ? {
+                    ...old,
+                    generations: old.generations.map((g) =>
+                      g.id === gid ? { ...g, status: "failed", errorCode: null, error: err.message } : g,
+                    ),
+                  }
+                : old,
+            );
+          }
           onErrorRef.current?.(err);
         } finally {
+          finishEnqueue(qc, gid);
           submittingRef.current = false;
           setIsSubmitting(false);
         }

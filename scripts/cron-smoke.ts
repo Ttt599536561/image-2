@@ -1,6 +1,6 @@
 // ⑦ cron：对真 Neon 端到端冒烟（直接调 server 函数，免起 Scheduled/HTTP）。覆盖
 //   超时重扫 / 积分过期 / 余额对账 / 图片清理(通知预扫+付费顺延+删过期+孤儿) / 旧预算键清理+ms 重算。
-// R2 删除/列举注入桩（不烧 Supabase）。跑：node --env-file=.env --import tsx scripts/cron-smoke.ts
+// R2 删除/列举注入桩（不烧 Supabase）。跑：node --import tsx scripts/test-env-guard.ts scripts/cron-smoke.ts
 //
 // ⚠️ 真库副作用：rescanTimeouts/expireCredits/reconcileBalances 全局（非 owner-scoped，cron 本性）——会顺带
 //    处理库内其它「确属超时/到期/漂账」的行。仅在自有 dev Neon 上跑；断言只校验本脚本造的行。
@@ -71,10 +71,10 @@ async function main(): Promise<void> {
     const staleId = randomUUID();
     const freshId = randomUUID();
     await sql`INSERT INTO conversations(id,user_id,title) VALUES (${convId}, ${uid}, 'cron')`;
-    await sql`INSERT INTO generations(id,conversation_id,user_id,prompt,size,status,started_at,updated_at)
-              VALUES (${staleId}, ${convId}, ${uid}, 'p', 'auto', 'running', now()-interval '6 minutes', now()-interval '6 minutes')`;
-    await sql`INSERT INTO generations(id,conversation_id,user_id,prompt,size,status,started_at)
-              VALUES (${freshId}, ${convId}, ${uid}, 'p', 'auto', 'running', now())`;
+    await sql`INSERT INTO generations(id,conversation_id,user_id,prompt,size,status,started_at,deadline_at,updated_at)
+              VALUES (${staleId}, ${convId}, ${uid}, 'p', 'auto', 'running', now()-interval '6 minutes', now()-interval '1 minute', now()-interval '6 minutes')`;
+    await sql`INSERT INTO generations(id,conversation_id,user_id,prompt,size,status,started_at,deadline_at)
+              VALUES (${freshId}, ${convId}, ${uid}, 'p', 'auto', 'running', now(), now()+interval '5 minutes')`;
 
     await rescanTimeouts();
     const [stale] = await sql`SELECT status, error_code, duration_ms FROM generations WHERE id=${staleId}`;

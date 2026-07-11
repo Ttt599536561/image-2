@@ -64,6 +64,11 @@
   color: var(--text-secondary);
 }
 
+.keyCustom {
+  color: var(--accent);
+  border-color: var(--border-strong);
+}
+
 .menuBtn {
   display: none;
 }

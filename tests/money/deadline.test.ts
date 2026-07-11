@@ -69,6 +69,21 @@ describe("generation deadline", () => {
     expect((await ctx.gen(job.generationId))?.status).toBe("queued");
   });
 
+  it("clamps duration when an abnormally old job is finally expired", async () => {
+    const userId = await ctx.createUser();
+    const job = await ctx.createGeneration(userId, {
+      status: "running",
+      deadlineAgoSec: 1,
+    });
+    await ctx.sql`UPDATE generations SET started_at=now()-interval '26 days'
+                  WHERE id=${job.generationId}`;
+
+    await expect(
+      expireDueGenerations({ generationIds: [job.generationId], now: new Date() }),
+    ).resolves.toHaveLength(1);
+    expect(Number((await ctx.gen(job.generationId))?.duration_ms)).toBe(2_147_483_647);
+  });
+
   it.each(["system", "custom"] as const)("allows exactly one terminal when %s success races timeout", async (mode) => {
     const userId = await ctx.createUser({ balanceMp: 10_000 });
     await ctx.addLot(userId, 10_000);

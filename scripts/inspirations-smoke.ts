@@ -1,5 +1,5 @@
 // P3-S4 灵感库运营化：对真 Neon 验 loadInspirations(SQL 过滤/动态品类/宽高回流/LIKE 转义) + admin CRUD/reorder/上下架。
-// 跑：node --env-file=.env --import tsx scripts/inspirations-smoke.ts
+// 跑：node --import tsx scripts/test-env-guard.ts scripts/inspirations-smoke.ts
 // 不碰钱/码；用唯一前缀的测试卡 + 临时 admin 用户，结束清理（审计行先删再删用户，FK RESTRICT）。
 import { randomUUID } from "node:crypto";
 import { getPool, getSql } from "../src/db/db.server";

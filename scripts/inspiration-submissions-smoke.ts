@@ -1,6 +1,6 @@
 // 灵感投稿端到端冒烟（真 Neon；copy 注入桩免烧 Supabase）。§13.1。
 // 覆盖：submit(落 pending+副本/同图去重/越权 404) · approve(建上架卡+署名+复用副本+通知+终态幂等) · reject(原因+通知)。
-// 跑：node --env-file=.env --import tsx scripts/inspiration-submissions-smoke.ts
+// 跑：node --import tsx scripts/test-env-guard.ts scripts/inspiration-submissions-smoke.ts
 import { randomUUID } from "node:crypto";
 import { getSql } from "../src/db/db.server";
 import {

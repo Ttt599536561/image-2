@@ -1,5 +1,5 @@
 // 接真冒烟（① 地基验证）：表/索引/gen_random_uuid/FOR UPDATE 交互式事务。
-// 跑：node --env-file=.env --import tsx scripts/db-smoke.ts
+// 跑：node --import tsx scripts/test-env-guard.ts scripts/db-smoke.ts
 import { getPool, getSql } from "../src/db/db.server";
 
 const BUSINESS_TABLES = [

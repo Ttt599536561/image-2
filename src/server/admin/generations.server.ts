@@ -12,6 +12,8 @@ export interface AdminGeneration {
   email: string;
   prompt: string;
   size: string;
+  credentialMode: "system" | "custom";
+  creditsChargedMp: number;
   status: string;
   errorCode: string | null;
   error: string | null;
@@ -40,7 +42,8 @@ export async function listGenerations(args: {
   const status = args.status?.trim() ? args.status.trim() : null;
 
   const rows = (await sql`
-    SELECT g.id, g.prompt, g.size, g.status, g.error_code, g.error, g.http_status, g.duration_ms, g.created_at,
+    SELECT g.id, g.prompt, g.size, g.credential_mode, g.credits_charged_mp, g.status,
+           g.error_code, g.error, g.http_status, g.duration_ms, g.created_at,
            u.email, i.public_url AS thumb_url
     FROM generations g
     JOIN users u ON u.id = g.user_id
@@ -64,6 +67,8 @@ export async function listGenerations(args: {
       email: r.email as string,
       prompt: r.prompt as string,
       size: r.size as string,
+      credentialMode: r.credential_mode as "system" | "custom",
+      creditsChargedMp: toInt(r.credits_charged_mp),
       status: r.status as string,
       errorCode: (r.error_code as string | null) ?? null,
       error: (r.error as string | null) ?? null,

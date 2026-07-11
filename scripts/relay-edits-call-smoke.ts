@@ -1,6 +1,6 @@
 // ④b 真·callRelay 图生图端到端冒烟：用「生产代码」callRelay({inputImage}) 实打中转 /images/edits。
 // 与 relay-edits-probe 区别：probe 手搓 fetch 验端点；本脚本验「我们 buildEditsForm 的实际线格式 + 响应解析」
-// 走通真中转。跑：node --env-file=.env --import tsx scripts/relay-edits-call-smoke.ts
+// 走通中转测试桩。跑：node --import tsx scripts/test-env-guard.ts scripts/relay-edits-call-smoke.ts
 import { deflateSync } from "node:zlib";
 import { callRelay } from "../src/server/relay";
 

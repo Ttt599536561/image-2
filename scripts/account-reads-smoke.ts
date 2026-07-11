@@ -1,6 +1,6 @@
 // #8 账号页读路径冒烟（对真 Neon）：loadLots（多来源批次）/ loadLedger（类型筛）/ loadRedemptions（兑换记录）。
 // 制造 signup(注册) + code(兑换) + adjust(±) + debit(生成) 全谱数据，校验读路径正确。
-// 跑：node --env-file=.env --import tsx scripts/account-reads-smoke.ts
+// 跑：node --import tsx scripts/test-env-guard.ts scripts/account-reads-smoke.ts
 import { randomInt } from "node:crypto";
 import { REDEEM_ALPHABET } from "../src/contracts/redeem";
 import { getSql } from "../src/db/db.server";
@@ -58,7 +58,7 @@ async function main() {
   // 生成 → debit ledger（成功才扣）。
   const { generationId } = await enqueueGeneration({
     user: { id: userId, maxConcurrency: 2 },
-    input: { prompt: "账号页冒烟", size: "1024x1024" },
+    input: { prompt: "账号页冒烟", size: "1024x1024", credentialMode: "system" },
   });
   await runGenerationJob(generationId, stubDeps());
 

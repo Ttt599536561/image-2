@@ -1,5 +1,5 @@
 // ⑥ 后台：admin server 函数对真 Neon 端到端冒烟（直接调 server 函数，免起 HTTP/admin 会话）。
-// 跑：node --env-file=.env --import tsx scripts/admin-smoke.ts
+// 跑：node --import tsx scripts/test-env-guard.ts scripts/admin-smoke.ts
 import { getSql } from "../src/db/db.server";
 import { auth } from "../src/lib/auth";
 import { listAudit } from "../src/server/admin/audit.server";
@@ -36,7 +36,6 @@ async function reg(tag: string): Promise<{ id: string; email: string }> {
 async function main() {
   const sql = getSql();
   const checks: [string, boolean][] = [];
-  const PKG_ENTRY = "00000000-0000-4000-a000-000000000001"; // seed 入门包
 
   const admin = await reg("admin");
   const target = await reg("target");
@@ -44,7 +43,11 @@ async function main() {
   console.log(`admin=${admin.email} target=${target.email}`);
 
   // —— 兑换码 ——
-  const gen = await generateCodes({ adminId: admin.id, packageId: PKG_ENTRY, count: 3, ip: "1.1.1.1" });
+  const codePackageId = (await sql`
+    INSERT INTO packages(title,price_cash,credits_mp,valid_days,active)
+    VALUES('admin smoke code package',990,10000,30,true)
+    RETURNING id`)[0].id as string;
+  const gen = await generateCodes({ adminId: admin.id, packageId: codePackageId, count: 3, ip: "1.1.1.1" });
   checks.push(["generateCodes 出 3 码", gen.count === 3]);
   const batches = await listBatches();
   checks.push(["listBatches 含新批次", batches.items.some((b) => b.batchId === gen.batchId && b.total === 3)]);
@@ -148,6 +151,7 @@ async function main() {
   // —— 清理 ——
   await sql`DELETE FROM audit_log WHERE admin_id=${admin.id}`;
   await sql`DELETE FROM redeem_codes WHERE batch_id=${gen.batchId}`;
+  await sql`DELETE FROM packages WHERE id=${codePackageId}`;
   await sql`DELETE FROM packages WHERE id=${pkg.id}`;
   await sql`DELETE FROM events WHERE user_id IN (${admin.id}, ${target.id})`;
   await sql`DELETE FROM users WHERE id IN (${admin.id}, ${target.id})`;

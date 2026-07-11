@@ -1,5 +1,5 @@
 // 中转接真冒烟（④ 生图链路 de-risk）：callRelay 真生图 → putToR2 落 Supabase → fetch public_url → 删除。
-// 跑：node --env-file=.env --import tsx scripts/relay-smoke.ts
+// 跑：node --import tsx scripts/test-env-guard.ts scripts/relay-smoke.ts
 // ⚠️ 会真实消耗一次中转生图（铁律②：上线前实测成本对账）。只跑一张验证整链路。
 import { randomUUID } from "node:crypto";
 import { deleteFromR2, putToR2 } from "../src/server/r2.server";

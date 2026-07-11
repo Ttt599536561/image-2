@@ -22,7 +22,10 @@ export async function expireDueGenerations(
           error='请求超时，本站未扣积分，请重试',http_status=NULL,credits_charged_mp=0,
           completed_at=clock.at,
           duration_ms=CASE WHEN started_at IS NULL THEN NULL
-                           ELSE (EXTRACT(EPOCH FROM (clock.at-started_at))*1000)::int END,
+                           ELSE LEAST(
+                             GREATEST(EXTRACT(EPOCH FROM (clock.at-started_at))*1000,0),
+                             2147483647
+                           )::int END,
           updated_at=clock.at
       FROM clock
       WHERE status IN ('queued','claimed','running') AND deadline_at<=clock.at

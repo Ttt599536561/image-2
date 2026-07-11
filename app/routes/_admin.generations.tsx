@@ -5,7 +5,7 @@ import { ConfirmDialog } from "../../src/components/ConfirmDialog/ConfirmDialog"
 import { useLightbox } from "../../src/components/Lightbox/LightboxProvider";
 import styles from "../../src/components/admin/Admin.module.css";
 import { ApiError, apiPost } from "../../src/lib/api-client";
-import { formatTimer } from "../../src/lib/format";
+import { formatCredits, formatTimer } from "../../src/lib/format";
 import { listGenerations } from "../../src/server/admin/generations.server";
 import { requireAdminPage } from "../../src/server/page.server";
 import type { Route } from "./+types/_admin.generations";
@@ -146,6 +146,8 @@ export default function Page({ loaderData }: Route.ComponentProps) {
               <th className={styles.th}>用户</th>
               <th className={styles.th}>提示词</th>
               <th className={styles.th}>尺寸</th>
+              <th className={styles.th}>模式</th>
+              <th className={styles.th}>扣费</th>
               <th className={styles.th}>时长</th>
               <th className={styles.th}>状态</th>
               <th className={styles.th}>时间</th>
@@ -194,6 +196,14 @@ export default function Page({ loaderData }: Route.ComponentProps) {
                   ) : null}
                 </td>
                 <td className={styles.td}>{g.size}</td>
+                <td className={styles.td}>
+                  <span className={styles.badge}>
+                    {g.credentialMode === "custom" ? "自定义" : "系统"}
+                  </span>
+                </td>
+                <td className={styles.td}>
+                  {g.creditsChargedMp === 0 ? "0" : formatCredits(g.creditsChargedMp)}
+                </td>
                 <td className={styles.td}>
                   {g.durationMs != null ? formatTimer(g.durationMs) : "—"}
                 </td>

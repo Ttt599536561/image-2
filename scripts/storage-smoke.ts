@@ -1,5 +1,5 @@
 // 存储接真冒烟（Supabase Storage，S3 兼容）：上传 → 取 public_url → fetch 验可访问 → 删除。
-// 跑：node --env-file=.env --import tsx scripts/storage-smoke.ts
+// 跑：node --import tsx scripts/test-env-guard.ts scripts/storage-smoke.ts
 // 验证 ① 地基里唯一挂着的「putToR2 往返」+ 公有桶公开 URL 是否打通。
 import { randomUUID } from "node:crypto";
 import {

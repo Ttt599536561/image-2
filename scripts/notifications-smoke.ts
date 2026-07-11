@@ -1,6 +1,6 @@
 // §9 后台广播公告冒烟（对真 Neon）：广播→目标用户 notifications 出现、非目标不出现、同一公告(同 aid)复发幂等不重复、
 // loadNotifications owner-scoped（只见本人通知）。清理按公告 aid 前缀删（含「全体」广播波及的其他用户行）+ 删测试用户。
-// 跑：node --env-file=.env --import tsx scripts/notifications-smoke.ts
+// 跑：node --import tsx scripts/test-env-guard.ts scripts/notifications-smoke.ts
 import { randomUUID } from "node:crypto";
 import { getSql } from "../src/db/db.server";
 import { auth } from "../src/lib/auth";

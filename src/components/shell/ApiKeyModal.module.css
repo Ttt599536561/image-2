@@ -1,0 +1,260 @@
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal, 80);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: var(--scrim);
+}
+
+.dialog {
+  width: min(100%, 480px);
+  max-height: calc(100dvh - 40px);
+  overflow-y: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-lg);
+  color: var(--text-primary);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 58px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.heading h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.iconButton,
+.revealButton {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.iconButton:hover,
+.revealButton:hover {
+  color: var(--text-primary);
+  background: var(--bg-subtle);
+}
+
+.modeGroup {
+  min-width: 0;
+  margin: 0;
+  padding: 20px 20px 0;
+  border: 0;
+}
+
+.label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.segmented {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-height: 42px;
+  padding: 3px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--bg-subtle);
+}
+
+.segment,
+.segmentActive {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.segmentActive {
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.segment input,
+.segmentActive input {
+  accent-color: var(--accent);
+}
+
+.segment:has(input:disabled),
+.segmentActive:has(input:disabled) {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.paused {
+  margin: 14px 20px 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--warning-border);
+  background: var(--warning-surface);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.customFields {
+  display: grid;
+  gap: 14px;
+  padding: 18px 20px 0;
+}
+
+.field {
+  display: grid;
+}
+
+.field > input,
+.secretInput {
+  width: 100%;
+  height: 42px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-canvas);
+}
+
+.field > input {
+  padding: 0 12px;
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.secretInput {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 40px;
+  overflow: hidden;
+}
+
+.secretInput input {
+  min-width: 0;
+  padding: 0 12px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.readonly {
+  color: var(--text-secondary) !important;
+}
+
+.securityNote {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.error {
+  margin: 12px 20px 0;
+  color: var(--danger-text, #b42318);
+  font-size: 13px;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px;
+}
+
+.clearButton,
+.saveButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 40px;
+  border-radius: 6px;
+  padding: 0 14px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.clearButton {
+  border: 1px solid var(--border-subtle);
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.saveButton {
+  border: 1px solid transparent;
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+}
+
+.clearButton:hover {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+}
+
+.saveButton:hover {
+  background: var(--primary-bg-hover);
+}
+
+.clearButton:disabled,
+.saveButton:disabled,
+.revealButton:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+@media (max-width: 520px) {
+  .scrim {
+    align-items: end;
+    padding: 0;
+  }
+
+  .dialog {
+    width: 100%;
+    max-height: min(86dvh, 680px);
+    border-right: 0;
+    border-bottom: 0;
+    border-left: 0;
+    border-radius: 8px 8px 0 0;
+  }
+
+  .actions {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .actions > * {
+    width: 100%;
+  }
+}

@@ -1,9 +1,12 @@
-import { Coins, LayoutGrid, Menu, Moon, Sun } from "lucide-react";
+import { Coins, KeyRound, LayoutGrid, Menu, Moon, Sun } from "lucide-react";
+import { useState } from "react";
 import { Link } from "react-router";
 import { useMe } from "../../hooks/queries";
+import { useUserApiConfig } from "../../hooks/useUserApiConfig";
 import { formatCredits, formatMonthDay } from "../../lib/format";
 import { useThemeMode } from "../../lib/theme";
 import { NotificationBell } from "./NotificationBell";
+import { ApiKeyModal } from "./ApiKeyModal";
 import styles from "./TopBar.module.css";
 
 export interface TopBarProps {
@@ -13,6 +16,7 @@ export interface TopBarProps {
   panelOpen?: boolean;
   onTogglePanel?: () => void;
   onOpenMenu?: () => void;
+  onOpenKeySettings?: () => void;
 }
 
 export function TopBar({
@@ -22,9 +26,26 @@ export function TopBar({
   panelOpen,
   onTogglePanel,
   onOpenMenu,
+  onOpenKeySettings,
 }: TopBarProps) {
   const me = useMe();
   const { theme, toggle } = useThemeMode();
+  const [keySettingsOpen, setKeySettingsOpen] = useState(false);
+  const userId = me.data?.user.id;
+  const customEnabled = me.data?.customKeyModesEnabled === true;
+  const userApiConfig = useUserApiConfig(userId);
+
+  const keyState =
+    userApiConfig.config.mode === "custom"
+      ? customEnabled
+        ? "当前自定义 Key"
+        : "自定义 Key 已暂停"
+      : "当前系统 Key";
+  const keyTitle = `生图 Key 设置：${keyState}`;
+  const openKeySettings = () => {
+    if (onOpenKeySettings) onOpenKeySettings();
+    else setKeySettingsOpen(true);
+  };
 
   const balanceMp = me.data?.balanceMp ?? 0;
   const expiringSoon = me.data?.expiringSoon;
@@ -73,6 +94,17 @@ export function TopBar({
           {expMp > 0 ? <span className={styles.warnDot} aria-hidden="true" /> : null}
         </Link>
 
+        <button
+          type="button"
+          className={`${styles.iconBtn} ${userApiConfig.config.mode === "custom" ? styles.keyCustom : ""}`}
+          onClick={openKeySettings}
+          disabled={!userApiConfig.ready}
+          aria-label={keyTitle}
+          title={keyTitle}
+        >
+          <KeyRound size={17} />
+        </button>
+
         <NotificationBell buttonClassName={styles.iconBtn} />
 
         <button
@@ -84,6 +116,13 @@ export function TopBar({
           {theme === "light" ? <Moon size={17} /> : <Sun size={17} />}
         </button>
       </div>
+      {keySettingsOpen && userId ? (
+        <ApiKeyModal
+          userId={userId}
+          customEnabled={customEnabled}
+          onClose={() => setKeySettingsOpen(false)}
+        />
+      ) : null}
     </header>
   );
 }

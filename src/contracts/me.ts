@@ -8,6 +8,7 @@ export const MeResponse = z.object({
   // 单图价（毫积分）= app_config.price_per_image_mp 的实时值，前端展示/预校验以此为准（后台改价即时生效）。
   pricePerImageMp: z.number().int(),
   hasPaid: z.boolean(),
+  customKeyModesEnabled: z.boolean(),
   // 3 天内即将过期的剩余毫积分：mp 走 string codec（SUM 聚合，避免精度风险）。来源 SQL 见 07 §8.3。
   expiringSoon: z.object({
     mp: z.string(), // string codec（与看板 SUM 同规则）

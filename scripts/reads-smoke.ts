@@ -1,5 +1,5 @@
 // ⑤ 前端接真：读路径 + 兑换写路径端到端冒烟（对真 Neon）。
-// 跑：node --env-file=.env --import tsx scripts/reads-smoke.ts
+// 跑：node --import tsx scripts/test-env-guard.ts scripts/reads-smoke.ts
 import { randomInt } from "node:crypto";
 import { REDEEM_ALPHABET } from "../src/contracts/redeem";
 import { getSql } from "../src/db/db.server";
@@ -66,6 +66,10 @@ async function main() {
   checks.push(["loadImages 空", imgs.items.length === 0 && imgs.total === 0]);
 
   // 4) 公共读：套餐 + 灵感（P3-S4：表有 active 卡走表、否则种子；动态品类）。
+  const packageId = (await sql`
+    INSERT INTO packages(title,price_cash,credits_mp,active)
+    VALUES('reads smoke package',100,1000,true)
+    RETURNING id`)[0].id as string;
   const pkgs = await loadPackages();
   const insp = await loadInspirations();
   console.log(`loadPackages: ${pkgs.items.length} 档；loadInspirations: ${insp.items.length} 卡 / ${insp.categories.length} 品类`);
@@ -97,7 +101,7 @@ async function main() {
   // 7) 生成 e2e（新读路径回流）：enqueue → runGenerationJob(桩) → 详情/资产/存入/删除。
   const { generationId, conversationId } = await enqueueGeneration({
     user: { id: userId, maxConcurrency: 2 },
-    input: { prompt: "一只戴帽子的柴犬", size: "1024x1536" },
+    input: { prompt: "一只戴帽子的柴犬", size: "1024x1536", credentialMode: "system" },
   });
   const outcome = await runGenerationJob(generationId, stubDeps());
   console.log(`generate: ${outcome}`);
@@ -135,6 +139,7 @@ async function main() {
 
   // 9) 清理。
   await sql`DELETE FROM redeem_codes WHERE id=${cid}`;
+  await sql`DELETE FROM packages WHERE id=${packageId}`;
   await sql`DELETE FROM events WHERE user_id=${userId} OR payload->>'subject'=${userId}`;
   await sql`DELETE FROM app_config WHERE key=${budgetTodayKey()}`; // runGenerationJob 增过当日预算键
   await sql`DELETE FROM users WHERE id=${userId}`; // 级联 credit_*/conversations/generations/images

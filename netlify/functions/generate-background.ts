@@ -9,8 +9,8 @@ export default async function handler(req: Request): Promise<Response> {
     if (!generationId) return Response.json({ error: "missing generationId" }, { status: 400 });
     const outcome = await runGenerationJob(generationId);
     return Response.json({ ok: true, outcome }, { status: 202 });
-  } catch (e) {
-    console.error("[generate-background] error", e);
+  } catch {
+    console.error("[generate-background] internal failure");
     return Response.json({ error: "internal" }, { status: 500 });
   }
 }

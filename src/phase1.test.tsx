@@ -56,7 +56,7 @@ describe("Composer 五态边界", () => {
   it("余额充足 → 显示发送键 + 本次消耗提示", () => {
     render(
       <MemoryRouter>
-        <Composer request={baseReq} onChange={noop} onSubmit={noop} canAfford balanceMp={5860} />
+        <Composer request={baseReq} onChange={noop} onSubmit={noop} canAfford balanceMp={5860} credentialMode="system" customEnabled />
       </MemoryRouter>,
     );
     expect(screen.getByRole("button", { name: "生成" })).toBeInTheDocument();
@@ -66,18 +66,37 @@ describe("Composer 五态边界", () => {
   it("积分不足 → 发送键替换为「积分不足，去充值」CTA", () => {
     render(
       <MemoryRouter>
-        <Composer request={baseReq} onChange={noop} onSubmit={noop} canAfford={false} balanceMp={50} />
+        <Composer request={baseReq} onChange={noop} onSubmit={noop} canAfford={false} balanceMp={50} credentialMode="system" customEnabled />
       </MemoryRouter>,
     );
     expect(screen.getByText("积分不足，去充值")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "生成" })).toBeNull();
   });
 
+  it("自定义模式零余额仍可生成且明确本站不扣积分", () => {
+    render(
+      <MemoryRouter>
+        <Composer
+          request={baseReq}
+          onChange={noop}
+          onSubmit={noop}
+          canAfford={false}
+          balanceMp={0}
+          credentialMode="custom"
+          customEnabled
+        />
+      </MemoryRouter>,
+    );
+    expect(screen.getByRole("button", { name: "生成" })).toBeInTheDocument();
+    expect(screen.getByText("使用自定义 Key · 本站不扣积分")).toBeInTheDocument();
+    expect(screen.queryByText("积分不足，去充值")).toBeNull();
+  });
+
   it("点比例药丸弹出 6 档尺寸浮层", async () => {
     const user = userEvent.setup();
     render(
       <MemoryRouter>
-        <Composer request={baseReq} onChange={noop} onSubmit={noop} canAfford balanceMp={5860} />
+        <Composer request={baseReq} onChange={noop} onSubmit={noop} canAfford balanceMp={5860} credentialMode="system" customEnabled />
       </MemoryRouter>,
     );
     await user.click(screen.getByRole("button", { name: /比例/ }));

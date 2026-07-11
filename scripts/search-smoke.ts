@@ -1,5 +1,5 @@
 // P3-S2 搜索：对真 Neon 验 loadConversations(q)/loadImages(q)（owner-scoped + LIKE 转义 + 命中/未命中）。
-// 跑：node --env-file=.env --import tsx scripts/search-smoke.ts
+// 跑：node --import tsx scripts/test-env-guard.ts scripts/search-smoke.ts
 import { randomUUID } from "node:crypto";
 import { getSql } from "../src/db/db.server";
 import { loadConversations, loadImages } from "../src/server/reads.server";

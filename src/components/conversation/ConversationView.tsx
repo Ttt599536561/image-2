@@ -11,18 +11,20 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router";
-import type { ConversationDetail, ConversationGeneration } from "../../contracts/conversation";
+import { useLocation, useNavigate, useNavigation } from "react-router";
+import { ConversationDetail, type ConversationGeneration } from "../../contracts/conversation";
 import type { Background, GenerateParams, Quality, Size } from "../../contracts/generate";
 import { SaveResponse } from "../../contracts/image";
 import { UPLOAD_ACCEPT, UPLOAD_MAX_BYTES, type UploadMime } from "../../contracts/upload";
 import type { InspirationItem } from "../../contracts/inspiration";
-import { useGeneration } from "../../hooks/useGeneration";
-import { useGenerationStatus } from "../../hooks/useGenerationStatus";
+import { useActiveGenerationEnqueueIds, useGeneration } from "../../hooks/useGeneration";
+import { useGenerationStatuses } from "../../hooks/useGenerationStatus";
+import { useUserApiConfig } from "../../hooks/useUserApiConfig";
 import { useConversationDetail, useMe } from "../../hooks/queries";
-import { apiPost } from "../../lib/api-client";
+import { apiGet, apiPost } from "../../lib/api-client";
 import { PRICE_PER_IMAGE_MP } from "../../lib/credits";
 import { formatCredits } from "../../lib/format";
+import { generationSubmissionBlock, isGenerationPending } from "../../lib/generationMode";
 import { copyImageToClipboard, downloadImage, imageFilename } from "../../lib/download";
 import { redactText } from "../../lib/redaction";
 import { useLockBodyScroll } from "../../lib/useLockBodyScroll";
@@ -35,6 +37,7 @@ import { useLightbox } from "../Lightbox/LightboxProvider";
 import { useShell } from "../shell/ShellContext";
 import { ThisConversationPanel } from "../shell/ThisConversationPanel";
 import { TopBar } from "../shell/TopBar";
+import { ApiKeyModal } from "../shell/ApiKeyModal";
 import { useToast } from "../Toast/ToastProvider";
 import styles from "./ConversationView.module.css";
 
@@ -51,12 +54,17 @@ const EMPTY_REQUEST: GenerateParams = {
 // 失败原因（error_code 五值枚举）→ 用户友好中文（卡片显示）。原始报错仍留 DB，供后台「生成记录」排查。
 // unknown / 缺 code 时回退原始报错（再回退通用语）。
 const FAILURE_MESSAGES: Record<string, string> = {
-  provider_timeout: "生成超时（服务响应过慢），未扣积分，请重试",
+  provider_timeout: "请求超时，请稍后重试",
   relay_unreachable: "暂时连不上生成服务，请稍后重试",
   insufficient_quota: "生成服务额度暂时不足，请稍后再试或联系站长",
   content_rejected: "提示词未通过内容审核，请调整后重试",
   invalid_request: "生成参数有误（尺寸或格式暂不支持），请调整后重试",
   relay_5xx: "生成服务繁忙，请稍后重试",
+  custom_key_invalid: "自定义 Key 无效，请检查后重试",
+  custom_key_quota: "自定义 Key 额度不足，请检查服务商账户",
+  relay_rate_limited: "生成请求过于频繁，请稍后重试",
+  invalid_response: "生成服务返回异常，请重试",
+  storage_failed: "图片保存失败，请重试",
 };
 // #5：用户卡片只显友好中文，绝不直显中转英文原文（原文仍可经「查看原始响应」/后台生成记录排查）。
 function failureMessage(code: string | null | undefined, _raw?: string | null): string {
@@ -68,12 +76,16 @@ function rawResponseOf(turn: Turn): string {
     turn.status === "failed"
       ? {
           status: "failed",
+          credentialMode: turn.credentialMode,
+          deadlineAt: turn.deadlineAt,
           errorCode: turn.errorCode,
           error: turn.error,
           httpStatus: turn.httpStatus,
         }
       : {
           status: turn.status,
+          credentialMode: turn.credentialMode,
+          deadlineAt: turn.deadlineAt,
           model: "gpt-image-2",
           size: turn.size,
           image: turn.image ? { width: turn.image.width, height: turn.image.height } : null,
@@ -98,6 +110,7 @@ export function ConversationView({
   const shell = useShell();
   const location = useLocation();
   const navigate = useNavigate();
+  const navigation = useNavigation();
   const isDesktop = useMediaQuery("(min-width: 1024px)");
 
   const [request, setRequest] = useState<GenerateParams>(EMPTY_REQUEST);
@@ -105,13 +118,12 @@ export function ConversationView({
   const [panelOpen, setPanelOpen] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [rawTurn, setRawTurn] = useState<Turn | null>(null);
+  const [keySettingsOpen, setKeySettingsOpen] = useState(false);
+  const [displayNow, setDisplayNow] = useState(() => Date.now());
+  const [missingTombstones, setMissingTombstones] = useState<Set<string>>(() => new Set());
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const flowRef = useRef<HTMLDivElement>(null);
-
-  const { submit, isSubmitting } = useGeneration(conversationId, {
-    onError: (e) => toast.error(e.message),
-  });
 
   const conv = detail.data;
   const turns = conv?.generations ?? [];
@@ -120,47 +132,120 @@ export function ConversationView({
   // 单图价取 /api/me 实时值（后台改价即时生效）；无数据时回退常量兜底首帧。
   const priceMp = me.data?.pricePerImageMp ?? PRICE_PER_IMAGE_MP;
   const canAfford = balanceMp >= priceMp;
+  const customEnabled = me.data?.customKeyModesEnabled === true;
+  const userApiConfig = useUserApiConfig(me.data?.user.id);
+
+  const { submit, isSubmitting } = useGeneration(conversationId, {
+    onError: (error) => {
+      if (error.code === "CUSTOM_KEY_REQUIRED" || error.code === "CUSTOM_KEY_MODES_DISABLED") {
+        setKeySettingsOpen(true);
+      }
+      toast.error(error.message);
+    },
+  });
+  const activeEnqueueIds = useActiveGenerationEnqueueIds();
+  const activeEnqueueSignature = activeEnqueueIds.join("|");
+  const activeEnqueueIdSet = new Set(activeEnqueueIds);
 
   const lastTurn = turns[turns.length - 1];
 
-  // 轮询由「会话详情里的进行中轮」驱动（跨 "/"→"/c/:id" 路由切换不丢；DB 为真相源）。
-  const TIMEOUT_MS = 5 * 60_000 + 10_000;
-  const pendingTurn = turns.find(
-    (t) => t.status === "queued" || t.status === "claimed" || t.status === "running",
+  const pendingTurns = turns.filter(
+    (turn) => isGenerationPending(turn) && !missingTombstones.has(turn.id),
   );
-  const pendingId = pendingTurn?.id ?? null;
-  const [, forceTick] = useState(0);
-  const genStatus = useGenerationStatus(pendingId);
-  const statusVal = genStatus.data?.status;
-  const isTerminal = statusVal === "succeeded" || statusVal === "failed";
-  const timedOut = pendingTurn ? Date.now() - Date.parse(pendingTurn.createdAt) > TIMEOUT_MS : false;
-  const isGenerating = isSubmitting || (pendingId !== null && !isTerminal && !timedOut);
+  const pendingIds = pendingTurns.map((turn) => turn.id);
+  const pendingSignature = pendingIds.join("|");
+  const generationStatuses = useGenerationStatuses(pendingIds);
+  const submissionBlock = generationSubmissionBlock({
+    config: userApiConfig.config,
+    ready: userApiConfig.ready,
+    customEnabled,
+    isSubmitting: isSubmitting || activeEnqueueIds.length > 0,
+    isNavigating: navigation.state !== "idle",
+    canAfford,
+    turns: turns.filter((turn) => !missingTombstones.has(turn.id)),
+  });
+  const controlsDisabled =
+    submissionBlock === "not_ready" ||
+    submissionBlock === "submitting" ||
+    submissionBlock === "custom_disabled" ||
+    submissionBlock === "system_pending";
 
   // 终态：刷新会话详情(DB 已落 succeeded/failed) + 余额/资产(成功才扣)。
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  const terminalItems = generationStatuses.data?.items.filter(
+    (item) => item.status === "succeeded" || item.status === "failed",
+  ) ?? [];
+  const terminalSignature = terminalItems
+    .map((item) => `${item.generationId}:${item.status}`)
+    .sort()
+    .join("|");
+
   useEffect(() => {
-    if (statusVal !== "succeeded" && statusVal !== "failed") return;
-    if (conv) qc.invalidateQueries({ queryKey: ["conversation", conv.id] });
-    if (statusVal === "succeeded") {
-      qc.invalidateQueries({ queryKey: ["me", "balance"] });
+    if (!terminalSignature || !conv?.id) return;
+    qc.invalidateQueries({ queryKey: ["conversation", conv.id] });
+    const latestTerminalItems = generationStatuses.data?.items.filter(
+      (item) => item.status === "succeeded" || item.status === "failed",
+    ) ?? [];
+    if (latestTerminalItems.some((item) => item.status === "succeeded")) {
       qc.invalidateQueries({ queryKey: ["assets"] });
     }
-  }, [statusVal]);
+    if (
+      latestTerminalItems.some(
+        (item) => item.status === "succeeded" && item.credentialMode === "system",
+      )
+    ) {
+      qc.invalidateQueries({ queryKey: ["me", "balance"] });
+    }
+  }, [conv?.id, generationStatuses.data?.items, qc, terminalSignature]);
 
-  // 前端 5min 兜底：满则强制重渲染释放 UI + 拉一次最新（权威终态在服务端 cron，§5.5）。
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const missingRefetched = useRef(new Set<string>());
+  const missingCounts = useRef(new Map<string, number>());
   useEffect(() => {
-    if (!pendingId || !pendingTurn) return;
-    const remaining = TIMEOUT_MS - (Date.now() - Date.parse(pendingTurn.createdAt));
-    const t = setTimeout(
-      () => {
-        forceTick((n) => n + 1);
-        if (conv) qc.invalidateQueries({ queryKey: ["conversation", conv.id] });
-      },
-      Math.max(0, remaining),
-    );
-    return () => clearTimeout(t);
-  }, [pendingId]);
+    const missing = new Set(generationStatuses.data?.missingIds ?? []);
+    for (const id of pendingIds) {
+      if (activeEnqueueIdSet.has(id)) {
+        missingCounts.current.delete(id);
+        missingRefetched.current.delete(id);
+        continue;
+      }
+      if (!missing.has(id)) {
+        missingCounts.current.delete(id);
+        missingRefetched.current.delete(id);
+        continue;
+      }
+      const count = (missingCounts.current.get(id) ?? 0) + 1;
+      missingCounts.current.set(id, count);
+      if (count >= 2 && !missingRefetched.current.has(id) && conv) {
+        missingRefetched.current.add(id);
+        const conversationId = conv.id;
+        void apiGet(`/api/conversations/${conversationId}`, ConversationDetail)
+          .then((authoritative) => {
+            const serverTurn = authoritative.generations.find((turn) => turn.id === id);
+            if (serverTurn) {
+              missingCounts.current.delete(id);
+              missingRefetched.current.delete(id);
+              qc.setQueryData(["conversation", conversationId], authoritative);
+              return;
+            }
+            setMissingTombstones((current) => {
+              if (current.has(id)) return current;
+              const next = new Set(current);
+              next.add(id);
+              return next;
+            });
+          })
+          .catch(() => {
+            missingRefetched.current.delete(id);
+          });
+      }
+    }
+  }, [activeEnqueueSignature, conv?.id, generationStatuses.dataUpdatedAt, pendingSignature, qc]);
+
+  useEffect(() => {
+    if (pendingTurns.length === 0) return;
+    const timer = window.setInterval(() => setDisplayNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [pendingTurns.length]);
 
   // ⚡ 乐观更新：点「存入资产库」立即把按钮置灰（image.savedToLibrary=true），不等跨境往返。
   // 乐观态与服务端成功态一致（都置 true），故详情无需再 invalidate 重拉；仅刷新资产库列表纳入新图。失败回滚。
@@ -208,6 +293,15 @@ export function ConversationView({
     bringBackPrompt(bring);
   }, [location.key]);
 
+  useEffect(() => {
+    const openKeySettings = (
+      location.state as { openKeySettings?: boolean } | null
+    )?.openKeySettings;
+    if (!openKeySettings) return;
+    setKeySettingsOpen(true);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.key, location.pathname, location.state, navigate]);
+
   // 原始响应弹窗：打开时锁背景滚动 + ESC 关闭
   useLockBodyScroll(rawTurn !== null);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -227,11 +321,26 @@ export function ConversationView({
 
   const runGeneration = (req: GenerateParams, file: File | null = null, onAccepted?: () => void) => {
     if (!req.prompt.trim()) return;
-    if (balanceMp < priceMp) {
-      toast.error("积分不足，去充值");
-      return;
+    switch (submissionBlock) {
+      case "not_ready":
+      case "submitting":
+        return;
+      case "custom_disabled":
+        setKeySettingsOpen(true);
+        toast.error("自定义 Key 暂停使用，请切换系统 Key 或稍后重试");
+        return;
+      case "custom_key_missing":
+        setKeySettingsOpen(true);
+        toast.error("请先填写并保存自定义 Key");
+        return;
+      case "system_pending":
+        toast.info("系统 Key 任务生成中，请稍候");
+        return;
+      case "insufficient_credits":
+        toast.error("积分不足，去充值");
+        return;
     }
-    submit(req, file, onAccepted);
+    submit(req, userApiConfig.config, file, onAccepted);
   };
 
   // ④b：参考图选取——父级权威校验类型/大小（与后端 contracts/upload 同值），不合法 toast 不入选。
@@ -260,7 +369,7 @@ export function ConversationView({
   };
 
   const bringBackPrompt = (prompt: string) => {
-    if (isGenerating) {
+    if (submissionBlock === "system_pending" || submissionBlock === "submitting") {
       toast.info("生成中，请稍候");
       return;
     }
@@ -271,10 +380,6 @@ export function ConversationView({
 
   // #7：重试 / 重新生成直接带原参发起，不回填输入框、不需用户再点「生成」。
   const regenerate = (turn: Turn) => {
-    if (isGenerating) {
-      toast.info("生成中，请稍候");
-      return;
-    }
     runGeneration({
       prompt: turn.prompt,
       size: turn.size as Size,
@@ -308,9 +413,11 @@ export function ConversationView({
       request={request}
       onChange={setRequest}
       onSubmit={onSubmit}
-      disabled={isGenerating}
+      disabled={controlsDisabled}
       canAfford={canAfford}
       balanceMp={balanceMp}
+      credentialMode={userApiConfig.config.mode}
+      customEnabled={customEnabled}
       pricePerImageMp={priceMp}
       variant={turns.length === 0 ? "full" : "compact"}
       textareaRef={textareaRef}
@@ -318,12 +425,20 @@ export function ConversationView({
       onPickInputImage={onPickInputImage}
     />
   );
+  const keyModal =
+    keySettingsOpen && me.data?.user.id ? (
+      <ApiKeyModal
+        userId={me.data.user.id}
+        customEnabled={customEnabled}
+        onClose={() => setKeySettingsOpen(false)}
+      />
+    ) : null;
 
   // —— 欢迎态（无轮次）——
   if (turns.length === 0) {
     return (
       <>
-        <TopBar onOpenMenu={shell.openMenu} />
+        <TopBar onOpenMenu={shell.openMenu} onOpenKeySettings={() => setKeySettingsOpen(true)} />
         <div className={styles.welcomeBody}>
           <div className={styles.welcomeInner}>
             <div className={styles.hero}>
@@ -338,6 +453,7 @@ export function ConversationView({
           </div>
         </div>
         {rawModal()}
+        {keyModal}
       </>
     );
   }
@@ -352,6 +468,7 @@ export function ConversationView({
         panelOpen={isDesktop ? panelOpen : drawerOpen}
         onTogglePanel={() => (isDesktop ? setPanelOpen((o) => !o) : setDrawerOpen((o) => !o))}
         onOpenMenu={shell.openMenu}
+        onOpenKeySettings={() => setKeySettingsOpen(true)}
       />
       <div className={styles.workRow}>
         <div className={styles.flowCol}>
@@ -381,11 +498,59 @@ export function ConversationView({
         <ThisConversationPanel turns={turns} mode="drawer" onClose={() => setDrawerOpen(false)} />
       ) : null}
       {rawModal()}
+      {keyModal}
     </>
   );
 
   function renderResult(turn: Turn) {
+    if (missingTombstones.has(turn.id)) {
+      return (
+        <div className={styles.errorCard}>
+          <div className={styles.errorHead}>
+            <AlertTriangle size={16} />
+            任务不存在或无权访问
+          </div>
+          <button
+            type="button"
+            className={styles.retryBtn}
+            onClick={() => {
+              missingCounts.current.delete(turn.id);
+              missingRefetched.current.delete(turn.id);
+              setMissingTombstones((current) => {
+                const next = new Set(current);
+                next.delete(turn.id);
+                return next;
+              });
+            }}
+          >
+            <RefreshCw size={14} />
+            重新检查
+          </button>
+        </div>
+      );
+    }
     if (turn.status === "running" || turn.status === "queued" || turn.status === "claimed") {
+      if (displayNow > Date.parse(turn.deadlineAt) + 10_000) {
+        return (
+          <div className={styles.errorCard}>
+            <div className={styles.errorHead}>
+              <AlertTriangle size={16} />
+              状态确认中，请重试刷新
+            </div>
+            <button
+              type="button"
+              className={styles.retryBtn}
+              onClick={() => {
+                generationStatuses.refetch();
+                detail.refetch();
+              }}
+            >
+              <RefreshCw size={14} />
+              刷新状态
+            </button>
+          </div>
+        );
+      }
       return (
         <div className={styles.resultMedia}>
           <CosmicSkeleton size={turn.size as Size} startedAt={Date.parse(turn.createdAt)} />
@@ -399,7 +564,11 @@ export function ConversationView({
             <AlertTriangle size={16} />
             {failureMessage(turn.errorCode, turn.error)}
           </div>
-          <p className={styles.errorNote}>本次未扣 / 已退积分。</p>
+          <p className={styles.errorNote}>
+            {turn.credentialMode === "custom"
+              ? "本站未扣积分；第三方计费以服务商规则为准。"
+              : "本次未扣 / 已退积分。"}
+          </p>
           <button type="button" className={styles.retryBtn} onClick={() => regenerate(turn)}>
             <RefreshCw size={14} />
             重试

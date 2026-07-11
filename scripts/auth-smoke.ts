@@ -1,5 +1,5 @@
 // ② 鉴权接真冒烟：better-auth 表/uuid 列 + 注册原子发放 140mp + 幂等。
-// 跑：node --env-file=.env --import tsx scripts/auth-smoke.ts
+// 跑：node --import tsx scripts/test-env-guard.ts scripts/auth-smoke.ts
 import { auth } from "../src/lib/auth";
 import { getSql } from "../src/db/db.server";
 import { grantSignup } from "../src/server/money/grant.server";
