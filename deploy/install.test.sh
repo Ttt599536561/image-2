@@ -258,21 +258,33 @@ if [[ -e "$FAKE_STATE/state-write-fails" && "$*" == *'install.state.tmp.'* ]]; t
   printf '%s\n' "$path"
   exit 0
 fi
-exec /usr/bin/mktemp "$@"
+for real_command in /usr/bin/mktemp /bin/mktemp; do
+  if [[ -x "$real_command" ]]; then exec "$real_command" "$@"; fi
+done
+printf 'real mktemp executable not found\n' >&2
+exit 127
 FAKE_MKTEMP
 
   cat >"$CASE_ROOT/fake-bin/chmod" <<'FAKE_CHMOD'
 #!/usr/bin/env bash
 set -euo pipefail
 if [[ -e "$FAKE_STATE/state-chmod-fails" && "$*" == *'install.state.tmp.'* ]]; then exit 74; fi
-exec /usr/bin/chmod "$@"
+for real_command in /usr/bin/chmod /bin/chmod; do
+  if [[ -x "$real_command" ]]; then exec "$real_command" "$@"; fi
+done
+printf 'real chmod executable not found\n' >&2
+exit 127
 FAKE_CHMOD
 
   cat >"$CASE_ROOT/fake-bin/mv" <<'FAKE_MV'
 #!/usr/bin/env bash
 set -euo pipefail
 if [[ -e "$FAKE_STATE/state-mv-fails" && "$*" == *'install.state'* ]]; then exit 75; fi
-exec /usr/bin/mv "$@"
+for real_command in /usr/bin/mv /bin/mv; do
+  if [[ -x "$real_command" ]]; then exec "$real_command" "$@"; fi
+done
+printf 'real mv executable not found\n' >&2
+exit 127
 FAKE_MV
 
   chmod 0700 "$CASE_ROOT/fake-bin/"*
