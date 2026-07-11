@@ -42,20 +42,30 @@ export interface SqlClient {
   (strings: TemplateStringsArray, ...values: any[]): Promise<any[]>;
 }
 
-function usesDisposableLocalPostgres(): boolean {
-  return process.env.DISPOSABLE_TEST_DB_DRIVER === "pg";
+export function usesPgDriver(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.DATABASE_DRIVER === "pg" || env.DISPOSABLE_TEST_DB_DRIVER === "pg";
 }
 
-let localReadPool: PgPool | undefined;
-let transactionPool: DbPool | undefined;
+let pgReadPool: PgPool | undefined;
+let pgTransactionPool: PgPool | undefined;
+let neonTransactionPool: DbPool | undefined;
 
-function getLocalReadPool(): PgPool {
-  localReadPool ??= new PgPool({
+function getPgReadPool(): PgPool {
+  pgReadPool ??= new PgPool({
     connectionString: requireEnv("DATABASE_URL"),
     allowExitOnIdle: true,
     max: 4,
   });
-  return localReadPool;
+  return pgReadPool;
+}
+
+function getPgTransactionPool(): PgPool {
+  pgTransactionPool ??= new PgPool({
+    connectionString: requireEnv("DATABASE_URL_UNPOOLED"),
+    allowExitOnIdle: true,
+    max: 4,
+  });
+  return pgTransactionPool;
 }
 
 /**
@@ -64,21 +74,22 @@ function getLocalReadPool(): PgPool {
  * Docker 进程复用连接池，进程关闭时统一 end()；事务编排见 tx.server.ts。
  */
 export function getPool(): DbPool {
-  if (usesDisposableLocalPostgres()) {
-    return new PgPool({
-      connectionString: requireEnv("DATABASE_URL_UNPOOLED"),
-      allowExitOnIdle: true,
-      max: 4,
-    }) as unknown as DbPool;
+  if (usesPgDriver()) {
+    return getPgTransactionPool() as unknown as DbPool;
   }
-  transactionPool ??= new Pool({ connectionString: requireEnv("DATABASE_URL_UNPOOLED") }) as unknown as DbPool;
-  return transactionPool;
+  neonTransactionPool ??= new Pool({
+    connectionString: requireEnv("DATABASE_URL_UNPOOLED"),
+  }) as unknown as DbPool;
+  return neonTransactionPool;
 }
 
 export async function closeDbPools(): Promise<void> {
-  const pools = [transactionPool, localReadPool].filter(Boolean) as Array<{ end(): Promise<void> }>;
-  transactionPool = undefined;
-  localReadPool = undefined;
+  const pools = [neonTransactionPool, pgTransactionPool, pgReadPool].filter(Boolean) as Array<{
+    end(): Promise<void>;
+  }>;
+  neonTransactionPool = undefined;
+  pgTransactionPool = undefined;
+  pgReadPool = undefined;
   await Promise.all(pools.map((pool) => pool.end()));
 }
 
@@ -88,8 +99,8 @@ export async function closeDbPools(): Promise<void> {
  * 不支持 FOR UPDATE / 跨语句事务。
  */
 export function getSql(): SqlClient {
-  if (usesDisposableLocalPostgres()) {
-    const pool = getLocalReadPool();
+  if (usesPgDriver()) {
+    const pool = getPgReadPool();
     return (async (strings: TemplateStringsArray, ...values: any[]) => {
       let queryText = strings[0] ?? "";
       for (let index = 0; index < values.length; index += 1) {
