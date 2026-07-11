@@ -10,12 +10,12 @@
 - **部署方式**：Netlify CLI（**非** Git 连接）—— 本地 `netlify deploy --prod` 直传构建产物 + 函数。
 - **验证**：`/login` 200（SSR）· 真实管理员 `POST /api/auth/sign-in/email` 200+Set-Cookie（= SSR+Better Auth+Neon+env+Cookie 全链路）· `/api/me`(未登录) 401。
 
-### 0.1 2026-07-11 待部署功能说明
+### 0.1 2026-07-11 本地实现 / 生产待部署
 
-系统/自定义 Key、多任务和统一五分钟 deadline **只有需求与实施计划，当前生产尚未支持**。在代码、`0005` 迁移、测试和本节部署闸全部完成前：
+系统/自定义 Key、多任务和统一五分钟 deadline 已在分支 `codex/user-api-key-modes` 本地实现并通过完整验证；当前生产仍是 system-only，生产 commit/deploy 未改变。部署前必须完成本节第 6 节的迁移、暗部署、受控 smoke、启用和回滚演练。
 
-- 不要给生产设置 `CUSTOM_KEY_JOB_ENCRYPTION_KEY` 后就宣称功能可用；当前代码不会读取它。
-- 不要单独部署前端 Key 弹窗或只部署 migration。前端、统一 API、凭据加密、Background 分流、零扣费事务、状态收口必须作为一套兼容发布。
+- 不要只设置 `CUSTOM_KEY_JOB_ENCRYPTION_KEY` 或只部署前端 Key 弹窗；前端、统一 API、凭据加密、Background 分流、零扣费事务、状态收口必须作为一套兼容发布。
+- 本地验证不等于生产可用；生产启用前必须确认 `0005`、主密钥、kill switch、数据库时钟 deadline、终态清理和脱敏检查。
 - 当前 system relay 后台配置和 `RELAY_*` env 保持原样；custom 固定 URL 不新增后台参数。
 
 ## 1. 前置（一次性）

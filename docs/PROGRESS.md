@@ -1,25 +1,31 @@
 # 进度与交接（PROGRESS.md）
 
 > 每次有实质进展就更新这里。新会话 / 中断恢复：先读 [CLAUDE.md](../CLAUDE.md) 当前快照 → 本文件顶部仓库/生产状态 → 当前 [PRD](../tasks/prd-user-api-key-modes.md) → [实施计划](superpowers/plans/2026-07-11-user-api-key-modes.md) → 涉及的技术章节。
-> 最近更新：2026-07-11（完成上次窗口 PRD/计划/记忆文档全面审查并修订；仍只有文档，Key 功能尚未实施）。
+> 最近更新：2026-07-11（本地完成 Key 模式、多任务与统一 deadline；生产未部署）。
 
 ## 🆕 当前主线 / 新会话接手（2026-07-11）
 
-**Key 功能状态：需求已批准并完成文档复审，业务代码、`0005` 迁移和生产环境变量尚未实现，生产仍是 system-only。** 不要把文档勾选误判为代码完成或已上线。
+**Key 功能状态：本地代码已完成并验证，生产仍是 system-only，尚未部署。** 本地实现证据以 Git 提交和新鲜测试输出为准；生产状态只以真实 deploy/production smoke 为准。
 
 ### 仓库与生产快照
 
-- 审查起点：当前分支 `deploy-6a3aa2b@34969f5`；`main` / `origin/main`=`0b4d442`，merge-base=`42d8a0b`，双方各有 2 个独有提交。
-- 当前分支独有 Key PRD/计划；`main` 独有 UGC 上线状态和 10 章设计同步。当前未提交工作树已整合两边文档事实，但 Git 分支/提交仍未合并；在形成单一功能分支前不得开始 Task 1。
+- 当前实现分支：`codex/user-api-key-modes`，本地功能提交 `0d48d90`；实现起点为 `34969f59e2ef07909009bd163dc4dbe64d5fb5b0`。
+- 当前分支已包含 UGC 上线事实与 Key 模式实现；微任务账本保留为历史审计，不再驱动本地实现顺序。
 - 当前生产：代码 `42d8a0b`，Netlify deploy `6a3aa2bd`，已包含灵感库用户投稿与审核 UGC；Key 功能未上线。
-- 完成状态的事实证据依次为 Git/迁移记录/新鲜测试输出/Netlify production deploy；PROGRESS 是人工台账，不覆盖这些证据。
+- 完成状态的事实证据依次为 Git/迁移记录/新鲜测试输出/Netlify production deploy；本地完成不覆盖生产 deploy 证据。
 
-### 实施前阻塞
+### 本地实现与验证记录
+
+- 功能范围：system/custom 统一生成端点、user-scoped Key 设置、generation-scoped AES-GCM 凭据、custom 零扣费与连续任务、批量状态、5 分钟 deadline、缺失/暂停/失败 UI、管理员记录与受审计回滚脚本。
+- 验证：`npm run test:run` 177/177；`npm run test:money` 73/73；`npm run typecheck`；`npm run build`；`npm run assert-no-secrets`；`npm run test:e2e` 6 passed / 1 skipped；`git diff --check`。
+- 浏览器验收使用受 guard 保护的 disposable 测试环境；本地地址为 `http://localhost:8888`。未连接生产数据库、未执行生产 smoke、未部署或启用生产 custom 开关。
+
+### 生产发布阻塞
 
 - **P0 安全**：跟踪文档曾误含真实管理员凭据，当前文本已脱敏；仍须轮换管理员密码并吊销现有会话。若仓库会共享，再单独决定是否清理 Git 历史。
-- **P0 分支**：把 `d8e71df` / `0b4d442` 与本轮修订后的 PRD/计划合入同一 `codex/*` 功能分支，解决冲突并重新核对路径锚点。
-- **P0 数据隔离**：money/migration/smoke/E2E 必须使用独立 Neon 测试分支；统一 test-env guard 在连接前拒绝缺确认、缺 URL 或与本地生产候选同指纹的配置；E2E `.env.test` 另需测试 Auth/主密钥与显式 custom=true。
-- Playwright 运行器当前不是直接 devDependency；实施计划必须先补依赖并验证 Chromium，再把 E2E 当门禁。
+- **P0 生产迁移**：生产维护窗口应用 `0005`，确认 deadline 回填、system 存量和凭据表为空；本地 disposable 数据库验证已完成。
+- **P0 发布闸**：设置主密钥并保持 kill switch 关闭暗部署，完成 system 回归、custom 503/零写入、受控 production smoke 和脱敏审计后，才启用 custom。
+- 本地数据隔离与浏览器门禁已完成：统一 test-env guard、直接 Playwright runner、Chromium 和 6 条 Key 模式 E2E 均已验证。
 
 ### 已批准契约摘要
 
@@ -31,7 +37,7 @@
 - “不扣积分”不代表第三方免费；用户自定义 Key 是否计费以第三方服务商规则为准。
 - system/custom 实际 Key 都必须在 relay 边界先脱敏，不得进入普通 generation 字段、日志、事件、审计、Sentry 或用户/admin 响应。
 - custom server-side kill switch 缺省关闭；关闭时 503/零写入、UI 不静默改走 system，已打开页面收到 503 后立即进入暂停态。生产回滚必须先关入口，再用受审计脚本收口在途任务和清凭据；清零前不得删除/轮换主密钥。
-- 本轮只改文档，未重跑业务测试；实施完成后必须以计划的完整命令建立新基线。
+- 本地实现与完整验证已完成；生产状态仍以真实迁移、deploy 和 production smoke 为准。
 
 ## 里程碑总览
 > 图例：✅ 完成 · 🚧 进行中 · ⬜ 未开始。**这是状态的一眼速查；每做完一项当场翻状态 + 同步下方「当前状态」段。**
@@ -51,7 +57,7 @@
 | 11 | 🌐 生产上线（Netlify） | ✅ **已上线** → https://ai-image-workshop-612.netlify.app（runbook [dev/deploy.md](dev/deploy.md)）|
 | 12 | 生产优化波（2026-06-23） | ✅ **已上线 `5bd9ac8`**：单价用户端实时化 + 点击慢半拍提速 + 出图触发可靠性 + 后台换中转站 + 生成提交乐观立即跳转（详见下方「🆕 生产优化波」）|
 | 13 | 灵感库用户投稿与审核（UGC §13.1） | ✅ **已上线**：生产代码 `42d8a0b` / deploy `6a3aa2bd`；仅剩站长生产浏览器逐态验收 |
-| 14 | 系统/自定义 Key + 多任务生成 + 统一 5 分钟 deadline | ⬜ **文档复审完成、待满足前置后实施**（[PRD](../tasks/prd-user-api-key-modes.md) / [计划](superpowers/plans/2026-07-11-user-api-key-modes.md)） |
+| 14 | 系统/自定义 Key + 多任务生成 + 统一 5 分钟 deadline | 🚧 **本地完成、待生产部署**（提交 `0d48d90`；[PRD](../tasks/prd-user-api-key-modes.md) / [计划](superpowers/plans/2026-07-11-user-api-key-modes.md)） |
 
 ## 生产优化波（2026-06-23 · 历史优化基线；当前生产 = `42d8a0b`）
 > 本节记录当前功能实施前的生产代码与测试历史，仅供回归定位。新会话当前态与施工入口只看本文顶部“当前主线 / 新会话接手”。

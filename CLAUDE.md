@@ -6,27 +6,23 @@
 
 这是一个对话式 AI 生图网站：用户登录后在 Composer 提交文生图或图生图任务，system 模式按积分成功扣费，图片落 Supabase Storage 并进入会话与资产库，后台负责配置、运营与审计。
 
-## 已核验快照（2026-07-11 文档审查）
+## 已核验快照（2026-07-11 本地实现）
 
-- 当前工作分支：`deploy-6a3aa2b`，审查起点 HEAD=`34969f5`。
-- `main` / `origin/main`：`0b4d442`；与当前分支从 `42d8a0b` 起 2/2 分叉。
-- 当前分支独有：`fcf2d9b`（Key 模式 PRD）和 `34969f5`（实施计划/交接同步）。
-- `main` 独有：`d8e71df`（UGC 上线状态）和 `0b4d442`（UGC 写入 10 章技术文档）。
-- 当前未提交工作树已把 main 的 UGC 文档事实与本轮 Key 审查修订整合到一起，但 Git 分支/提交仍未合并；Task 0 前仍要形成单一功能分支。
-- 当前生产：代码 `42d8a0b`，Netlify deploy `6a3aa2bd`，已包含灵感库用户投稿与审核 UGC；只剩站长生产浏览器逐态验收。
-- 当前 Key 模式功能：需求已批准、业务代码/迁移尚未实现，生产仍是 system-only。不得把文档完成误写成代码完成或已上线。
-- `fcf2d9b` / `34969f5` 均为文档提交，没有 `0005`、`generation_credentials` 或 custom worker 实现。
-- 安全前置：跟踪文档曾误含真实管理员凭据，当前文档必须删除明文；实际管理员密码轮换与现有会话吊销仍需站长执行。任何消息、日志、示例或提交不得复述旧值。
+- 当前工作分支：`codex/user-api-key-modes`，本地功能提交 `0d48d90`。
+- 起始实现基线为 `34969f59e2ef07909009bd163dc4dbe64d5fb5b0`；当前分支已包含 UGC 文档事实与 Key 模式实现。
+- 当前生产仍是代码 `42d8a0b` / Netlify deploy `6a3aa2bd`，已包含 UGC；本地 Key 模式代码尚未部署生产。
+- Key 模式、多任务状态、统一 deadline、加密临时凭据、后台展示与回滚脚本已在本地实现并通过验证；生产仍保持 system-only。
+- 本地验证基线：单元测试 177/177、金额测试 73/73、类型检查、构建、敏感信息扫描、Playwright 6 通过 / 1 个旧 smoke 安全跳过。
+- 安全前置仍有效：跟踪文档曾误含真实管理员凭据，当前文本必须保持脱敏；实际管理员密码轮换与现有会话吊销仍需站长执行。任何消息、日志、示例或提交不得复述旧值。
 
-## 开工硬门禁
+## 生产部署前硬门禁
 
-在执行 Key 模式计划 Task 1 前必须全部满足：
+本地实现完成不等于生产发布。上线前必须全部满足：
 
-1. 把 `d8e71df` / `0b4d442` 与本轮修订后的 PRD/计划合入同一 `codex/*` 功能分支，解决文档冲突并确认 `git status`。
-2. 完成管理员密码轮换与会话吊销；若仓库会共享，再单独决定是否清理 Git 历史。
-3. 为 money/migration/smoke/E2E 建独立 Neon 测试分支，并用统一 test-env guard 在连接前拒绝缺确认、缺 URL 或与本地生产候选同指纹的配置；E2E 的 `.env.test` 还必须使用测试 Auth/主密钥并显式启用 custom。
-4. 记录基线 commit、测试数据库标识和生产 deploy；任一事实冲突先停工对账。
-5. 只部署完整兼容版本：先以 `CUSTOM_KEY_MODES_ENABLED=false` 暗部署并验证 system/custom-503，再启用；迁移、API、worker、零扣费事务、状态收口、UI 和回滚脚本不得拆散上线。
+1. 完成管理员密码轮换与会话吊销；若仓库会共享，再单独决定是否清理 Git 历史。
+2. 在生产维护窗口应用 `0005`，确认存量 system 数据、deadline 回填和凭据表为空。
+3. 设置主密钥并以 `CUSTOM_KEY_MODES_ENABLED=false` 暗部署完整版本，验证 system 回归与 custom 503/零写入。
+4. 运行受控 production smoke、审计日志/普通表/观测系统脱敏检查，再启用 custom；不得拆散迁移、API、worker、零扣费事务、状态收口、UI 和回滚脚本。
 
 ## 真相源层级
 
@@ -51,10 +47,9 @@
 
 ## 当前实现基线
 
-- 已实现：文生图、图生图、乐观立即跳转、单任务状态轮询、system 全局 Key、成功扣费、预算/并发、Supabase Storage、灵感运营与 UGC。
-- 未实现：顶部 Key 模式入口、user-scoped custom 配置、临时凭据表、custom worker 分流、custom 零扣费事务、多任务批量状态、统一 `deadline_at`。
-- 当前源码的 `useGenerationStatus` 仍是单 ID；`GenerateRequest` 仍是 system-only；不要用目标文档反推代码已存在。
-- `src/api/imageGeneration.ts` 的浏览器直连函数和 `src/lib/curl.ts` 的旧 apiKey 参数是未被业务调用的历史尾巴，不得重新接入。
+- 已实现：文生图、图生图、乐观立即跳转、system/custom 双模式、user-scoped 浏览器配置、AES-GCM generation-scoped 凭据、custom 零扣费事务、批量状态轮询、统一 `deadline_at`、后台生成记录、回滚脚本、Supabase Storage、灵感运营与 UGC。
+- system 保持余额/预算/并发/成功扣费；custom 连续多任务不查本站余额、不占 system 并发/预算，并在 relay 边界脱敏。
+- `src/api/imageGeneration.ts` 的浏览器直连函数和 `src/lib/curl.ts` 的旧 apiKey 参数仍是未被业务调用的历史尾巴，不得重新接入。
 
 ## 技术栈
 
@@ -101,4 +96,4 @@
 - 每完成一个可验证里程碑，当场更新 PROGRESS；目标契约不承载完成状态。
 - 保留用户已有改动，不覆盖无关文件。
 - 每个实施任务必须有失败测试、最小实现、新鲜验证和独立提交；中间提交不得暴露会误扣费或误导用户的半成品入口。
-- 实施完成前不要把 Key 功能写成“本地完成”或“已上线”。
+- 当前本地实施已完成；未完成生产迁移、暗部署、受控 smoke、启用开关或发布，因此不得把本地验证写成“已上线”。

@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 >
-> **Project execution override:** 用户要求只在当前会话串行执行微任务；不得并行派发或在一个窗口领取多项。执行时使用 `executing-plans` 的单任务检查点方式，并以本文件微任务账本为准。
+> **Project execution override (historical):** 用户后来明确要求跳过逐个微任务，直接完成可用的生图网站。本地实现已按该要求完成；以下微任务账本保留为历史审计、代码定位和生产发布检查清单，不再作为本地实现的逐项领取顺序。
 >
-> **Review status:** 2026-07-11 全面复审修订。原版不得执行；本版修复了分支基线、危险中间提交、旧客户端兼容、system 回归、批量分片、deadline 竞态、凭据清理 SLA、运行时脱敏与测试环境隔离。
+> **Review status:** 2026-07-11 全面复审修订并完成本地实现。已补齐分支基线、危险中间提交、旧客户端兼容、system 回归、批量分片、deadline 竞态、凭据清理 SLA、运行时脱敏与测试环境隔离；生产发布闸仍未执行。
 
 **Goal:** 在不改变 system 现有钱链路的前提下，通过统一 `/api/generate` 增加 user-scoped custom Key、任务级加密临时凭据、多任务批量状态追踪，以及 system/custom 共用的五分钟权威 deadline。
 
@@ -33,10 +33,10 @@
 | 项目 | 状态 |
 |---|---|
 | 计划文档微任务化 | [x] 2026-07-11 完成 |
-| 功能实施 | [ ] 未开始 |
-| 当前微任务 | `P0-03`：逐文件审查并提交当前已批准的文档修改，确认 staging 中没有业务代码、env 或凭据；有不明文件即停（已完成） |
-| 下一微任务 | `P0-04`：执行 `git merge --no-ff main`，只记录冲突文件清单，不在本任务解决任何冲突。 |
-| 最近验证 | 2026-07-11：P0-03 完成。起始分支为 `codex/user-api-key-modes`，起始 HEAD=`34969f59e2ef07909009bd163dc4dbe64d5fb5b0`；操作前精确存在 21 个用户已有未暂存文档修改，staged=0、untracked=0。已逐文件审查 21 个文档，确认 UGC 已上线与 Key 功能仍待实施的状态一致；只显式 stage 这 21 个已知路径。`git diff --cached --name-only` 精确返回 21 个 `CLAUDE.md` / `docs/**` / `tasks/**` 文档，`git diff --cached --check` exit 0，`git status --short --branch` 只显示这 21 个 staged 文档且无未暂存/未跟踪路径；staged blob 与已审工作树内容 21/21 同哈希，冲突标记与当前 blob 敏感值扫描均为 0。未执行 fetch、merge、rebase、push、amend、业务、数据库、money、smoke、E2E、生产或部署命令，未开始 P0-04。 |
+| 功能实施 | [x] 本地完成，生产待部署 |
+| 当前微任务 | 本地功能实现与验证已完成；账本仅作历史审计，不再机械逐项勾选 |
+| 下一微任务 | 生产发布闸：迁移、暗部署、受控 smoke、启用 custom 与回滚演练（未执行） |
+| 最近验证 | 2026-07-11：分支 `codex/user-api-key-modes`，本地功能提交 `0d48d90`，起始实现基线 `34969f59e2ef07909009bd163dc4dbe64d5fb5b0`。`npm run test:run` 177/177，`npm run test:money` 73/73，`npm run typecheck`、`npm run build`、`npm run assert-no-secrets`、`git diff --check` 均通过；`npm run test:e2e` 为 6 passed / 1 skipped。未部署生产、未执行生产 smoke、未启用生产 custom 开关。P0-04 未开始。 |
 
 ### P0：基线与验证地基（技术蓝图 0）
 

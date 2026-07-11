@@ -3,6 +3,13 @@
 > 用浏览器跑通**注册 → 登录 → 生图 → 兑换 → 资产/灵感 → 后台**的验收手册。
 > 代码层各链路已用 smoke 脚本对真 Neon/中转/Supabase 验证过（见末尾「无界面验收」）；本文是**开浏览器人工验收**的步骤。
 
+## 当前本地实现状态（2026-07-11）
+
+- system/custom Key 模式、多任务生成、批量状态轮询、统一 5 分钟 deadline、暂停/缺失/失败 UI 和管理员记录已在本地完成。
+- 受 test-env guard 保护的本地 UI 服务地址：`http://localhost:8888`。Playwright 已覆盖 system 锁定、custom 连续任务、deadline 恢复、missing tombstone、账号隔离/清除和四种视口键设置弹窗。
+- 新鲜结果：177/177 单元、73/73 金额测试、构建、类型检查、敏感信息扫描通过；E2E 6 条通过，旧生产 smoke 1 条安全跳过。
+- 这些结果只证明本地 disposable 环境；未连接生产数据库、未运行生产 smoke、未部署 Netlify，也未启用生产 custom 开关。
+
 ## 0. 为什么用 `netlify dev`（不是 `npm run dev`）
 
 | | `npm run dev`（react-router dev） | **`netlify dev`（推荐）** |
