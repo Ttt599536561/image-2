@@ -62,6 +62,11 @@ release_install_lock() {
 acquire_install_lock() {
   local lock_path="${INSTALL_LOCK_PATH:-/run/lock/ai-image-workshop-install.lock}"
   local lock_dir="${lock_path%/*}"
+  local flock_status=0
+  command -v flock >/dev/null 2>&1 || {
+    die '未找到必需命令：flock'
+    return 1
+  }
   [[ "$lock_dir" != "$lock_path" && -d "$lock_dir" && ! -L "$lock_dir" ]] || {
     die "安装锁目录不存在或不安全：$lock_dir"
     return 1
@@ -76,9 +81,16 @@ acquire_install_lock() {
     die "无法打开安装锁：$lock_path"
     return 1
   }
-  if ! flock -n "$INSTALL_LOCK_FD"; then
+  if flock -n "$INSTALL_LOCK_FD"; then
+    return 0
+  else
+    flock_status=$?
     exec {INSTALL_LOCK_FD}>&-
     INSTALL_LOCK_FD=''
+    if ((flock_status == 127)); then
+      die '未找到必需命令：flock'
+      return 1
+    fi
     die '另一个安装或续装进程正在运行'
     return 1
   fi

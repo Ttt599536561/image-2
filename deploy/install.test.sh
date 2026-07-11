@@ -915,6 +915,26 @@ test_state_write_failures_propagate_inside_conditionals() {
   done
 }
 
+test_missing_flock_dependency_is_not_reported_as_active_lock() {
+  make_fixture missing-flock
+  cat >"$CASE_ROOT/fake-bin/flock" <<'FAKE_FLOCK_MISSING'
+#!/usr/bin/env bash
+exit 127
+FAKE_FLOCK_MISSING
+  chmod 0700 "$CASE_ROOT/fake-bin/flock"
+
+  run_without_input --existing-proxy --public-url https://images.example.com --port 18081
+  local output
+  output="$(<"$RUN_OUTPUT")"
+  [[ "$RUN_STATUS" -ne 0 ]] || fail_assertion 'missing flock must stop installation'
+  assert_contains "$output" 'flock' 'missing flock error should identify the dependency'
+  assert_not_contains "$output" '另一个安装或续装进程正在运行' 'missing flock must not look like lock contention'
+  assert_not_contains "$output" '请输入系统 Relay API Key' 'missing dependency must precede prompts'
+  [[ ! -e "$FAKE_STATE/docker.log" ]] || fail_assertion 'missing dependency must precede Docker preflight'
+  [[ ! -e "$CASE_ROOT/deploy/.env.production" && ! -e "$CASE_ROOT/deploy/install.state" ]] \
+    || fail_assertion 'missing dependency must precede state writes'
+}
+
 run_test 'CLI validation before preflight and prompts' test_cli_validation_stops_before_preflight_and_prompts
 run_test 'platform, disk, Docker, and repository preflight' test_preflight_rejects_platform_disk_and_repo_before_prompts
 run_test 'domain and 80/443 validation before prompts' test_domain_validation_and_ports_stop_before_prompts
@@ -933,6 +953,7 @@ run_test 'unsafe resume files and unknown state rejection' test_resume_rejects_u
 run_test 'exclusive installer lock before prompts and writes' test_concurrent_installer_is_rejected_before_prompts_or_writes
 run_test 'bounded blocking health probes' test_blocking_health_probes_respect_monotonic_deadlines
 run_test 'conditional state write error propagation' test_state_write_failures_propagate_inside_conditionals
+run_test 'missing flock dependency has a distinct error' test_missing_flock_dependency_is_not_reported_as_active_lock
 
 if ((FAIL_COUNT > 0)); then
   printf '%d installer test(s) failed\n' "$FAIL_COUNT" >&2
