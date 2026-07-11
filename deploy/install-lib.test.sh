@@ -651,10 +651,20 @@ test_render_production_env_rejects_directory_target() {
 }
 
 test_render_production_env_rejects_symlink_to_directory() {
-  local real_directory="$TEST_ROOT/render-real-directory"
-  local target_path="$TEST_ROOT/render-directory-link"
+  local case_id="${RANDOM}-${BASHPID}"
+  local real_directory="$TEST_ROOT/render-real-directory-$case_id"
+  local target_path="$TEST_ROOT/render-directory-link-$case_id"
   mkdir "$real_directory"
-  ln -s "$real_directory" "$target_path"
+  local symlink_supported=false
+  if ln -s "$real_directory" "$target_path" 2>/dev/null && [[ -L "$target_path" ]]; then
+    symlink_supported=true
+  fi
+  if [[ "$symlink_supported" != true ]]; then
+    local platform=''
+    platform="$(uname -s 2>/dev/null || true)"
+    [[ "$platform" != 'Linux' ]] || fail_assertion 'Linux symlink regression requires POSIX symlink support'
+    return 0
+  fi
   set_render_fixture_inputs
 
   local render_status=0
@@ -670,6 +680,17 @@ test_render_production_env_rejects_symlink_to_directory() {
   if compgen -G "${target_path}.tmp.*" >/dev/null; then
     fail_assertion 'symlink target rejection must not leave sibling temporary files'
   fi
+}
+
+test_symlink_regression_skips_without_symlink_capability() {
+  ln() {
+    mkdir "$3"
+  }
+  uname() {
+    printf '%s\n' 'MINGW64_NT-10.0-22631'
+  }
+
+  test_render_production_env_rejects_symlink_to_directory
 }
 
 test_render_signal_exits_and_cleans_temp() {
@@ -728,6 +749,7 @@ run_test 'temporary chmod failure preserves target' test_render_production_env_h
 run_test 'mv failure preserves target' test_render_production_env_handles_mv_failure
 run_test 'directory render target rejection' test_render_production_env_rejects_directory_target
 run_test 'symlink render target rejection' test_render_production_env_rejects_symlink_to_directory
+run_test 'symlink regression skips without capability' test_symlink_regression_skips_without_symlink_capability
 run_test 'TERM exits render and cleans temp' test_render_signal_exits_and_cleans_temp
 
 if ((FAIL_COUNT > 0)); then
