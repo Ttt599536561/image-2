@@ -253,10 +253,72 @@ test_load_deploy_env_rejects_unknown_malformed_and_unquoted_code() {
   fi
   [[ ! -e "$marker" ]] || fail_assertion 'rejected dotenv text must not execute'
 
-  printf "RELAY_API_KEY='first'\nRELAY_API_KEY='second'\n" >"$env_file"
+  RELAY_API_KEY='preexisting-relay-value'
+  export RELAY_API_KEY
+  printf 'RELAY_API_KEY="first"\nRELAY_API_KEY="second"\n' >"$env_file"
   if load_deploy_env "$env_file" >/dev/null 2>&1; then
     fail_assertion 'duplicate dotenv keys should be rejected'
   fi
+  assert_equal 'preexisting-relay-value' "$RELAY_API_KEY" 'duplicate keys must not partially mutate existing globals'
+}
+
+set_render_fixture_inputs() {
+  COMPOSE_PROJECT_NAME='ai-image-workshop-test'
+  COMPOSE_PROFILES=''
+  IMAGE_TAG='latest'
+  DOMAIN=''
+  WEB_BIND_ADDRESS='127.0.0.1'
+  WEB_HOST_PORT='18080'
+  POSTGRES_DB='ai_image_workshop'
+  POSTGRES_USER='ai_image_workshop'
+  POSTGRES_PASSWORD='0123456789abcdef0123456789abcdef'
+  BETTER_AUTH_SECRET='auth-secret-test'
+  BETTER_AUTH_URL='https://images.example.com'
+  RELAY_API_KEY='relay-key-test'
+  RELAY_BASE_URL='https://api.tangguo.xin/v1'
+  CUSTOM_KEY_JOB_ENCRYPTION_KEY='encryption-key-test'
+}
+
+test_compose_service_env_file_round_trip() {
+  if ! command -v docker >/dev/null 2>&1 || ! docker compose version >/dev/null 2>&1; then
+    [[ "${DEPLOY_REQUIRE_DOCKER_INTEGRATION:-0}" != '1' ]] || fail_assertion 'Docker Compose integration was required but is unavailable'
+    return 0
+  fi
+
+  local env_file="$TEST_ROOT/compose-service.env"
+  local compose_file="$TEST_ROOT/compose-service.yaml"
+  local marker="$TEST_ROOT/compose-command-was-executed"
+  local expected
+  expected="dollar \$HOME braces \${HOME} command \$(touch $marker) # single ' double \" repeated \\\\ trailing \\"
+
+  set_render_fixture_inputs
+  RELAY_API_KEY="$expected"
+  render_production_env "$env_file"
+
+  printf '%s\n' \
+    'services:' \
+    '  probe:' \
+    '    image: alpine:3.22' \
+    '    env_file:' \
+    "      - $env_file" \
+    '    command: ["sh", "-c", "printf '\''%s'\'' \"$$RELAY_API_KEY\" | base64 | tr -d '\''\\n'\''"]' \
+    >"$compose_file"
+
+  local project_name="install-lib-env-$RANDOM-$$"
+  local actual_base64=''
+  local compose_error="$TEST_ROOT/compose-service.err"
+  if ! actual_base64="$(docker compose -f "$compose_file" -p "$project_name" run --rm --no-deps -T --quiet-pull probe 2>"$compose_error")"; then
+    docker compose -f "$compose_file" -p "$project_name" down --remove-orphans >/dev/null 2>&1 || true
+    fail_assertion 'Compose service env_file probe failed'
+  fi
+  docker compose -f "$compose_file" -p "$project_name" down --remove-orphans >/dev/null 2>&1 || true
+
+  local expected_base64
+  expected_base64="$(printf '%s' "$expected" | base64 | tr -d '\r\n')"
+  actual_base64="${actual_base64//$'\r'/}"
+  actual_base64="${actual_base64//$'\n'/}"
+  assert_equal "$expected_base64" "$actual_base64" 'Compose service env_file must preserve exact application bytes'
+  [[ ! -e "$marker" ]] || fail_assertion 'Compose env parsing must not execute command text'
 }
 
 test_port_detection_and_selection() {
@@ -380,6 +442,32 @@ test_render_production_env_requires_caller_secrets() {
   [[ ! -e "$env_file" ]] || fail_assertion 'failed rendering should not leave a target file'
 }
 
+test_render_production_env_preserves_existing_target_on_write_failure() {
+  local env_file="$TEST_ROOT/existing-production.env"
+  local original='KNOWN_GOOD_PRODUCTION_CONFIG'
+  printf '%s\n' "$original" >"$env_file"
+  chmod 0640 "$env_file"
+  local before_hash before_mode
+  before_hash="$(sha256sum "$env_file" | awk '{print $1}')"
+  before_mode="$(stat -c '%a' "$env_file")"
+
+  set_render_fixture_inputs
+  RELAY_API_KEY=$'invalid\nrelay-key'
+  local render_status=0
+  if render_production_env "$env_file" >/dev/null 2>&1; then
+    render_status=0
+  else
+    render_status=$?
+  fi
+
+  [[ "$render_status" -ne 0 ]] || fail_assertion 'rendering an unquotable value must fail'
+  assert_equal "$before_hash" "$(sha256sum "$env_file" | awk '{print $1}')" 'failed rendering must preserve existing bytes'
+  assert_equal "$before_mode" "$(stat -c '%a' "$env_file")" 'failed rendering must preserve existing mode'
+  if compgen -G "${env_file}.tmp.*" >/dev/null; then
+    fail_assertion 'failed rendering must remove temporary files'
+  fi
+}
+
 run_test 'email validation' test_validate_email
 run_test 'password UTF-8 byte limits' test_validate_password_byte_limits
 run_test 'explicit y/N confirmation' test_confirm_yes_defaults_to_no
@@ -391,10 +479,12 @@ run_test 'password absent from redirected output' test_collect_install_inputs_ne
 run_test 'dotenv quote and safe load round-trip' test_dotenv_quote_and_safe_load_round_trip
 run_test 'Compose-compatible dotenv quote rules' test_dotenv_quote_matches_compose_rules
 run_test 'unsafe dotenv input rejection' test_load_deploy_env_rejects_unknown_malformed_and_unquoted_code
+run_test 'Compose service env_file exact round-trip' test_compose_service_env_file_round_trip
 run_test 'port detection and first-free selection' test_port_detection_and_selection
 run_test 'random secret formats' test_random_secret_formats
 run_test 'private complete production dotenv rendering' test_render_production_env_is_complete_private_and_safe
 run_test 'required generated secrets' test_render_production_env_requires_caller_secrets
+run_test 'atomic render failure preserves target' test_render_production_env_preserves_existing_target_on_write_failure
 
 if ((FAIL_COUNT > 0)); then
   printf '%d deployment helper test(s) failed\n' "$FAIL_COUNT" >&2

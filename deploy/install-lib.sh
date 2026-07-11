@@ -403,30 +403,34 @@ render_production_env() {
     }
     trap cleanup_rendered_env EXIT HUP INT TERM
 
-    {
-      _write_deploy_env_line COMPOSE_PROJECT_NAME "$project_name"
-      _write_deploy_env_line COMPOSE_PROFILES "$profiles"
-      _write_deploy_env_line IMAGE_TAG "$image_tag"
-      _write_deploy_env_line DOMAIN "$domain"
-      _write_deploy_env_line WEB_BIND_ADDRESS "$bind_address"
-      _write_deploy_env_line WEB_HOST_PORT "$host_port"
-      _write_deploy_env_line POSTGRES_DB "$postgres_db"
-      _write_deploy_env_line POSTGRES_USER "$postgres_user"
-      _write_deploy_env_line POSTGRES_PASSWORD "$postgres_password"
-      _write_deploy_env_line DATABASE_DRIVER 'pg'
-      _write_deploy_env_line DATABASE_URL "$database_url"
-      _write_deploy_env_line DATABASE_URL_UNPOOLED "$database_url"
-      _write_deploy_env_line STORAGE_DRIVER 'local'
-      _write_deploy_env_line LOCAL_STORAGE_ROOT '/app/data/media'
-      _write_deploy_env_line BETTER_AUTH_SECRET "$auth_secret"
-      _write_deploy_env_line BETTER_AUTH_URL "$auth_url"
-      _write_deploy_env_line RELAY_API_KEY "$relay_key"
-      _write_deploy_env_line RELAY_BASE_URL "$relay_base_url"
-      _write_deploy_env_line CUSTOM_KEY_JOB_ENCRYPTION_KEY "$encryption_key"
-      _write_deploy_env_line CUSTOM_KEY_MODES_ENABLED 'false'
-      _write_deploy_env_line WORKER_CONCURRENCY '1'
-      _write_deploy_env_line TRUST_PROXY 'true'
-    } >"$temp_path"
+    local -a entries=(
+      COMPOSE_PROJECT_NAME "$project_name"
+      COMPOSE_PROFILES "$profiles"
+      IMAGE_TAG "$image_tag"
+      DOMAIN "$domain"
+      WEB_BIND_ADDRESS "$bind_address"
+      WEB_HOST_PORT "$host_port"
+      POSTGRES_DB "$postgres_db"
+      POSTGRES_USER "$postgres_user"
+      POSTGRES_PASSWORD "$postgres_password"
+      DATABASE_DRIVER 'pg'
+      DATABASE_URL "$database_url"
+      DATABASE_URL_UNPOOLED "$database_url"
+      STORAGE_DRIVER 'local'
+      LOCAL_STORAGE_ROOT '/app/data/media'
+      BETTER_AUTH_SECRET "$auth_secret"
+      BETTER_AUTH_URL "$auth_url"
+      RELAY_API_KEY "$relay_key"
+      RELAY_BASE_URL "$relay_base_url"
+      CUSTOM_KEY_JOB_ENCRYPTION_KEY "$encryption_key"
+      CUSTOM_KEY_MODES_ENABLED 'false'
+      WORKER_CONCURRENCY '1'
+      TRUST_PROXY 'true'
+    )
+    local entry_index
+    for ((entry_index = 0; entry_index < ${#entries[@]}; entry_index += 2)); do
+      _write_deploy_env_line "${entries[entry_index]}" "${entries[entry_index + 1]}" || exit 1
+    done >"$temp_path"
 
     chmod 0600 "$temp_path"
     mv -f -- "$temp_path" "$target_path"
