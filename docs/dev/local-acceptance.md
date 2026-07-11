@@ -6,57 +6,44 @@
 ## 当前本地实现状态（2026-07-11）
 
 - system/custom Key 模式、多任务生成、批量状态轮询、统一 5 分钟 deadline、暂停/缺失/失败 UI 和管理员记录已在本地完成。
-- 受 test-env guard 保护的本地 UI 服务地址：`http://localhost:8888`。Playwright 已覆盖 system 锁定、custom 连续任务、deadline 恢复、missing tombstone、账号隔离/清除和四种视口键设置弹窗。
-- 新鲜结果：177/177 单元、73/73 金额测试、构建、类型检查、敏感信息扫描通过；E2E 6 条通过，旧生产 smoke 1 条安全跳过。
+- 受 test-env guard 保护的本地完整服务地址：`http://localhost:8888`。`npm run dev:netlify:test` 同时提供页面、`/api/generate*` 和一次性本地图片存储；Playwright 已覆盖 system 锁定、custom 连续任务、deadline 恢复、missing tombstone、账号隔离/清除和四种视口键设置弹窗。
+- 新鲜结果：187/187 单元、74/74 金额测试、构建、类型检查、敏感信息扫描通过；E2E 6 条通过，旧生产 smoke 1 条安全跳过。
 - 这些结果只证明本地 disposable 环境；未连接生产数据库、未运行生产 smoke、未部署 Netlify，也未启用生产 custom 开关。
 
-## 0. 为什么用 `netlify dev`（不是 `npm run dev`）
+## 0. Key 模式为什么必须用完整本地服务
 
-| | `npm run dev`（react-router dev） | **`netlify dev`（推荐）** |
+| 命令 | 用途 | 真实本地 `/api/generate*` |
 |---|---|---|
-| 端口 | 5173（与 `BETTER_AUTH_URL` 不符）| **8888**（= `.env` 里 `BETTER_AUTH_URL`）✅ |
-| 注入 `.env` 到 `process.env` | ❌ 否 → 钱/鉴权/存储 loader 报「缺少环境变量」 | ✅ 自动加载 `.env` |
-| 服务 `netlify/functions/*`（生图 `generate`/`-background`/`status`、cron）| ❌ 不服务 → **生图打不通** | ✅ 服务 + 后台触发（`NETLIFY_DEV=true` → `triggerBackground` 走 localhost:8888）|
+| **`npm run dev:netlify:test`** | 本地手工验收；只读受 guard 保护的 `.env.test` | ✅ 页面、生成 API、状态 API和图片读取均可用 |
+| `npm run dev:ui:test` | Playwright 的页面与浏览器 mock 验收 | ❌ 不提供真实生成 API，不能用于手工生图 |
+| `npm run dev` | 裸 React Router 开发 | ❌ 不提供 Netlify Functions，且端口可能与 Auth 回跳不一致 |
 
-所以**生图验收必须用 `netlify dev`**。
+所以 **Key 模式手工生图验收只使用 `npm run dev:netlify:test`**。启动器会避开被其他项目占用的 5173，显式选择 React Router target port，再由 8888 代理对外；不要据 `dev:ui:test` 的页面外观判断真实生成链路可用。
 
 ## 1. 前置（一次性）
 
 ```bash
-# 1) 安装 Netlify CLI（本地 devDep 或全局其一）
-npm i -D netlify-cli            # 或：npm i -g netlify-cli
+npm install
 
-# 2) 确认 .env 已配齐（已 gitignore）：
-#    DATABASE_URL / DATABASE_URL_UNPOOLED（Neon）
-#    BETTER_AUTH_SECRET / BETTER_AUTH_URL=http://localhost:8888
-#    STORAGE_S3_*（6 个，Supabase）/ RELAY_API_KEY / RELAY_BASE_URL
-#    （可选）DAILY_RELAY_BUDGET_CALLS / _MS、SENTRY_DSN、ADMIN_ALERT_WEBHOOK
-
-# 3) 确认数据库迁移 + 种子已应用（已对真 Neon 跑过；重置/换库时再跑）：
-node --env-file=.env --import tsx scripts/db-verify.ts     # 应列出 2 套餐 + 8 config
-#   若为空：先 npx drizzle-kit ... 应用 drizzle/*.sql，再 node --env-file=.env --import tsx src/db/seed.ts
+# 首次或更换 disposable 测试数据库后应用测试迁移；命令本身经过 test-env guard。
+npm run db:test:migrate
 ```
+
+`.env.test` 必须保持 gitignored，并通过 disposable 数据库确认、测试 Auth、Key 模式开关与主密钥检查。guard 会拒绝与本机生产候选同目标的数据库，也会清空继承的 PostgreSQL 连接覆盖项、生产中转、存储和可观测凭据。不要把 `.env` 改名或复制成 `.env.test`。
 
 ## 2. 启动
 
 ```bash
-# ⚠️ 起 dev 前清掉构建产物（否则 netlify dev 会优先服务 build/ 的「内置 SSR 函数 + 静态资源」，
-#    而非 vite dev → 页面无 CSS/无 HMR、登录注册页「裸 HTML」样子。若刚跑过 npm run build / assert-no-secrets 必清）：
-rm -rf build .netlify     # PowerShell：Remove-Item -Recurse -Force build, .netlify -ErrorAction SilentlyContinue
-
-npx netlify dev           # 自动探测 React Router → 跑 vite dev（CSS Modules + tokens 正常）+ 函数 + .env
+npm run dev:netlify:test
 # → 打开 http://localhost:8888
 ```
 
-> ⚠️ 端口必须是 **8888**（与 `BETTER_AUTH_URL` 一致），否则 Better Auth 会话/回跳会错。netlify dev 默认即 8888。
-> ⚠️ **`netlify.toml [dev]` 只钉 `port = 8888`，不要设 `framework = "#custom"`**——后者会改走「内置 SSR 函数 + 静态 publish」混合模式，CSS 链接指向构建产物且无 vite client → **页面无样式**（本项目踩过，已记此坑）。
+启动器只清理生成的 `build/` 与 `.netlify/functions-serve/`，保留 `.netlify/` 下其他本地状态；生成图片写入 gitignored 的 `.netlify/local-storage/`。它不会读取生产 S3 配置，也不会删除整个 `.netlify/`。
 
 ### 故障排查：页面「没样式 / 很丑」
-是 `netlify dev` 在服务**构建产物**而非 vite dev。自查：浏览器 DevTools 看页面 `<head>` 的脚本——
+先确认启动命令确实是 `npm run dev:netlify:test`，而不是仍在运行旧的 `npm run dev` / `dev:ui:test`。正常页面的 `<head>` 含 `/@vite/client`；若仍看到哈希构建资源，停止旧进程后重新运行受保护启动器。
 - ✅ 正常（vite dev）：含 `/@vite/client`、源码路径 `/app/entry.client.tsx`，`document.styleSheets` 有规则
 - ❌ 异常（服务 build）：是 `/assets/entry.client-<hash>.js` 这种哈希名、无 `/@vite/client`、CSS 文件 0 规则
-
-修：停 dev → `rm -rf build .netlify` → 重启 `npx netlify dev`。
 
 ## 3. 验收清单（注册 → 登录 → 生图）
 
@@ -94,7 +81,7 @@ npx netlify dev           # 自动探测 React Router → 跑 vite dev（CSS Mod
 
 ## 3a. Key 模式与多任务验收（2026-07-11，实施后执行）
 
-> 当前仅完成需求/文档，以下项目**尚未通过**，不得据此声称生产已有功能。实现后只用 `npm run dev:netlify:test` 启动本地 custom 验收，并只读 gitignored `.env.test`：disposable Neon 双 URL、mutation ack、测试 Auth URL/secret、测试主密钥及 `CUSTOM_KEY_MODES_ENABLED=true`。guard 必须拒绝与 `.env` 生产候选同指纹的数据库；本地手工验收也不得绕过 guard 直读 `.env`。真实环境验证仅按 [deploy.md §6](deploy.md) 的受控发布步骤执行。
+> 以下项目已有本地自动化覆盖，仍需按需手工走查；不得据此声称生产已有功能。只用 `npm run dev:netlify:test` 启动本地 custom 验收，并只读 gitignored `.env.test`。guard 必须拒绝与 `.env` 生产候选同目标的数据库；本地手工验收也不得绕过 guard 直读 `.env`。真实环境验证仅按 [deploy.md §6](deploy.md) 的受控发布步骤执行。
 
 ### 顶栏与本地配置
 

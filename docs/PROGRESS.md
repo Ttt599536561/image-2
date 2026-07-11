@@ -1,7 +1,7 @@
 # 进度与交接（PROGRESS.md）
 
 > 每次有实质进展就更新这里。新会话 / 中断恢复：先读 [CLAUDE.md](../CLAUDE.md) 当前快照 → 本文件顶部仓库/生产状态 → 当前 [PRD](../tasks/prd-user-api-key-modes.md) → [实施计划](superpowers/plans/2026-07-11-user-api-key-modes.md) → 涉及的技术章节。
-> 最近更新：2026-07-11（本地完成 Key 模式、多任务与统一 deadline；生产未部署）。
+> 最近更新：2026-07-11（本地 Key 模式完整生成链路已修复并验证；生产未部署）。
 
 ## 🆕 当前主线 / 新会话接手（2026-07-11）
 
@@ -9,7 +9,7 @@
 
 ### 仓库与生产快照
 
-- 当前实现分支：`codex/user-api-key-modes`，本地功能提交 `0d48d90`；实现起点为 `34969f59e2ef07909009bd163dc4dbe64d5fb5b0`。
+- 当前实现分支：`codex/user-api-key-modes`，本地功能提交 `0d48d90`，完整本地生成链路修复提交 `1fd083c`；实现起点为 `34969f59e2ef07909009bd163dc4dbe64d5fb5b0`。
 - 当前分支已包含 UGC 上线事实与 Key 模式实现；微任务账本保留为历史审计，不再驱动本地实现顺序。
 - 当前生产：代码 `42d8a0b`，Netlify deploy `6a3aa2bd`，已包含灵感库用户投稿与审核 UGC；Key 功能未上线。
 - 完成状态的事实证据依次为 Git/迁移记录/新鲜测试输出/Netlify production deploy；本地完成不覆盖生产 deploy 证据。
@@ -17,7 +17,8 @@
 ### 本地实现与验证记录
 
 - 功能范围：system/custom 统一生成端点、user-scoped Key 设置、generation-scoped AES-GCM 凭据、custom 零扣费与连续任务、批量状态、5 分钟 deadline、缺失/暂停/失败 UI、管理员记录与受审计回滚脚本。
-- 验证：`npm run test:run` 177/177；`npm run test:money` 73/73；`npm run typecheck`；`npm run build`；`npm run assert-no-secrets`；`npm run test:e2e` 6 passed / 1 skipped；`git diff --check`。
+- 本地完整链路：`npm run dev:netlify:test` 固定 Netlify 8888 代理并自动选择空闲 React Router target port，强制接通 `/api/generate*`，启动前只清理旧构建/函数缓存；disposable 模式图片落到 gitignored `.netlify/local-storage/`。`dev:ui:test` 仅供 mock E2E，不用于真实手工生图。
+- 验证：`npm run test:run` 187/187；`npm run test:money` 74/74；`npm run typecheck`；`npm run build`；`npm run assert-no-secrets`；`npm run test:e2e` 6 passed / 1 skipped；`git diff --check`。新增覆盖真实 custom DB pipeline + 本地落图、API/Netlify 路由、端口选择/缓存清理、PostgreSQL ambient override 隔离和 symlink/junction 读写删逃逸。
 - 浏览器验收使用受 guard 保护的 disposable 测试环境；本地地址为 `http://localhost:8888`。未连接生产数据库、未执行生产 smoke、未部署或启用生产 custom 开关。
 
 ### 生产发布阻塞
@@ -57,7 +58,7 @@
 | 11 | 🌐 生产上线（Netlify） | ✅ **已上线** → https://ai-image-workshop-612.netlify.app（runbook [dev/deploy.md](dev/deploy.md)）|
 | 12 | 生产优化波（2026-06-23） | ✅ **已上线 `5bd9ac8`**：单价用户端实时化 + 点击慢半拍提速 + 出图触发可靠性 + 后台换中转站 + 生成提交乐观立即跳转（详见下方「🆕 生产优化波」）|
 | 13 | 灵感库用户投稿与审核（UGC §13.1） | ✅ **已上线**：生产代码 `42d8a0b` / deploy `6a3aa2bd`；仅剩站长生产浏览器逐态验收 |
-| 14 | 系统/自定义 Key + 多任务生成 + 统一 5 分钟 deadline | 🚧 **本地完成、待生产部署**（提交 `0d48d90`；[PRD](../tasks/prd-user-api-key-modes.md) / [计划](superpowers/plans/2026-07-11-user-api-key-modes.md)） |
+| 14 | 系统/自定义 Key + 多任务生成 + 统一 5 分钟 deadline | 🚧 **本地完成、待生产部署**（功能 `0d48d90`；完整本地链路修复 `1fd083c`；[PRD](../tasks/prd-user-api-key-modes.md) / [计划](superpowers/plans/2026-07-11-user-api-key-modes.md)） |
 
 ## 生产优化波（2026-06-23 · 历史优化基线；当前生产 = `42d8a0b`）
 > 本节记录当前功能实施前的生产代码与测试历史，仅供回归定位。新会话当前态与施工入口只看本文顶部“当前主线 / 新会话接手”。
@@ -151,7 +152,7 @@
 3. **④** 图生图 → **同价 0.07 / 单张参考图 / 不限付费用户**；且先 ④a 探测通过再进 ④b。④a ✅ 通过、④b 开发中。
 
 **本地怎么跑**（见 [local-acceptance.md](dev/local-acceptance.md)）：
-- **`netlify dev`（8888）**，**不是** `npm run dev`。起前先 **`rm -rf build .netlify`**、`[dev]` 不设 framework（否则无样式）。
+- 当前 Key 模式本地验收统一使用 **`npm run dev:netlify:test`（8888）**；启动器会定向清理生成缓存并保留 `.netlify/` 其他状态，不再手工删除整个目录。
 - 管理员凭据只从本地 `.env` 的 `SEED_ADMIN_EMAIL`/`SEED_ADMIN_PASSWORD` 或密码管理器读取；文档、日志和提交中不得记录实际值（初始化脚本：`scripts/seed-admin.ts`）。
 - ⚠️ **本机 Bash coreutils 偶发缺失（sleep/seq/tail）→ 跑 npm/长命令用 PowerShell**。会话 cookie 可经 `auth.api.signInEmail({asResponse:true})` 服务端铸造做 HTTP QA（绕路由层限流）。
 
