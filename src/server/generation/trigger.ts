@@ -8,8 +8,12 @@
 //   `-background` 会秒回 202，await 只多一个往返就把触发变可靠；超时兜底防偶发 hang 阻塞调用方的 202。
 //   触发失败仍只记日志、绝不抛（不影响已入队的 202；兜底 cron 会补派发）。
 export async function triggerBackground(generationId: string): Promise<void> {
-  const base =
-    process.env.URL || process.env.DEPLOY_PRIME_URL || (process.env.NETLIFY_DEV ? "http://localhost:8888" : undefined);
+  const disposableLocal = process.env.DISPOSABLE_TEST_DB_DRIVER === "pg";
+  const base = disposableLocal
+    ? "http://localhost:8888"
+    : process.env.URL ||
+      process.env.DEPLOY_PRIME_URL ||
+      (process.env.NETLIFY_DEV ? "http://localhost:8888" : undefined);
   if (!base) {
     // 生产环境 URL 必有；本地非 netlify dev 时缺失 → 记日志、不抛（兜底 cron 会扫 queued）。
     console.error("[triggerBackground] 缺少 URL/DEPLOY_PRIME_URL，跳过触发（依赖 §5.5 兜底 cron 派发 queued）");
@@ -18,7 +22,10 @@ export async function triggerBackground(generationId: string): Promise<void> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 8_000); // 兜底：偶发 hang 不阻塞调用方（cron 会补派发）
   try {
-    const resp = await fetch(`${base}/.netlify/functions/generate-background`, {
+    const path = disposableLocal
+      ? "/api/generate-background"
+      : "/.netlify/functions/generate-background";
+    const resp = await fetch(`${base}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ generationId }),

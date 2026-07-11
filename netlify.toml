@@ -6,10 +6,8 @@
   publish = "build/client"
   functions = "netlify/functions"
 
-# 本地 `netlify dev`：让其自动探测 React Router（@netlify/vite-plugin-react-router 集成），
-# 跑真正的 vite dev（HMR + CSS Modules + tokens 正常注入）+ netlify/functions（生图链路）+ .env。
-# 只钉端口 8888（= BETTER_AUTH_URL）；不要设 framework=#custom（会改走「内置 SSR 函数 + 静态 publish」
-# 的混合模式，导致 CSS 链接指向构建产物且无 vite client → 页面无样式，local-acceptance.md 已记此坑）。
+# 手工 `netlify dev` 的端口保留为 8888。受 guard 的完整本地验收改由
+# `npm run dev:netlify:test` 直接启动 React Router 资源路由，避免旧 deploy 产物抢占 HMR 页面。
 [dev]
   port = 8888
 
