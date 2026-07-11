@@ -4,12 +4,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   requireUserStrict: vi.fn(),
   enqueueGeneration: vi.fn(),
-  triggerBackground: vi.fn(),
 }));
 
 vi.mock("../../src/lib/guard", () => ({ requireUserStrict: mocks.requireUserStrict }));
 vi.mock("../../src/server/generation/enqueue", () => ({ enqueueGeneration: mocks.enqueueGeneration }));
-vi.mock("../../src/server/generation/trigger", () => ({ triggerBackground: mocks.triggerBackground }));
 
 import handler from "../../netlify/functions/generate";
 
@@ -30,7 +28,6 @@ beforeEach(() => {
     credentialMode: "system",
     deadlineAt: "2026-07-11T00:05:00.000Z",
   });
-  mocks.triggerBackground.mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -84,7 +81,6 @@ describe("POST /api/generate handler", () => {
     expect(response.status).toBe(503);
     expect((await body(response)).error.code).toBe("CUSTOM_KEY_MODES_DISABLED");
     expect(mocks.enqueueGeneration).not.toHaveBeenCalled();
-    expect(mocks.triggerBackground).not.toHaveBeenCalled();
   });
 
   it("accepts custom only when explicitly enabled and returns the authoritative fields", async () => {
@@ -114,7 +110,6 @@ describe("POST /api/generate handler", () => {
       user: { id: "00000000-0000-4000-8000-000000000001", maxConcurrency: 2 },
       input: { ...base, credentialMode: "custom", customApiKey: "fictional-enabled" },
     });
-    expect(mocks.triggerBackground).toHaveBeenCalledWith("00000000-0000-4000-8000-000000000004");
   });
 
   it("keeps explicit system requests on the existing enqueue and trigger path", async () => {
@@ -130,6 +125,5 @@ describe("POST /api/generate handler", () => {
       user: { id: "00000000-0000-4000-8000-000000000001", maxConcurrency: 2 },
       input: { ...base, credentialMode: "system" },
     });
-    expect(mocks.triggerBackground).toHaveBeenCalledTimes(1);
   });
 });

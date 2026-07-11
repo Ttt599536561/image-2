@@ -281,7 +281,9 @@ export async function runFailCustomGenerations(
     return result;
   } finally {
     client?.release();
-    await pool.end();
+    // Persistent runtimes own the shared pool and close it during process shutdown.
+    // Injected pools remain owned by their caller.
+    if (dependencies.createPool) await pool.end();
   }
 }
 

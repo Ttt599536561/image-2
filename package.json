@@ -2,9 +2,16 @@
   "name": "ai-image-workshop",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=22 <23"
+  },
   "type": "module",
   "scripts": {
     "dev": "react-router dev",
+    "start:worker": "node --import tsx scripts/worker.ts",
+    "start:scheduler": "node --import tsx scripts/scheduler.ts",
+    "start:web": "react-router-serve ./build/server/index.js",
+    "db:migrate:production": "node --import tsx scripts/migrate-production.ts",
     "dev:netlify": "netlify dev",
     "dev:netlify:test": "node --import tsx scripts/run-netlify-test.ts",
     "dev:ui:test": "node --import tsx scripts/run-ui-test.ts",
@@ -15,13 +22,15 @@
     "test:money": "vitest run -c vitest.money.config.ts",
     "test:e2e": "node --import tsx scripts/run-playwright-test.ts",
     "db:test:migrate": "node --import tsx scripts/migrate-test-database.ts",
-    "assert-no-secrets": "node --env-file-if-exists=.env --import tsx scripts/assert-no-secrets-in-bundle.ts"
+    "assert-no-secrets": "node --env-file-if-exists=.env --import tsx scripts/assert-no-secrets-in-bundle.ts",
+    "docker:validate": "docker compose --env-file deploy/.env.production.example config --quiet"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1073.0",
     "@neondatabase/serverless": "^1.1.0",
     "@netlify/blobs": "10.7.4",
     "@react-router/node": "8.0.1",
+    "@react-router/serve": "^8.0.1",
     "@tanstack/react-query": "^5.66.0",
     "bcryptjs": "3.0.3",
     "better-auth": "1.6.20",
@@ -33,6 +42,7 @@
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "react-router": "8.0.1",
+    "tsx": "^4.22.4",
     "ws": "^8.21.0",
     "zod": "^4.4.3"
   },
@@ -57,7 +67,6 @@
     "netlify-cli": "^26.1.0",
     "pg-connection-string": "2.14.0",
     "toml": "^3.0.0",
-    "tsx": "^4.22.4",
     "typescript": "6.0.3",
     "vite": "8.0.11",
     "vitest": "4.1.5"

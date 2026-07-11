@@ -25,6 +25,5 @@ export async function tx<T>(fn: (c: TxClient) => Promise<T>): Promise<T> {
     throw e;
   } finally {
     c.release();
-    await pool.end();
   }
 }

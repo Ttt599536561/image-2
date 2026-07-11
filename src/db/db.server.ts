@@ -47,6 +47,7 @@ function usesDisposableLocalPostgres(): boolean {
 }
 
 let localReadPool: PgPool | undefined;
+let transactionPool: DbPool | undefined;
 
 function getLocalReadPool(): PgPool {
   localReadPool ??= new PgPool({
@@ -70,7 +71,15 @@ export function getPool(): DbPool {
       max: 4,
     }) as unknown as DbPool;
   }
-  return new Pool({ connectionString: requireEnv("DATABASE_URL_UNPOOLED") }) as unknown as DbPool;
+  transactionPool ??= new Pool({ connectionString: requireEnv("DATABASE_URL_UNPOOLED") }) as unknown as DbPool;
+  return transactionPool;
+}
+
+export async function closeDbPools(): Promise<void> {
+  const pools = [transactionPool, localReadPool].filter(Boolean) as Array<{ end(): Promise<void> }>;
+  transactionPool = undefined;
+  localReadPool = undefined;
+  await Promise.all(pools.map((pool) => pool.end()));
 }
 
 /**

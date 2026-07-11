@@ -48,11 +48,8 @@ export async function recordRateFailure(kind: RateKind, dims: RateDims): Promise
 }
 
 /** 客户端 IP（信任平台代理头；Netlify 用 x-nf-client-connection-ip，回退 x-forwarded-for 首段）。 */
-export function clientIp(request: Request): string | null {
+export function clientIp(request: Request, env: NodeJS.ProcessEnv = process.env): string | null {
+  if (env.TRUST_PROXY !== "true") return null;
   const h = request.headers;
-  return (
-    h.get("x-nf-client-connection-ip") ||
-    h.get("x-forwarded-for")?.split(",")[0]?.trim() ||
-    null
-  );
+  return h.get("x-forwarded-for")?.split(",")[0]?.trim() || null;
 }
