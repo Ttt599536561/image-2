@@ -45,9 +45,12 @@ describe("seedAdminAccount", () => {
       accounts: [{ providerId: "credential" }],
     });
 
-    await seedAdminAccount("admin@example.com", "replacement-password");
+    await seedAdminAccount("Admin@Example.COM", "replacement-password");
 
     expect(mocks.signUpEmail).not.toHaveBeenCalled();
+    expect(mocks.context.internalAdapter.findUserByEmail).toHaveBeenCalledWith("admin@example.com", {
+      includeAccounts: true,
+    });
     expect(mocks.context.password.hash).toHaveBeenCalledWith("replacement-password");
     expect(mocks.context.internalAdapter.updatePassword).toHaveBeenCalledWith(
       "admin-id",

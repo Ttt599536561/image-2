@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2317
+# shellcheck disable=SC2317,SC2030,SC2031
 set -euo pipefail
 set +x
 umask 077
@@ -115,6 +115,11 @@ fi
 [[ "${2-}" == '--env-file' && "${3-}" == 'deploy/.env.production' ]] || exit 65
 [[ -f 'deploy/.env.production' ]] || exit 66
 shift 3
+
+if [[ -n "${DATABASE_URL-}" || -n "${DATABASE_URL_UNPOOLED-}" ]]; then
+  : >"$FAKE_STATE/database-url-leaked"
+  exit 68
+fi
 
 if [[ " $* " == *' logs '* ]]; then
   [[ ! -f "$FAKE_STATE/service-logs" ]] || cat "$FAKE_STATE/service-logs"
@@ -247,6 +252,22 @@ FAKE_DF
 set -euo pipefail
 printf 'sleep %s\n' "$*" >>"$FAKE_SLEEP_LOG"
 FAKE_SLEEP
+
+  cat >"$CASE_ROOT/fake-bin/timeout" <<'FAKE_TIMEOUT'
+#!/usr/bin/env bash
+set -euo pipefail
+for argument in "$@"; do
+  if [[ "$argument" == '0' ]]; then
+    : >"$FAKE_STATE/timeout-zero"
+    exit 97
+  fi
+done
+for real_command in /usr/bin/timeout /bin/timeout; do
+  if [[ -x "$real_command" ]]; then exec "$real_command" "$@"; fi
+done
+printf 'real timeout executable not found\n' >&2
+exit 127
+FAKE_TIMEOUT
 
   cat >"$CASE_ROOT/fake-bin/mktemp" <<'FAKE_MKTEMP'
 #!/usr/bin/env bash
@@ -865,6 +886,7 @@ test_blocking_health_probes_respect_monotonic_deadlines() {
   output="$(<"$RUN_OUTPUT")"
   assert_contains "$output" 'PostgreSQL' 'PostgreSQL deadline failure should be clear'
   assert_contains "$(<"$FAKE_STATE/docker.log")" 'pg_isready -U ai_image_workshop -d ai_image_workshop -t 1' 'PostgreSQL probe should bound pg_isready itself'
+  [[ ! -e "$FAKE_STATE/timeout-zero" ]] || fail_assertion 'PostgreSQL probe must never invoke timeout 0'
 
   make_fixture web-deadline
   : >"$FAKE_STATE/curl-blocks"
@@ -880,6 +902,7 @@ test_blocking_health_probes_respect_monotonic_deadlines() {
   assert_contains "$output" 'Web' 'Web deadline failure should be clear'
   assert_contains "$(<"$FAKE_STATE/curl.log")" '--connect-timeout' 'curl probe should bound connection setup'
   assert_contains "$(<"$FAKE_STATE/curl.log")" '--max-time' 'curl probe should bound the complete request'
+  [[ ! -e "$FAKE_STATE/timeout-zero" ]] || fail_assertion 'Web probe must never invoke timeout 0'
 }
 
 test_state_write_failures_propagate_inside_conditionals() {
@@ -935,6 +958,112 @@ FAKE_FLOCK_MISSING
     || fail_assertion 'missing dependency must precede state writes'
 }
 
+test_admin_email_is_canonicalized_before_state_write() {
+  make_fixture canonical-email
+  local input_file="$CASE_ROOT/input"
+  write_success_input "$input_file" 'relay-key' 'Admin@Example.COM' 'visible-admin-password!'
+  run_install "$input_file" --existing-proxy --public-url https://images.example.com --port 18081
+  assert_equal 0 "$RUN_STATUS" 'canonical email install should succeed'
+  assert_contains "$(<"$CASE_ROOT/deploy/install.state")" 'ADMIN_EMAIL="admin@example.com"' \
+    'install state should retain Better Auth canonical email'
+  assert_not_contains "$(<"$CASE_ROOT/deploy/install.state")" 'Admin@Example.COM' \
+    'install state should not retain mixed-case email'
+}
+
+test_probe_timeout_rejects_zero_remaining() {
+  make_fixture timeout-boundary
+  sed '$d' "$CASE_ROOT/deploy/install.sh" >"$CASE_ROOT/deploy/install-functions.sh"
+  local output actual
+  output="$CASE_ROOT/timeout-boundary.out"
+  if (
+    cd "$CASE_ROOT"
+    export PATH="$CASE_ROOT/fake-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    export FAKE_STATE
+    # shellcheck disable=SC1091
+    source deploy/install-functions.sh
+    [[ "$(type -t bounded_probe_timeout 2>/dev/null)" == 'function' ]] || exit 90
+    bounded_probe_timeout 0 5
+  ) >"$output" 2>&1; then
+    fail_assertion 'zero remaining probe time must be rejected'
+  fi
+  actual="$({
+    cd "$CASE_ROOT"
+    export PATH="$CASE_ROOT/fake-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+    export FAKE_STATE
+    # shellcheck disable=SC1091
+    source deploy/install-functions.sh
+    bounded_probe_timeout 1 5
+  })"
+  assert_equal '1' "$actual" 'bounded probe helper should cap configured timeout to remaining time'
+}
+
+test_sensitive_variables_are_unexported_before_validation() {
+  make_fixture database-env
+  sed '$d' "$CASE_ROOT/deploy/install.sh" >"$CASE_ROOT/deploy/install-functions.sh"
+  if (
+    cd "$CASE_ROOT"
+    # shellcheck disable=SC1091
+    source deploy/install-functions.sh
+    local resume_body main_body
+    resume_body="$(declare -f prepare_resume)"
+    main_body="$(declare -f main)"
+    assert_ordered "$resume_body" \
+      "load_deploy_env \"\$ENV_PATH\"" \
+      'unexport_sensitive_variables' \
+      'validate_loaded_environment'
+    assert_ordered "$main_body" \
+      "load_deploy_env \"\$ENV_PATH\"" \
+      'unexport_sensitive_variables' \
+      'validate_loaded_environment'
+
+    export RELAY_API_KEY='relay-secret'
+    export POSTGRES_PASSWORD='postgres-secret'
+    export DATABASE_URL='postgresql://secret@postgres/db'
+    export DATABASE_URL_UNPOOLED="$DATABASE_URL"
+    export BETTER_AUTH_SECRET='auth-secret'
+    export CUSTOM_KEY_JOB_ENCRYPTION_KEY='encryption-secret'
+    unexport_sensitive_variables
+    [[ "$DATABASE_URL" == 'postgresql://secret@postgres/db' ]]
+    [[ "$RELAY_API_KEY" == 'relay-secret' ]]
+    local exported_variables
+    exported_variables="$(export -p)"
+    [[ "$exported_variables" != *'DATABASE_URL='* ]]
+    [[ "$exported_variables" != *'DATABASE_URL_UNPOOLED='* ]]
+    [[ "$exported_variables" != *'RELAY_API_KEY='* ]]
+    [[ "$exported_variables" != *'POSTGRES_PASSWORD='* ]]
+    [[ "$exported_variables" != *'BETTER_AUTH_SECRET='* ]]
+    [[ "$exported_variables" != *'CUSTOM_KEY_JOB_ENCRYPTION_KEY='* ]]
+  ); then
+    :
+  else
+    fail_assertion 'sensitive values must remain readable but be unexported before validation'
+  fi
+
+  local input_file="$CASE_ROOT/input"
+  write_success_input "$input_file"
+  run_install "$input_file" --existing-proxy --public-url https://images.example.com --port 18081
+  assert_equal 0 "$RUN_STATUS" 'sensitive variable de-export install should succeed'
+  [[ ! -e "$FAKE_STATE/database-url-leaked" ]] || fail_assertion 'host children must not inherit database URLs'
+}
+
+test_cleanup_unsets_database_urls() {
+  make_fixture cleanup-env
+  sed '$d' "$CASE_ROOT/deploy/install.sh" >"$CASE_ROOT/deploy/install-functions.sh"
+  if (
+    cd "$CASE_ROOT"
+    export DATABASE_URL='postgresql://secret@postgres/db'
+    export DATABASE_URL_UNPOOLED="$DATABASE_URL"
+    # shellcheck disable=SC1091
+    source deploy/install-functions.sh
+    cleanup_secrets
+    [[ ! -v DATABASE_URL && ! -v DATABASE_URL_UNPOOLED ]]
+  ); then
+    :
+  else
+    fail_assertion 'cleanup_secrets must remove database URL variables'
+  fi
+}
+
 run_test 'CLI validation before preflight and prompts' test_cli_validation_stops_before_preflight_and_prompts
 run_test 'platform, disk, Docker, and repository preflight' test_preflight_rejects_platform_disk_and_repo_before_prompts
 run_test 'domain and 80/443 validation before prompts' test_domain_validation_and_ports_stop_before_prompts
@@ -954,6 +1083,10 @@ run_test 'exclusive installer lock before prompts and writes' test_concurrent_in
 run_test 'bounded blocking health probes' test_blocking_health_probes_respect_monotonic_deadlines
 run_test 'conditional state write error propagation' test_state_write_failures_propagate_inside_conditionals
 run_test 'missing flock dependency has a distinct error' test_missing_flock_dependency_is_not_reported_as_active_lock
+run_test 'administrator email canonicalization' test_admin_email_is_canonicalized_before_state_write
+run_test 'probe timeout zero boundary' test_probe_timeout_rejects_zero_remaining
+run_test 'sensitive variables are unexported before validation' test_sensitive_variables_are_unexported_before_validation
+run_test 'cleanup removes database URLs' test_cleanup_unsets_database_urls
 
 if ((FAIL_COUNT > 0)); then
   printf '%d installer test(s) failed\n' "$FAIL_COUNT" >&2

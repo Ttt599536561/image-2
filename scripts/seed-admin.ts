@@ -13,9 +13,9 @@ async function main() {
     console.error("需在 .env 设 SEED_ADMIN_EMAIL + SEED_ADMIN_PASSWORD（密码 ≥6 位）后重跑。");
     process.exit(1);
   }
-  await seedAdminAccount(email, password);
+  const canonicalEmail = await seedAdminAccount(email, password);
 
-  console.log(`✓ ${email} 已是管理员（users.role + Better Auth user.role）。`);
+  console.log(`✓ ${canonicalEmail} 已是管理员（users.role + Better Auth user.role）。`);
   console.log("  用配置的密码登录 /login → 进 /admin（requireUserStrict 每请求查 DB，即时生效）。");
   process.exit(0);
 }

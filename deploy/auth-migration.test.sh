@@ -7,7 +7,7 @@ ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 CONTAINER="ai-image-workshop-auth-migration-$$"
 
 cleanup() {
-  docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+  docker rm -f -v "$CONTAINER" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT HUP INT TERM
 
@@ -55,8 +55,9 @@ index_count="$(docker exec "$CONTAINER" psql -U postgres -d auth_migration_test 
   exit 1
 }
 
-docker exec "$CONTAINER" psql -U postgres -d auth_migration_test -c \
-  "DELETE FROM app_migrations WHERE name='0006_better_auth.sql'" >/dev/null
+# Simulate a legacy Better Auth core schema that predates the admin plugin columns.
+docker exec "$CONTAINER" psql -U postgres -d auth_migration_test -v ON_ERROR_STOP=1 -c \
+  "ALTER TABLE \"user\" DROP COLUMN IF EXISTS \"role\", DROP COLUMN IF EXISTS \"banned\", DROP COLUMN IF EXISTS \"banReason\", DROP COLUMN IF EXISTS \"banExpires\"; ALTER TABLE \"session\" DROP COLUMN IF EXISTS \"impersonatedBy\"; DELETE FROM app_migrations WHERE name='0006_better_auth.sql';" >/dev/null
 MIGRATE_CONFIRM=APPLY_PRODUCTION_MIGRATIONS node --import tsx scripts/migrate-production.ts
 migration_count="$(docker exec "$CONTAINER" psql -U postgres -d auth_migration_test -Atc \
   "SELECT count(*) FROM app_migrations WHERE name='0006_better_auth.sql'")"
@@ -65,9 +66,16 @@ migration_count="$(docker exec "$CONTAINER" psql -U postgres -d auth_migration_t
   exit 1
 }
 
-SEED_ADMIN_EMAIL=admin@example.test SEED_ADMIN_PASSWORD=initial-password \
+plugin_columns="$(docker exec "$CONTAINER" psql -U postgres -d auth_migration_test -Atc \
+  "SELECT count(*) FROM information_schema.columns WHERE (table_name='user' AND column_name IN ('role','banned','banReason','banExpires')) OR (table_name='session' AND column_name='impersonatedBy')")"
+[[ "$plugin_columns" == '5' ]] || {
+  printf 'expected five Better Auth admin plugin columns, got: %s\n' "$plugin_columns" >&2
+  exit 1
+}
+
+SEED_ADMIN_EMAIL=Admin@Example.TEST SEED_ADMIN_PASSWORD=initial-password \
   node --import tsx scripts/seed-admin.ts >/dev/null
-SEED_ADMIN_EMAIL=admin@example.test SEED_ADMIN_PASSWORD=replacement-password \
+SEED_ADMIN_EMAIL=ADMIN@EXAMPLE.TEST SEED_ADMIN_PASSWORD=replacement-password \
   node --import tsx scripts/seed-admin.ts >/dev/null
 
 role_rows="$(docker exec "$CONTAINER" psql -U postgres -d auth_migration_test -Atc \
@@ -90,4 +98,6 @@ EXPECTED_PASSWORD=replacement-password REJECTED_PASSWORD=initial-password node -
   process.exit(0);
 '
 
+cleanup
+trap - EXIT HUP INT TERM
 printf 'auth migration empty-database test passed\n'

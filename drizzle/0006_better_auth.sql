@@ -49,6 +49,12 @@ CREATE TABLE IF NOT EXISTS "verification" (
   "updatedAt" timestamptz DEFAULT CURRENT_TIMESTAMP NOT NULL
 );
 
+ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "role" text;
+ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "banned" boolean;
+ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "banReason" text;
+ALTER TABLE "user" ADD COLUMN IF NOT EXISTS "banExpires" timestamptz;
+ALTER TABLE "session" ADD COLUMN IF NOT EXISTS "impersonatedBy" text;
+
 CREATE INDEX IF NOT EXISTS "session_userId_idx" ON "session" ("userId");
 CREATE INDEX IF NOT EXISTS "account_userId_idx" ON "account" ("userId");
 CREATE INDEX IF NOT EXISTS "verification_identifier_idx" ON "verification" ("identifier");

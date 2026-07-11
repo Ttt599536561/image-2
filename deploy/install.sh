@@ -49,6 +49,7 @@ cleanup_secrets() {
   unset RELAY_API_KEY ADMIN_PASSWORD ADMIN_PASSWORD_CONFIRM
   unset SEED_ADMIN_EMAIL SEED_ADMIN_PASSWORD
   unset POSTGRES_PASSWORD BETTER_AUTH_SECRET CUSTOM_KEY_JOB_ENCRYPTION_KEY
+  unset DATABASE_URL DATABASE_URL_UNPOOLED
 }
 
 release_install_lock() {
@@ -504,7 +505,8 @@ clear_loaded_deploy_variables() {
 }
 
 unexport_sensitive_variables() {
-  export -n RELAY_API_KEY POSTGRES_PASSWORD BETTER_AUTH_SECRET CUSTOM_KEY_JOB_ENCRYPTION_KEY 2>/dev/null || true
+  export -n RELAY_API_KEY POSTGRES_PASSWORD DATABASE_URL DATABASE_URL_UNPOOLED \
+    BETTER_AUTH_SECRET CUSTOM_KEY_JOB_ENCRYPTION_KEY 2>/dev/null || true
 }
 
 validate_loaded_environment() {
@@ -705,7 +707,7 @@ load_install_state() {
     case "$key" in
       STATE_VERSION) parsed_version="$decoded" ;;
       STAGE) parsed_stage="$decoded" ;;
-      ADMIN_EMAIL) parsed_email="$decoded" ;;
+      ADMIN_EMAIL) parsed_email="$(canonicalize_email "$decoded")" ;;
     esac
   done <"$STATE_PATH"
 
@@ -739,8 +741,8 @@ prepare_resume() {
   }
   clear_loaded_deploy_variables
   load_deploy_env "$ENV_PATH" || return 1
-  validate_loaded_environment || return 1
   unexport_sensitive_variables
+  validate_loaded_environment || return 1
   load_install_state
 }
 
@@ -754,6 +756,7 @@ collect_resume_admin_inputs() {
     die '未读取到管理员邮箱'
     return 1
   }
+  ADMIN_EMAIL="$(canonicalize_email "$ADMIN_EMAIL")"
   validate_email "$ADMIN_EMAIL" || {
     die '管理员邮箱格式无效'
     return 1
@@ -786,8 +789,8 @@ wait_for_postgres() {
   local deadline=$((SECONDS + timeout_seconds))
   for ((attempt = 1; attempt <= 120 && SECONDS < deadline; attempt += 1)); do
     remaining=$((deadline - SECONDS))
-    probe_timeout="$command_timeout"
-    ((probe_timeout <= remaining)) || probe_timeout="$remaining"
+    ((remaining > 0)) || break
+    probe_timeout="$(bounded_probe_timeout "$remaining" "$command_timeout")" || break
     if timeout --signal=KILL "$probe_timeout" \
       docker compose --env-file "$ENV_ARGUMENT" exec -T postgres \
       pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB" -t 1 >/dev/null 2>&1; then
@@ -847,6 +850,17 @@ seed_admin() {
   write_install_state admin_seeded
 }
 
+bounded_probe_timeout() {
+  local remaining="$1"
+  local configured="$2"
+  [[ "$remaining" =~ ^[1-9][0-9]*$ && "$configured" =~ ^[1-9][0-9]*$ ]] || return 1
+  if ((configured < remaining)); then
+    printf '%s\n' "$configured"
+  else
+    printf '%s\n' "$remaining"
+  fi
+}
+
 start_application_services() {
   compose up -d web worker scheduler
   if [[ "$MODE" == 'domain' ]]; then
@@ -862,8 +876,8 @@ wait_for_web_health() {
   for ((attempt = 1; attempt <= 180 && SECONDS < deadline; attempt += 1)); do
     http_code=''
     remaining=$((deadline - SECONDS))
-    probe_timeout="$command_timeout"
-    ((probe_timeout <= remaining)) || probe_timeout="$remaining"
+    ((remaining > 0)) || break
+    probe_timeout="$(bounded_probe_timeout "$remaining" "$command_timeout")" || break
     if http_code="$(timeout --signal=KILL "$probe_timeout" curl \
       --silent \
       --show-error \
@@ -964,8 +978,8 @@ main() {
     render_production_env "$ENV_PATH"
     clear_loaded_deploy_variables
     load_deploy_env "$ENV_PATH"
-    validate_loaded_environment
     unexport_sensitive_variables
+    validate_loaded_environment
     STATE_STAGE='none'
   fi
 

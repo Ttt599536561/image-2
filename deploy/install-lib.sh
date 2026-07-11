@@ -41,6 +41,10 @@ validate_email() {
   [[ "$label" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$ ]] || return 1
 }
 
+canonicalize_email() {
+  LC_ALL=C printf '%s' "${1-}" | tr '[:upper:]' '[:lower:]'
+}
+
 validate_password() {
   local password="${1-}"
   local byte_count
@@ -294,6 +298,7 @@ collect_install_inputs() {
     die '未读取到管理员邮箱'
     return 1
   }
+  ADMIN_EMAIL="$(canonicalize_email "$ADMIN_EMAIL")"
   validate_email "$ADMIN_EMAIL" || {
     die '管理员邮箱格式无效'
     return 1
