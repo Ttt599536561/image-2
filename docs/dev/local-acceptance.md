@@ -7,7 +7,7 @@
 
 - system/custom Key 模式、多任务生成、批量状态轮询、统一 5 分钟 deadline、暂停/缺失/失败 UI 和管理员记录已在本地完成。
 - 受 test-env guard 保护的本地完整服务地址：`http://localhost:8888`。`npm run dev:netlify:test` 同时提供页面、`/api/generate*` 和一次性本地图片存储；Playwright 已覆盖 system 锁定、custom 连续任务、deadline 恢复、missing tombstone、账号隔离/清除和四种视口键设置弹窗。
-- 新鲜结果：187/187 单元、74/74 金额测试、构建、类型检查、敏感信息扫描通过；E2E 6 条通过，旧生产 smoke 1 条安全跳过。
+- 新鲜结果：188/188 单元、74/74 金额测试、构建、类型检查、敏感信息扫描通过；E2E 6 条通过，旧生产 smoke 1 条安全跳过。
 - 这些结果只证明本地 disposable 环境；未连接生产数据库、未运行生产 smoke、未部署 Netlify，也未启用生产 custom 开关。
 
 ## 0. Key 模式为什么必须用完整本地服务
@@ -16,9 +16,9 @@
 |---|---|---|
 | **`npm run dev:netlify:test`** | 本地手工验收；只读受 guard 保护的 `.env.test` | ✅ 页面、生成 API、状态 API和图片读取均可用 |
 | `npm run dev:ui:test` | Playwright 的页面与浏览器 mock 验收 | ❌ 不提供真实生成 API，不能用于手工生图 |
-| `npm run dev` | 裸 React Router 开发 | ❌ 不提供 Netlify Functions，且端口可能与 Auth 回跳不一致 |
+| `npm run dev` | 裸 React Router 开发 | ❌ 不加载受 guard 的 disposable 环境，且端口/Auth/存储配置不一致 |
 
-所以 **Key 模式手工生图验收只使用 `npm run dev:netlify:test`**。启动器会避开被其他项目占用的 5173，显式选择 React Router target port，再由 8888 代理对外；不要据 `dev:ui:test` 的页面外观判断真实生成链路可用。
+所以 **Key 模式手工生图验收只使用 `npm run dev:netlify:test`**。它直接在 8888 启动受 guard 的 React Router 完整资源路由，不依赖 5173，也不经过旧 Netlify SSR 产物；若 8888 已占用会严格失败。不要据 `dev:ui:test` 的页面外观判断真实生成链路可用。
 
 ## 1. 前置（一次性）
 
@@ -38,11 +38,11 @@ npm run dev:netlify:test
 # → 打开 http://localhost:8888
 ```
 
-启动器只清理生成的 `build/` 与 `.netlify/functions-serve/`，保留 `.netlify/` 下其他本地状态；生成图片写入 gitignored 的 `.netlify/local-storage/`。它不会读取生产 S3 配置，也不会删除整个 `.netlify/`。
+启动器不读取或清理旧 `build/`，disposable 运行时也不加载 Netlify 部署适配器；生成图片写入 gitignored 的 `.netlify/local-storage/`。它不会读取生产 S3 配置，也不会删除整个 `.netlify/`。
 
 ### 故障排查：页面「没样式 / 很丑」
-先确认启动命令确实是 `npm run dev:netlify:test`，而不是仍在运行旧的 `npm run dev` / `dev:ui:test`。正常页面的 `<head>` 含 `/@vite/client`；若仍看到哈希构建资源，停止旧进程后重新运行受保护启动器。
-- ✅ 正常（vite dev）：含 `/@vite/client`、源码路径 `/app/entry.client.tsx`，`document.styleSheets` 有规则
+先确认启动命令确实是 `npm run dev:netlify:test`，而不是仍在运行旧的 `npm run dev` / `dev:ui:test`。正常页面会加载 Vite/React Router HMR 与 `/app/...` 源模块；若仍看到哈希构建资源，停止旧进程后重新运行受保护启动器。
+- ✅ 正常（vite dev）：控制台有 `[vite] connected`，模块来自 `/app/...` / `virtual:react-router/...`，`document.styleSheets` 有规则
 - ❌ 异常（服务 build）：是 `/assets/entry.client-<hash>.js` 这种哈希名、无 `/@vite/client`、CSS 文件 0 规则
 
 ## 3. 验收清单（注册 → 登录 → 生图）
