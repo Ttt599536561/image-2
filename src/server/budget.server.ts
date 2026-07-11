@@ -141,6 +141,7 @@ export async function cleanupBudgetKeys(): Promise<BudgetCleanupResult> {
       FROM generations
       WHERE started_at >= (date_trunc('day', now() AT TIME ZONE 'Asia/Shanghai') - interval '1 day') AT TIME ZONE 'Asia/Shanghai'
         AND started_at <  date_trunc('day', now() AT TIME ZONE 'Asia/Shanghai') AT TIME ZONE 'Asia/Shanghai'
+        AND credential_mode = 'system'
     )
     UPDATE app_config
     SET value_json = jsonb_set(value_json, '{ms}', to_jsonb((SELECT ms FROM yday_ms))), updated_at = now()

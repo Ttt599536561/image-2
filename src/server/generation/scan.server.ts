@@ -9,6 +9,7 @@
 //  - 终态行不再命中（status IN(queued,claimed,running) 谓词），可被平台重复触发/手动重跑而幂等。
 //  - 成功事务（UPDATE…WHERE status='running'，03 §4.3）与本 cron 互斥于行锁/状态谓词：先到先得、都只认中间态，终态行不再被改。
 import { getSql } from "../../db/db.server";
+import { expireDueGenerations } from "./deadline.server";
 import { triggerBackground } from "./trigger";
 
 /**
@@ -17,19 +18,7 @@ import { triggerBackground } from "./trigger";
  * 返回被置 failed 的行（供 cron 告警 queue_timeout_rescan）。
  */
 export async function rescanTimeouts(): Promise<{ id: string; userId: string }[]> {
-  const sql = getSql();
-  const rows = (await sql`
-    UPDATE generations
-    SET status='failed', error_code='provider_timeout', error='provider_timeout', completed_at=now(),
-        duration_ms=(EXTRACT(EPOCH FROM now()-COALESCE(started_at, updated_at))*1000)::int, updated_at=now()
-    WHERE status IN ('queued','claimed','running')
-      AND COALESCE(started_at, updated_at) < now() - interval '5 minutes'
-    RETURNING id, user_id`) as Array<{ id: string; user_id: string }>;
-  for (const g of rows) {
-    await sql`INSERT INTO events(type,user_id,payload)
-              VALUES('image_failed', ${g.user_id}, ${JSON.stringify({ generationId: g.id, reason: "provider_timeout" })}::jsonb)`;
-  }
-  return rows.map((g) => ({ id: g.id, userId: g.user_id }));
+  return expireDueGenerations();
 }
 
 /**
@@ -42,7 +31,7 @@ export async function dispatchStaleQueued(limit = 100): Promise<string[]> {
   const sql = getSql();
   const rows = (await sql`
     SELECT id FROM generations
-    WHERE status='queued' AND updated_at < now() - interval '45 seconds'
+    WHERE status='queued' AND deadline_at>now() AND updated_at < now() - interval '45 seconds'
     ORDER BY created_at ASC
     LIMIT ${limit}`) as Array<{ id: string }>;
   const ids = rows.map((r) => r.id);

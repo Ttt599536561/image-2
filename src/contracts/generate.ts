@@ -128,17 +128,22 @@ export function generateRequestErrorCode(error: z.ZodError): GenerateRequestErro
   return null;
 }
 
-// 按 status 的判别联合（与 04 §5.4 逐字段一致）：进行中无 creditsChargedMp，succeeded/failed 字段各异。
+const statusIdentity = {
+  generationId: z.uuid(),
+  credentialMode: CredentialModeSchema,
+  deadlineAt: z.iso.datetime(),
+};
+
 export const GenerateStatusResponse = z.discriminatedUnion("status", [
   z.object({
+    ...statusIdentity,
     status: z.enum(["queued", "claimed", "running"]),
-    startedAt: z.string().optional(),
+    startedAt: z.iso.datetime().optional(),
     elapsedMs: z.number().int().nonnegative().optional(),
   }),
   z.object({
+    ...statusIdentity,
     status: z.literal("succeeded"),
-    // width/height 可空：PNG 头解析失败时 images.width/height 为 NULL（02 §3.2 / 06 §7.3 readPngDims 可选），
-    // 与 DB 列及 image.ts/conversation.ts 同口径，避免成功行因维度缺失 .parse() 失败。
     image: z.object({
       publicUrl: z.url(),
       width: z.number().int().nullable(),
@@ -148,13 +153,21 @@ export const GenerateStatusResponse = z.discriminatedUnion("status", [
     durationMs: z.number().int().nonnegative(),
   }),
   z.object({
+    ...statusIdentity,
     status: z.literal("failed"),
     errorCode: z.enum(ERROR_CODES),
-    error: z.string(), // 脱敏可读串（可含状态码原文）
-    httpStatus: z.number().int().nullable(), // 中转 HTTP 状态码，无则 null
+    error: z.string(),
+    httpStatus: z.number().int().nullable(),
+    creditsChargedMp: z.literal(0),
   }),
 ]);
 export type GenerateStatusResponse = z.infer<typeof GenerateStatusResponse>;
+
+export const GenerateStatusBatchResponse = z.object({
+  items: z.array(GenerateStatusResponse).max(50),
+  missingIds: z.array(z.uuid()).max(50),
+});
+export type GenerateStatusBatchResponse = z.infer<typeof GenerateStatusBatchResponse>;
 
 // POST /api/generate 入队成功（202）。conversationId：首次提交在 "/" 入队后服务端建会话，
 // 前端据此 navigate(/c/:id)（08 §9.2「首次提交成功后服务端建 conversation 并 navigate」）。

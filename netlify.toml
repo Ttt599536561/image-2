@@ -21,7 +21,7 @@
     Cache-Control = "public, max-age=31536000, immutable"
 
 # 生图 REST：同步入队 /api/generate + 短轮询 /api/generate-status → 经典 Functions（v2 Request 处理器）。
-# generate-background 由 generate 内部 fire-and-forget 触发（/.netlify/functions/generate-background，-background=15min 后台）。
+# generate-background 由 generate await 短触发请求，不等待 background job（-background=15min 后台）。
 [[redirects]]
   from = "/api/generate"
   to = "/.netlify/functions/generate"
@@ -36,6 +36,8 @@
 # 图片清理 01:00。钱 cron（过期/对账）走 Pool/WS 事务，只读扫描走 HTTP；各 handler try/catch → 告警，绝不静默吞。
 [functions."cron-timeout-rescan"]
   schedule = "*/1 * * * *"
+[functions."cron-clean-generation-credentials"]
+  schedule = "*/5 * * * *"
 [functions."cron-budget-cleanup"]
   schedule = "0 16 * * *"
 [functions."cron-expire-credits"]
