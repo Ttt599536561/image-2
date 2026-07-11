@@ -1,6 +1,7 @@
 // 会话契约（07 §8.3）。列表（分页倒序）+ 详情（含 generations 正序、含图/态）+ 改名。
 import { z } from "zod";
 import { CredentialModeSchema, ERROR_CODES } from "./generate";
+import { PublicMediaUrlSchema } from "./public-media-url";
 
 export const ConversationListItem = z.object({
   id: z.uuid(),
@@ -36,7 +37,7 @@ export const ConversationGeneration = z.object({
   image: z
     .object({
       id: z.uuid(),
-      publicUrl: z.url(),
+      publicUrl: PublicMediaUrlSchema,
       width: z.number().int().nullable(),
       height: z.number().int().nullable(),
       savedToLibrary: z.boolean(), // 「存入资产库」按钮置灰依据（08 §9.4）

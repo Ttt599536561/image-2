@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { classifyAnnouncementLink } from "../lib/announcementLink";
 import { passwordField } from "./account";
+import { PublicMediaUrlSchema } from "./public-media-url";
 import { REDEEM_ALPHABET } from "./redeem";
 
 export { REDEEM_ALPHABET };
@@ -125,7 +126,7 @@ export type InspirationAction = z.infer<typeof InspirationAction>;
 
 // 灵感封面本地上传（multipart）响应：只回公有 URL，前端填进表单 cover（cover_key 由服务端据 cover_url 派生）。
 export const InspirationCoverUploadResponse = z.object({
-  coverUrl: z.url(),
+  coverUrl: PublicMediaUrlSchema,
 });
 export type InspirationCoverUploadResponse = z.infer<typeof InspirationCoverUploadResponse>;
 

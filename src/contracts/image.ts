@@ -1,5 +1,6 @@
 // 资产库契约（07 §8.3）。列表（日期筛选 + 分页，前端按 createdAt 分组）+ 存入 + 批量删除。
 import { z } from "zod";
+import { PublicMediaUrlSchema } from "./public-media-url";
 
 // range ∈ {all,today,7d,30d,custom}（§24-8），custom 配 from/to。
 export const IMAGE_RANGES = ["all", "today", "7d", "30d", "custom"] as const;
@@ -19,7 +20,7 @@ export const ImageItem = z.object({
   id: z.uuid(),
   generationId: z.uuid(),
   prompt: z.string(),
-  publicUrl: z.url(), // 前端只读它（06 §7.6）
+  publicUrl: PublicMediaUrlSchema, // 前端只读它（06 §7.6）
   width: z.number().int().nullable(),
   height: z.number().int().nullable(),
   createdAt: z.string(),

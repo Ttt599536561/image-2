@@ -1,6 +1,7 @@
 // 生成契约（07 §8.5 / 04 §5.4）。阶段二补全为 Zod（前后端单一真相源）。
 // 兼容：阶段一以纯 TS 类型消费（全部 `import type`），故 const+inferred type 同名不破坏既有 import。
 import { z } from "zod";
+import { PublicMediaUrlSchema } from "./public-media-url";
 
 export const SIZES = [
   "auto",
@@ -145,7 +146,7 @@ export const GenerateStatusResponse = z.discriminatedUnion("status", [
     ...statusIdentity,
     status: z.literal("succeeded"),
     image: z.object({
-      publicUrl: z.url(),
+      publicUrl: PublicMediaUrlSchema,
       width: z.number().int().nullable(),
       height: z.number().int().nullable(),
     }),
