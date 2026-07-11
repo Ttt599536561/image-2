@@ -59,6 +59,25 @@ jobs:
       - name: Validate Docker Compose
         run: npm run docker:validate
 
+      - name: Build Docker image
+        run: docker build --tag ai-image-workshop:ci .
+
+      - name: Validate Docker runtime dependencies
+        run: |
+          docker run --rm ai-image-workshop:ci node -e "
+            const fs = require('node:fs');
+            const required = ['tsx', 'better-auth', '@react-router/serve', '.bin/react-router-serve'];
+            const forbidden = ['drizzle-kit', 'vitest', 'vite', '@esbuild-kit/core-utils'];
+            for (const name of required) {
+              if (!fs.existsSync('/app/node_modules/' + name)) throw new Error('Missing runtime dependency: ' + name);
+            }
+            for (const name of forbidden) {
+              if (fs.existsSync('/app/node_modules/' + name)) throw new Error('Unexpected runtime dependency: ' + name);
+            }
+            if (require('/app/package.json').devDependencies) throw new Error('Runtime manifest still has devDependencies');
+            console.log('Docker runtime dependency boundary is valid');
+          "
+
 # TODO（需 Neon API token，10 §11.10）：每 PR 起一条 Neon test branch → 跑迁移 → 注入 DATABASE_URL_UNPOOLED 给
 #   `npm run test:money`（钱链路真库测试，命门）→ PR 关闭时销毁分支。当前 test:money 对共享 direct 串本地跑，
 #   未进 CI（避免多 PR 并发污染共享库）。落地见 tests/setup/neon-branch.ts（待建）。
