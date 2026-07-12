@@ -24,7 +24,22 @@ export function requireSystemUpdatePost(
   }
 
   try {
-    if (new URL(origin).origin !== new URL(configuredUrl).origin) {
+    const requestOrigin = new URL(origin);
+    const configuredOrigin = new URL(configuredUrl);
+    const isHttpOrigin = (url: URL) => url.protocol === "https:" || url.protocol === "http:";
+    const hasOriginOnlySyntax =
+      origin === requestOrigin.origin &&
+      requestOrigin.username === "" &&
+      requestOrigin.password === "" &&
+      requestOrigin.pathname === "/" &&
+      requestOrigin.search === "" &&
+      requestOrigin.hash === "";
+    if (
+      !isHttpOrigin(requestOrigin) ||
+      !isHttpOrigin(configuredOrigin) ||
+      !hasOriginOnlySyntax ||
+      requestOrigin.origin !== configuredOrigin.origin
+    ) {
       return httpError(403, "FORBIDDEN", ORIGIN_ERROR);
     }
   } catch {

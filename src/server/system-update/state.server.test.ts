@@ -496,11 +496,27 @@ describe("system update state I/O", () => {
         },
       ),
       sync: vi.fn(async () => {
-        events.push("sync");
+        events.push("token-sync");
       }),
       stat: vi.fn(async () => identity),
       close: vi.fn(async () => {
         events.push("write-close");
+      }),
+    };
+    const reservationDirectoryHandle = {
+      sync: vi.fn(async () => {
+        events.push("reservation-directory-sync");
+      }),
+      close: vi.fn(async () => {
+        events.push("reservation-directory-close");
+      }),
+    };
+    const inboxDirectoryHandle = {
+      sync: vi.fn(async () => {
+        events.push("inbox-sync");
+      }),
+      close: vi.fn(async () => {
+        events.push("inbox-close");
       }),
     };
     const ownerHandle = {
@@ -515,6 +531,14 @@ describe("system update state I/O", () => {
       expect(options).toEqual({ recursive: false, mode: 0o700 });
     });
     fsControl.open = vi.fn(async (path: string, flags: number, mode?: number) => {
+      if (path === directoryPath) {
+        expect(flags).toBe(constants.O_RDONLY);
+        return reservationDirectoryHandle;
+      }
+      if (path === inbox) {
+        expect(flags).toBe(constants.O_RDONLY);
+        return inboxDirectoryHandle;
+      }
       expect(path).toBe(tokenPath);
       if (mode === 0o600) {
         expect(flags).toBe(
@@ -526,7 +550,7 @@ describe("system update state I/O", () => {
         return writeHandle;
       }
       expect(flags).toBe(constants.O_RDONLY | constants.O_NOFOLLOW);
-      expect(events.at(-1)).toBe("write-close");
+      events.push("owner-open");
       return ownerHandle;
     });
     fsControl.lstat = vi.fn(async (path: string) =>
@@ -536,12 +560,65 @@ describe("system update state I/O", () => {
     const lease = await createSystemUpdateReservation(reservation, inbox);
 
     expect(Buffer.concat(chunks)).toEqual(canonical);
-    expect(events.indexOf("sync")).toBeGreaterThan(events.lastIndexOf("write"));
-    expect(events.indexOf("write-close")).toBeGreaterThan(events.indexOf("sync"));
+    expect(events.indexOf("token-sync")).toBeGreaterThan(events.lastIndexOf("write"));
+    expect(events.indexOf("write-close")).toBeGreaterThan(events.indexOf("token-sync"));
+    expect(events.indexOf("reservation-directory-sync")).toBeGreaterThan(
+      events.indexOf("write-close"),
+    );
+    expect(events.indexOf("inbox-sync")).toBeGreaterThan(
+      events.indexOf("reservation-directory-close"),
+    );
+    expect(events.indexOf("owner-open")).toBeGreaterThan(events.indexOf("inbox-close"));
     expect(ownerHandle.close).not.toHaveBeenCalled();
     await handoffSystemUpdateReservation(lease);
     expect(events.at(-1)).toBe("owner-close");
   });
+
+  it.each(["reservation-directory", "inbox"] as const)(
+    "fails closed when %s durability sync fails before returning a lease",
+    async (failureStage) => {
+      const inbox = "C:\\updater\\inbox";
+      const directoryPath = join(inbox, ".start-reservation");
+      const tokenPath = join(directoryPath, `${reservation.requestId}.json`);
+      const primary = errno("EIO", `${failureStage} sync failed`);
+      const directoryIdentity = directoryStat(30n, 40n);
+      const tokenIdentity = fileStat(31n, 41n);
+      const writeHandle = makeRequestTempHandle();
+      writeHandle.stat.mockResolvedValue(tokenIdentity);
+      const reservationDirectoryHandle = makeDirectoryHandle();
+      const inboxDirectoryHandle = makeDirectoryHandle();
+      const ownerHandle = {
+        stat: vi.fn(async () => tokenIdentity),
+        close: vi.fn(async () => {}),
+      };
+      reservationDirectoryHandle.sync.mockImplementation(async () => {
+        if (failureStage === "reservation-directory") throw primary;
+      });
+      inboxDirectoryHandle.sync.mockImplementation(async () => {
+        if (failureStage === "inbox") throw primary;
+      });
+      let ownerOpened = false;
+      fsControl.mkdir = vi.fn(async () => {});
+      fsControl.open = vi.fn(async (path: string, flags: number, mode?: number) => {
+        if (path === directoryPath) return reservationDirectoryHandle;
+        if (path === inbox) return inboxDirectoryHandle;
+        if (mode === 0o600) return writeHandle;
+        ownerOpened = true;
+        expect(flags).toBe(constants.O_RDONLY | constants.O_NOFOLLOW);
+        return ownerHandle;
+      });
+      fsControl.lstat = vi.fn(async (path: string) =>
+        path === directoryPath ? directoryIdentity : tokenIdentity,
+      );
+      fsControl.unlink = vi.fn(async () => {});
+      fsControl.rmdir = vi.fn(async () => {});
+
+      await expect(createSystemUpdateReservation(reservation, inbox)).rejects.toBe(primary);
+      expect(ownerOpened).toBe(false);
+      expect(fsControl.unlink).toHaveBeenCalledWith(tokenPath);
+      expect(fsControl.rmdir).toHaveBeenCalledWith(directoryPath);
+    },
+  );
 
   it("preserves a reservation write failure when cleanup also fails", async () => {
     const inbox = "C:\\updater\\inbox";
@@ -564,7 +641,7 @@ describe("system update state I/O", () => {
 
     await expect(createSystemUpdateReservation(reservation, inbox)).rejects.toBe(primary);
     expect(fsControl.unlink).toHaveBeenCalledWith(tokenPath);
-    expect(fsControl.rmdir).toHaveBeenCalledWith(directoryPath);
+    expect(fsControl.rmdir).not.toHaveBeenCalled();
   });
 
   it("releases the route-owned token and tolerates a missing reservation directory", async () => {
@@ -593,7 +670,7 @@ describe("system update state I/O", () => {
 
     await expect(releaseSystemUpdateReservation(lease)).resolves.toBeUndefined();
     expect(fsControl.unlink).toHaveBeenCalledWith(tokenPath);
-    expect(fsControl.rmdir).toHaveBeenCalledWith(directoryPath);
+    expect(fsControl.rmdir).not.toHaveBeenCalled();
   });
 
   it("does not remove a new owner directory when an expired lease releases", async () => {
@@ -639,7 +716,8 @@ describe("system update state I/O", () => {
       close: vi.fn(async () => {}),
     };
     let openCount = 0;
-    fsControl.open = vi.fn(async () => {
+    fsControl.open = vi.fn(async (path: string) => {
+      if (path === directoryPath || path === inbox) return makeDirectoryHandle();
       openCount += 1;
       return openCount === 1 ? writeHandle : ownerHandle;
     });
@@ -672,7 +750,8 @@ describe("system update state I/O", () => {
     };
     let openCount = 0;
     fsControl.mkdir = vi.fn(async () => {});
-    fsControl.open = vi.fn(async () => {
+    fsControl.open = vi.fn(async (path: string) => {
+      if (path === directoryPath || path === inbox) return makeDirectoryHandle();
       openCount += 1;
       return openCount === 1 ? writeHandle : ownerHandle;
     });

@@ -323,15 +323,35 @@ async function bestEffortRmdir(path: string): Promise<void> {
 async function unlinkReservationTokenIfOwned(
   path: string,
   identity: ReservationIdentity,
-): Promise<void> {
+): Promise<boolean> {
   try {
     const stat = await reservationPathStat(path);
     if (isLinkedRegularFile(stat) && sameReservationIdentity(identity, reservationIdentity(stat))) {
-      await bestEffortUnlink(path);
+      await unlink(path);
+      return true;
     }
   } catch {
     // A missing or changed token belongs to another lifecycle and is left alone.
   }
+  return false;
+}
+
+async function syncDirectoryStrict(path: string): Promise<void> {
+  const directory = await open(path, constants.O_RDONLY);
+  let syncError: unknown;
+  try {
+    await directory.sync();
+  } catch (error) {
+    if (!(process.platform === "win32" && hasCode(error, "EPERM"))) {
+      syncError = error;
+    }
+  }
+  try {
+    await directory.close();
+  } catch (error) {
+    if (syncError === undefined) syncError = error;
+  }
+  if (syncError !== undefined) throw syncError;
 }
 
 export async function createSystemUpdateReservation(
@@ -374,6 +394,10 @@ export async function createSystemUpdateReservation(
       writeClosed = true;
     }
 
+    // Persist both nested directory entries before a request can be published.
+    await syncDirectoryStrict(directoryPath);
+    await syncDirectoryStrict(inbox);
+
     let ownerHandle: FileHandle | undefined;
     try {
       ownerHandle = await open(tokenPath, RESERVATION_READ_FLAGS);
@@ -412,10 +436,10 @@ export async function createSystemUpdateReservation(
     }
   } catch (error) {
     if (!writeClosed) await closeReservationHandle(writeHandle);
-    if (tokenIdentity) {
-      await unlinkReservationTokenIfOwned(tokenPath, tokenIdentity);
-    }
-    await bestEffortRmdir(directoryPath);
+    const removedToken = tokenIdentity
+      ? await unlinkReservationTokenIfOwned(tokenPath, tokenIdentity)
+      : false;
+    if (!tokenIdentity || removedToken) await bestEffortRmdir(directoryPath);
     throw error;
   }
 }
@@ -472,10 +496,10 @@ export async function releaseSystemUpdateReservation(
 
   await closeReservationHandle(lease.handle);
   closedReservationLeases.add(lease);
-  if (mayUnlinkToken) {
-    await unlinkReservationTokenIfOwned(lease.tokenPath, lease.tokenIdentity);
-  }
-  await bestEffortRmdir(lease.directoryPath);
+  const removedToken = mayUnlinkToken
+    ? await unlinkReservationTokenIfOwned(lease.tokenPath, lease.tokenIdentity)
+    : false;
+  if (removedToken) await bestEffortRmdir(lease.directoryPath);
 }
 
 export async function handoffSystemUpdateReservation(
