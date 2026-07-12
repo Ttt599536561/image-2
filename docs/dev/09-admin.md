@@ -8,6 +8,10 @@
 
 ## 10.1 总览与 RBAC
 
+后台导航包含 `/admin/system-update`。该页显示镜像内固化的版本/提交、宿主机更新状态和官方 GitHub 最新稳定版；只有 `enabled + available + idle` 才能点击“立即更新”。请求接受后浏览器每 2 秒轮询，并把请求 ID 保存在 `sessionStorage`，所以 Web 重启或页面刷新不会丢失跟踪。断线只表示正在重启，不推断失败；页面同时展示宿主机 `status` 命令。
+
+检查更新与启动更新均由 `/api/admin/system-update*` 再次执行 admin 鉴权和严格同源 JSON POST 校验。启动前先写 `system_update_start` 审计，再原子发布唯一请求。Web 不执行 Git、Docker 或 shell，也不接触项目根目录。
+
 **单角色（本期）**：`users.role ∈ {user, admin}`（[02 §3.2](02-database.md) 已建）。RBAC 多级分层（超管/审核员/客服）后置 [§23](../redesign-requirements.md)，但 `role` 字段已在，将来加级不改表。
 
 ### 路由与守卫

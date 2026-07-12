@@ -1,0 +1,33 @@
+[Unit]
+Description=Apply a guarded AI Image Workshop stable release update
+After=docker.service network-online.target
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=@PROJECT_ROOT@
+ExecStart=/usr/local/sbin/ai-image-workshop-update process-request
+Restart=on-failure
+RestartSec=20s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+BindPaths=@PROJECT_ROOT@
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictRealtime=true
+LockPersonality=true
+ReadWritePaths=@PROJECT_ROOT@
+ReadWritePaths=/var/lib/ai-image-workshop-updater
+ReadWritePaths=/run/lock
+ReadWritePaths=/var/run/docker.sock
+ReadWritePaths=/usr/local/sbin
+
+[Install]
+WantedBy=multi-user.target

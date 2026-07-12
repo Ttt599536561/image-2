@@ -1,6 +1,6 @@
 # 当前状态
 
-更新：2026-07-12。当前发布形态是 Debian 单机 Docker、自托管 PostgreSQL、本地媒体，以及 system/custom 双 Key 模式。
+更新：2026-07-13。当前发布形态是 Debian 单机 Docker、自托管 PostgreSQL、本地媒体、system/custom 双 Key 模式，以及管理后台稳定版更新器。
 
 | 里程碑 | 状态 | 证据 |
 |---|---|---|
@@ -12,6 +12,7 @@
 | Key modes | Complete | Fresh install enables system/custom; custom credentials are encrypted per job with zero site debit |
 | Production infrastructure | Deployed | Nginx forwards HTTPS traffic to the healthy loopback Web service; functional acceptance remains |
 | Site favicon | Complete | `/favicon.svg?v=1` is linked globally and served from the production domain |
+| Admin stable updater | Complete | Admin check/start UI, isolated control mounts, guarded systemd update and recovery, monotonic Release CI |
 
 ## 当前线上实例
 

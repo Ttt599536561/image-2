@@ -1,5 +1,9 @@
 x-app: &app
-  build: .
+  build:
+    context: .
+    args:
+      APP_VERSION: ${BUILD_APP_VERSION:-invalid}
+      APP_COMMIT_SHA: ${BUILD_APP_COMMIT_SHA:-invalid}
   image: ai-image-workshop:${IMAGE_TAG:-latest}
   env_file:
     - path: deploy/.env.production
@@ -29,6 +33,21 @@ services:
   web:
     <<: *app
     command: npm run start:web
+    group_add:
+      - "${UPDATER_CONTROL_GID:?UPDATER_CONTROL_GID is required}"
+    volumes:
+      - media_data:/app/data/media
+      - type: bind
+        source: ${UPDATER_CONTROL_ROOT:?UPDATER_CONTROL_ROOT is required}/inbox
+        target: /run/ai-image-workshop-updater/inbox
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${UPDATER_CONTROL_ROOT:?UPDATER_CONTROL_ROOT is required}/state
+        target: /run/ai-image-workshop-updater/state
+        read_only: true
+        bind:
+          create_host_path: false
     depends_on:
       postgres:
         condition: service_healthy

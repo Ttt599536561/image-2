@@ -12,6 +12,7 @@
 | `scheduler` | 超时、凭据、预算、积分、对账和图片清理 | PostgreSQL + `media_data`，单副本 |
 | `postgres` | 账号、账本、队列、审计和状态真相源 | `postgres_data`，不发布宿主机 `5432` |
 | `media_data` | 生成图、上传图和灵感图 | 共享命名卷，容器路径 `/app/data/media` |
+| 宿主机更新器 | 校验官方 Release、备份、构建、迁移、回滚/恢复 | root systemd oneshot；固定控制目录，不暴露给 worker/scheduler |
 
 启动命令在 `package.json`：`start:web`、`start:worker`、`start:scheduler`。仓库中的 `netlify/functions` 只是过渡期 handler 源码，Docker 运行时不依赖 Netlify 平台。
 
@@ -35,6 +36,8 @@ docker compose --env-file deploy/.env.production ps
 系统 Key、数据库连接串、认证密钥和存储凭据都只能在服务端使用，不得使用 `VITE_` 前缀。custom Key 是受控例外：浏览器按用户保存明文，经 HTTPS 提交，服务端只保留任务级 AES-GCM 密文并在终态删除。
 
 当前一键自托管安装显式写入 `CUSTOM_KEY_MODES_ENABLED=true`，用户上线即可选择 custom；缺失或 `false` 仍作为紧急停止新 custom 提交的 fail-closed 开关。
+
+镜像在运行阶段固化 `APP_VERSION` 与完整 `APP_COMMIT_SHA`，且构建值必须与 `package.json`/Git 一致。`web` 对 `/run/ai-image-workshop-updater/inbox` 只有请求写权限，对 `state` 只有读取权限；它没有 Docker socket、项目根目录或执行宿主机命令的能力。
 
 ## 核心验证
 

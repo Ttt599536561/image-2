@@ -24,6 +24,7 @@
     "assert-no-secrets": "node --env-file-if-exists=.env --import tsx scripts/assert-no-secrets-in-bundle.ts",
     "docker:validate": "docker compose --env-file deploy/.env.production.example config --quiet",
     "test:deploy": "bash deploy/install-lib.test.sh && bash deploy/install.test.sh && bash deploy/auth-migration.test.sh && bash deploy/backup-restore.test.sh && bash deploy/ci-smoke.test.sh",
+    "release:validate": "node --import tsx scripts/validate-release.ts",
     "test:deploy:smoke": "bash deploy/ci-smoke.sh"
   },
   "dependencies": {

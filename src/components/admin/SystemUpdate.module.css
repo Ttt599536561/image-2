@@ -1,0 +1,298 @@
+.grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-5);
+  align-items: stretch;
+}
+
+.panel {
+  min-width: 0;
+  padding: var(--space-5);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+
+.panelHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+.panel h2,
+.progressBand h2 {
+  margin: 2px 0 0;
+  color: var(--text-primary);
+  font-size: 17px;
+  font-weight: 650;
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.stateBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  padding: 3px 9px;
+  border-radius: var(--radius-full);
+  font-size: 12px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.stateNeutral {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+}
+
+.stateAvailable {
+  background: var(--accent-surface);
+  color: var(--accent-on-surface);
+}
+
+.stateSuccess {
+  background: var(--success-surface);
+  color: var(--success-text);
+}
+
+.details {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+
+.details > div {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-top: 0.5px solid var(--border-subtle);
+}
+
+.details dt {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.details dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.mono,
+.progressContent code,
+.commandRow code {
+  font-family: var(--font-mono);
+}
+
+.releaseSummary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: 48px;
+  color: var(--text-primary);
+}
+
+.releaseSummary p,
+.releaseDetails p {
+  margin: 0;
+}
+
+.releaseDetails {
+  margin-top: var(--space-4);
+  padding-top: var(--space-4);
+  border-top: 0.5px solid var(--border-subtle);
+}
+
+.releaseTitleRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  color: var(--text-primary);
+}
+
+.releaseTitleRow a {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  color: var(--accent-on-surface);
+  font-size: 12px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.releaseMeta {
+  margin-top: var(--space-2) !important;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.releaseNotes {
+  margin-top: var(--space-3) !important;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.updateButton {
+  width: 100%;
+  height: 38px;
+  justify-content: center;
+  margin-top: var(--space-5);
+}
+
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid;
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.notice > svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.notice p {
+  margin: 4px 0 0;
+  color: inherit;
+}
+
+.notice code {
+  display: block;
+  margin-top: var(--space-2);
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.noticeWarning {
+  border-color: var(--warning-border);
+  background: var(--warning-surface);
+  color: var(--warning-text);
+}
+
+.noticeDanger {
+  border-color: var(--danger-border);
+  background: var(--danger-surface);
+  color: var(--danger-text);
+}
+
+.progressBand {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  margin-top: var(--space-5);
+  padding: var(--space-5) 0;
+  border-top: 0.5px solid var(--border-subtle);
+  border-bottom: 0.5px solid var(--border-subtle);
+}
+
+.progressIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border-radius: var(--radius-md);
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+}
+
+.progressContent {
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.progressContent p {
+  margin: var(--space-2) 0 0;
+  overflow-wrap: anywhere;
+}
+
+.errorText {
+  color: var(--danger-text);
+}
+
+.commandRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  color: var(--text-primary);
+}
+
+.commandRow code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  padding: 0;
+  border: 0.5px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.spin {
+  animation: spin 900ms linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 760px) {
+  .grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .details > div {
+    grid-template-columns: 96px minmax(0, 1fr);
+  }
+
+  .releaseTitleRow {
+    flex-direction: column;
+  }
+
+  .commandRow {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin {
+    animation-duration: 1.8s;
+  }
+}

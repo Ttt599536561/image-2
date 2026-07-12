@@ -9,6 +9,10 @@ FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000
 WORKDIR /app
 COPY package.json package-lock.json ./
+ARG APP_VERSION
+ARG APP_COMMIT_SHA
+RUN node -e "const p=require('./package.json');const [v,s]=process.argv.slice(1);if(v!==p.version)throw Error('APP_VERSION mismatch');if(!/^[0-9a-f]{40,64}$/.test(s))throw Error('invalid APP_COMMIT_SHA')" "$APP_VERSION" "$APP_COMMIT_SHA"
+ENV APP_VERSION=${APP_VERSION} APP_COMMIT_SHA=${APP_COMMIT_SHA}
 # Prevent root dev dependencies that are also optional peers from entering the runtime tree.
 RUN npm pkg delete devDependencies \
     && npm ci --omit=dev --omit=peer \

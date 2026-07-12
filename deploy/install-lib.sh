@@ -142,13 +142,87 @@ _deploy_env_key_allowed() {
       POSTGRES_DB | POSTGRES_USER | POSTGRES_PASSWORD | DATABASE_DRIVER | DATABASE_URL | \
       DATABASE_URL_UNPOOLED | STORAGE_DRIVER | LOCAL_STORAGE_ROOT | BETTER_AUTH_SECRET | \
       BETTER_AUTH_URL | RELAY_API_KEY | RELAY_BASE_URL | CUSTOM_KEY_JOB_ENCRYPTION_KEY | \
-      CUSTOM_KEY_MODES_ENABLED | WORKER_CONCURRENCY | TRUST_PROXY)
+      CUSTOM_KEY_MODES_ENABLED | WORKER_CONCURRENCY | TRUST_PROXY | UPDATER_CONTROL_ROOT | \
+      UPDATER_CONTROL_GID)
       return 0
       ;;
     *)
       return 1
       ;;
   esac
+}
+
+migrate_updater_environment() {
+  local target_path="${1-}"
+  local control_root="${2-}"
+  local control_gid="${3-}"
+  [[ -f "$target_path" && ! -L "$target_path" ]] || {
+    die "部署环境文件不安全：$target_path"
+    return 1
+  }
+  [[ "$control_root" == '/var/lib/ai-image-workshop-updater' ]] || {
+    die 'UPDATER_CONTROL_ROOT 必须使用固定路径'
+    return 1
+  }
+  [[ "$control_gid" =~ ^[1-9][0-9]*$ ]] || {
+    die 'UPDATER_CONTROL_GID 必须是正整数'
+    return 1
+  }
+
+  # Parse in a subshell so validation cannot export deployment secrets here.
+  (load_deploy_env "$target_path") || return 1
+
+  local root_seen=0 gid_seen=0 line key encoded decoded
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    key="${line%%=*}"
+    encoded="${line#*=}"
+    case "$key" in
+      UPDATER_CONTROL_ROOT)
+        decoded="$(dotenv_unquote "$encoded")" || return 1
+        [[ "$decoded" == "$control_root" ]] || {
+          die '已有 UPDATER_CONTROL_ROOT 与固定控制目录不一致'
+          return 1
+        }
+        root_seen=1
+        ;;
+      UPDATER_CONTROL_GID)
+        decoded="$(dotenv_unquote "$encoded")" || return 1
+        [[ "$decoded" == "$control_gid" ]] || {
+          die '已有 UPDATER_CONTROL_GID 与系统组不一致'
+          return 1
+        }
+        gid_seen=1
+        ;;
+    esac
+  done <"$target_path"
+  ((root_seen == 0 || gid_seen == 0)) || return 0
+
+  local target_dir="${target_path%/*}" temp_path=''
+  [[ "$target_dir" != "$target_path" ]] || target_dir='.'
+  temp_path="$(mktemp "${target_path}.tmp.XXXXXX")" || return 1
+  if ! cp -- "$target_path" "$temp_path"; then
+    rm -f -- "$temp_path"
+    return 1
+  fi
+  # A blank separator also repairs an old file that lacked a final newline.
+  printf '\n' >>"$temp_path"
+  if ((root_seen == 0)); then
+    _write_deploy_env_line UPDATER_CONTROL_ROOT "$control_root" >>"$temp_path" || {
+      rm -f -- "$temp_path"
+      return 1
+    }
+  fi
+  if ((gid_seen == 0)); then
+    _write_deploy_env_line UPDATER_CONTROL_GID "$control_gid" >>"$temp_path" || {
+      rm -f -- "$temp_path"
+      return 1
+    }
+  fi
+  chmod 0600 -- "$temp_path"
+  sync -f "$temp_path"
+  mv -fT -- "$temp_path" "$target_path"
+  sync -f "$target_dir"
 }
 
 load_deploy_env() {
@@ -403,6 +477,8 @@ render_production_env() {
   local postgres_user="${POSTGRES_USER:-ai_image_workshop}"
   local auth_url="${BETTER_AUTH_URL-}"
   local relay_base_url="${RELAY_BASE_URL:-https://api.tangguo.xin/v1}"
+  local updater_control_root="${UPDATER_CONTROL_ROOT:-/var/lib/ai-image-workshop-updater}"
+  local updater_control_gid="${UPDATER_CONTROL_GID-}"
 
   if [[ ! "$host_port" =~ ^[0-9]+$ ]] || ((host_port < 1 || host_port > 65535)); then
     die 'WEB_HOST_PORT 无效'
@@ -418,6 +494,14 @@ render_production_env() {
   }
   [[ -n "$auth_url" ]] || {
     die '缺少 BETTER_AUTH_URL'
+    return 1
+  }
+  [[ "$updater_control_root" == '/var/lib/ai-image-workshop-updater' ]] || {
+    die 'UPDATER_CONTROL_ROOT 必须使用固定路径'
+    return 1
+  }
+  [[ "$updater_control_gid" =~ ^[1-9][0-9]*$ ]] || {
+    die '缺少有效的 UPDATER_CONTROL_GID'
     return 1
   }
 
@@ -474,6 +558,8 @@ render_production_env() {
       CUSTOM_KEY_MODES_ENABLED 'true'
       WORKER_CONCURRENCY '1'
       TRUST_PROXY 'true'
+      UPDATER_CONTROL_ROOT "$updater_control_root"
+      UPDATER_CONTROL_GID "$updater_control_gid"
     )
     local entry_index
     for ((entry_index = 0; entry_index < ${#entries[@]}; entry_index += 2)); do

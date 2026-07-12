@@ -5,6 +5,10 @@ on:
   pull_request:
   push:
     branches: [main]
+    tags: ["v*"]
+
+permissions:
+  contents: read
 
 jobs:
   ci:
@@ -19,6 +23,14 @@ jobs:
 
       - name: Install deps
         run: npm ci
+
+      - name: Validate stable release tag
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          latest_tag="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // ""')"
+          npm run release:validate -- --tag "$GITHUB_REF_NAME" --latest-tag "$latest_tag"
 
       - name: Dependency audit (high and critical)
         run: npm audit --audit-level=high
@@ -64,14 +76,17 @@ jobs:
         run: npm run test:deploy
 
       - name: Build Docker image
-        run: docker build --tag ai-image-workshop:ci .
+        run: |
+          docker build --tag ai-image-workshop:ci \
+            --build-arg APP_VERSION="$(jq -er '.version' package.json)" \
+            --build-arg APP_COMMIT_SHA="$GITHUB_SHA" .
 
       - name: Validate Docker runtime dependencies
         run: |
           docker run --rm ai-image-workshop:ci node -e "
             const fs = require('node:fs');
-            const required = ['tsx', 'better-auth', '@react-router/serve', '.bin/react-router-serve'];
-            const forbidden = ['drizzle-kit', 'vitest', 'vite', '@esbuild-kit/core-utils'];
+            const required = ['tsx', 'semver', 'better-auth', '@react-router/serve', '.bin/react-router-serve'];
+            const forbidden = ['@types/semver', 'drizzle-kit', 'vitest', 'vite', '@esbuild-kit/core-utils'];
             for (const name of required) {
               if (!fs.existsSync('/app/node_modules/' + name)) throw new Error('Missing runtime dependency: ' + name);
             }
@@ -87,6 +102,77 @@ jobs:
         env:
           IMAGE_TAG: ci
         run: npm run test:deploy:smoke
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: stable-release-${{ github.repository_id }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install release dependencies
+        run: npm ci
+
+      - name: Revalidate and publish stable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          latest_tag="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases --limit 1 --json tagName --jq '.[0].tagName // ""')"
+          npm run release:validate -- --tag "$tag" --latest-tag "$latest_tag"
+
+          git fetch --force origin main "refs/tags/$tag:refs/tags/$tag"
+          remote_object="$(git ls-remote --refs origin "refs/tags/$tag" | awk 'NR==1 {print $1}')"
+          [[ "$remote_object" =~ ^[0-9a-f]{40,64}$ ]]
+          remote_commit="$(git rev-parse "$remote_object^{commit}")"
+          [[ "$remote_commit" == "$GITHUB_SHA" ]]
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release already exists: $tag" >&2
+            exit 1
+          fi
+
+          created=0
+          cleanup_draft() {
+            status=$?
+            trap - EXIT
+            if ((status != 0 && created == 1)); then
+              is_draft="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null || true)"
+              if [[ "$is_draft" == true ]]; then
+                gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes || true
+              fi
+            fi
+            exit "$status"
+          }
+          trap cleanup_draft EXIT
+
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
+            --verify-tag --generate-notes --fail-on-no-commits \
+            --title "$tag" --draft
+          created=1
+          gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
+            --verify-tag --draft=false --latest
+
+          release_json="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json tagName,isDraft,isPrerelease)"
+          [[ "$(jq -r .tagName <<<"$release_json")" == "$tag" ]]
+          [[ "$(jq -r .isDraft <<<"$release_json")" == false ]]
+          [[ "$(jq -r .isPrerelease <<<"$release_json")" == false ]]
+          [[ "$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)" == "$tag" ]]
+          created=0
 
 # TODO（需 Neon API token，10 §11.10）：每 PR 起一条 Neon test branch → 跑迁移 → 注入 DATABASE_URL_UNPOOLED 给
 #   `npm run test:money`（钱链路真库测试，命门）→ PR 关闭时销毁分支。当前 test:money 对共享 direct 串本地跑，

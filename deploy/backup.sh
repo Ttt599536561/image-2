@@ -87,6 +87,7 @@ clear_deploy_variables() {
   unset POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD DATABASE_DRIVER DATABASE_URL DATABASE_URL_UNPOOLED
   unset STORAGE_DRIVER LOCAL_STORAGE_ROOT BETTER_AUTH_SECRET BETTER_AUTH_URL RELAY_API_KEY RELAY_BASE_URL
   unset CUSTOM_KEY_JOB_ENCRYPTION_KEY CUSTOM_KEY_MODES_ENABLED WORKER_CONCURRENCY TRUST_PROXY
+  unset UPDATER_CONTROL_ROOT UPDATER_CONTROL_GID
 }
 
 unexport_deploy_variables() {
@@ -94,6 +95,7 @@ unexport_deploy_variables() {
     POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD DATABASE_DRIVER DATABASE_URL DATABASE_URL_UNPOOLED \
     STORAGE_DRIVER LOCAL_STORAGE_ROOT BETTER_AUTH_SECRET BETTER_AUTH_URL RELAY_API_KEY RELAY_BASE_URL \
     CUSTOM_KEY_JOB_ENCRYPTION_KEY CUSTOM_KEY_MODES_ENABLED WORKER_CONCURRENCY TRUST_PROXY \
+    UPDATER_CONTROL_ROOT UPDATER_CONTROL_GID \
     2>/dev/null || true
 }
 
@@ -188,6 +190,24 @@ retain_recent_backups() {
     done
     ((complete == 1)) || continue
     strict_backup_checksums_are_valid "$candidate" || continue
+    if [[ -e "$candidate/.system-update-pin" || -L "$candidate/.system-update-pin" ]]; then
+      local pin_owner pin_mode expected_owner
+      [[ -f "$candidate/.system-update-pin" && ! -L "$candidate/.system-update-pin" ]] || {
+        die "Invalid system-update backup pin: $candidate"
+        return 1
+      }
+      pin_owner="$(stat -c '%u' "$candidate/.system-update-pin")" || return 1
+      pin_mode="$(stat -c '%a' "$candidate/.system-update-pin")" || return 1
+      expected_owner=0
+      if [[ "${AI_IMAGE_WORKSHOP_UPDATE_TEST_MODE:-0}" == 1 ]]; then
+        expected_owner="$(id -u)"
+      fi
+      [[ "$pin_owner" == "$expected_owner" && "$pin_mode" == 600 ]] || {
+        die "Invalid system-update backup pin owner: $candidate"
+        return 1
+      }
+      continue
+    fi
     completed_backups+=("$candidate")
   done
   shopt -u nullglob

@@ -10,6 +10,11 @@ ENV_PATH="$DEPLOY_DIR/.env.production"
 ENV_ARGUMENT='deploy/.env.production'
 STATE_PATH="$DEPLOY_DIR/install.state"
 UPGRADE_STATE_PATH="$DEPLOY_DIR/upgrade.state"
+UPDATER_GROUP='ai-image-workshop-updater'
+UPDATER_CONTROL_ROOT='/var/lib/ai-image-workshop-updater'
+UPDATER_CONTROL_GID=''
+UPDATER_CONFIG_PATH='/etc/ai-image-workshop-updater.conf'
+UPDATER_BINARY_PATH='/usr/local/sbin/ai-image-workshop-update'
 
 # shellcheck source=deploy/install-lib.sh
 source "$DEPLOY_DIR/install-lib.sh"
@@ -417,7 +422,11 @@ preflight_common() {
   }
 
   local required_command
-  for required_command in docker openssl ss curl df awk stat mktemp flock timeout; do
+  local -a required_commands=(docker openssl ss curl df awk stat mktemp flock timeout git jq)
+  if ! updater_bootstrap_test_bypass; then
+    required_commands+=(getent systemctl groupadd install sync sed)
+  fi
+  for required_command in "${required_commands[@]}"; do
     command -v "$required_command" >/dev/null 2>&1 || {
       die "未找到必需命令：$required_command"
       return 1
@@ -429,6 +438,9 @@ preflight_common() {
     "$PROJECT_ROOT/compose.yaml" \
     "$DEPLOY_DIR/Caddyfile" \
     "$DEPLOY_DIR/install-lib.sh" \
+    "$DEPLOY_DIR/ai-image-workshop-update" \
+    "$DEPLOY_DIR/systemd/ai-image-workshop-update.service.in" \
+    "$DEPLOY_DIR/systemd/ai-image-workshop-update.path" \
     "$PROJECT_ROOT/scripts/seed-admin.ts"; do
     [[ -f "$required_path" && ! -L "$required_path" ]] || {
       die "项目文件缺失或不安全：$required_path"
@@ -476,6 +488,92 @@ preflight_common() {
       return 1
     }
   done
+}
+
+updater_bootstrap_test_bypass() {
+  [[ "${INSTALL_ALLOW_NON_ROOT:-0}" == 1 && "${INSTALL_SKIP_SYSTEM_UPDATER:-0}" == 1 ]]
+}
+
+install_system_updater() {
+  updater_bootstrap_test_bypass && return 0
+  local config_temp service_temp escaped_project
+  config_temp="$(mktemp "${UPDATER_CONFIG_PATH}.tmp.XXXXXX")" || return 1
+  if ! printf 'PROJECT_ROOT=%s\nCONTROL_ROOT=%s\n' \
+    "$PROJECT_ROOT" "$UPDATER_CONTROL_ROOT" >"$config_temp"; then
+    rm -f -- "$config_temp"
+    return 1
+  fi
+  chown root:root "$config_temp"
+  chmod 0600 "$config_temp"
+  sync -f "$config_temp"
+  mv -fT -- "$config_temp" "$UPDATER_CONFIG_PATH"
+  sync -f "${UPDATER_CONFIG_PATH%/*}"
+
+  install -o root -g root -m 0755 \
+    "$DEPLOY_DIR/ai-image-workshop-update" "$UPDATER_BINARY_PATH"
+  install -d -o root -g root -m 0755 /etc/systemd/system
+  service_temp="$(mktemp "$UPDATER_CONTROL_ROOT/work/update-service.XXXXXX")" || return 1
+  escaped_project="${PROJECT_ROOT//\\/\\\\}"
+  escaped_project="${escaped_project//|/\\|}"
+  escaped_project="${escaped_project//&/\\&}"
+  sed "s|@PROJECT_ROOT@|$escaped_project|g" \
+    "$DEPLOY_DIR/systemd/ai-image-workshop-update.service.in" >"$service_temp"
+  install -o root -g root -m 0644 "$service_temp" \
+    /etc/systemd/system/ai-image-workshop-update.service
+  rm -f -- "$service_temp"
+  install -o root -g root -m 0644 \
+    "$DEPLOY_DIR/systemd/ai-image-workshop-update.path" \
+    /etc/systemd/system/ai-image-workshop-update.path
+
+  "$UPDATER_BINARY_PATH" initialize
+  systemctl daemon-reload
+  systemctl enable ai-image-workshop-update.service
+  systemctl enable --now ai-image-workshop-update.path
+}
+
+prepare_updater_control_root() {
+  if updater_bootstrap_test_bypass; then
+    UPDATER_CONTROL_GID="$(id -g)"
+    return 0
+  fi
+  local group_record=''
+  if ! group_record="$(getent group "$UPDATER_GROUP")"; then
+    groupadd --system "$UPDATER_GROUP"
+    group_record="$(getent group "$UPDATER_GROUP")" || {
+      die '无法读取刚创建的更新器系统组'
+      return 1
+    }
+  fi
+  IFS=: read -r _ _ UPDATER_CONTROL_GID _ <<<"$group_record"
+  [[ "$UPDATER_CONTROL_GID" =~ ^[1-9][0-9]*$ ]] || {
+    die '更新器系统组 GID 无效'
+    return 1
+  }
+
+  install -d -o root -g "$UPDATER_GROUP" -m 0750 "$UPDATER_CONTROL_ROOT"
+  install -d -o root -g "$UPDATER_GROUP" -m 2770 "$UPDATER_CONTROL_ROOT/inbox"
+  install -d -o root -g "$UPDATER_GROUP" -m 0750 "$UPDATER_CONTROL_ROOT/state"
+  install -d -o root -g root -m 0700 "$UPDATER_CONTROL_ROOT/work"
+}
+
+prepare_build_metadata() {
+  BUILD_APP_VERSION="$(jq -er '.version | select(type == "string")' package.json)" || {
+    die '无法读取 package.json 版本'
+    return 1
+  }
+  BUILD_APP_COMMIT_SHA="$(git rev-parse --verify HEAD)" || {
+    die '无法读取当前 Git 提交'
+    return 1
+  }
+  [[ "$BUILD_APP_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+    die 'package.json 版本不是稳定 SemVer'
+    return 1
+  }
+  [[ "$BUILD_APP_COMMIT_SHA" =~ ^[0-9a-f]{40,64}$ ]] || {
+    die '当前 Git 提交格式无效'
+    return 1
+  }
+  export BUILD_APP_VERSION BUILD_APP_COMMIT_SHA
 }
 
 prepare_fresh_mode() {
@@ -561,6 +659,7 @@ clear_loaded_deploy_variables() {
   unset POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD DATABASE_DRIVER DATABASE_URL DATABASE_URL_UNPOOLED
   unset STORAGE_DRIVER LOCAL_STORAGE_ROOT BETTER_AUTH_SECRET BETTER_AUTH_URL RELAY_API_KEY RELAY_BASE_URL
   unset CUSTOM_KEY_JOB_ENCRYPTION_KEY CUSTOM_KEY_MODES_ENABLED WORKER_CONCURRENCY TRUST_PROXY
+  unset UPDATER_CONTROL_ROOT UPDATER_CONTROL_GID
 }
 
 unexport_sensitive_variables() {
@@ -574,7 +673,8 @@ validate_loaded_environment() {
     COMPOSE_PROJECT_NAME COMPOSE_PROFILES IMAGE_TAG DOMAIN WEB_BIND_ADDRESS WEB_HOST_PORT \
     POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD DATABASE_DRIVER DATABASE_URL DATABASE_URL_UNPOOLED \
     STORAGE_DRIVER LOCAL_STORAGE_ROOT BETTER_AUTH_SECRET BETTER_AUTH_URL RELAY_API_KEY RELAY_BASE_URL \
-    CUSTOM_KEY_JOB_ENCRYPTION_KEY CUSTOM_KEY_MODES_ENABLED WORKER_CONCURRENCY TRUST_PROXY; do
+    CUSTOM_KEY_JOB_ENCRYPTION_KEY CUSTOM_KEY_MODES_ENABLED WORKER_CONCURRENCY TRUST_PROXY \
+    UPDATER_CONTROL_ROOT UPDATER_CONTROL_GID; do
     [[ -v "$required_key" ]] || {
       die "部署环境文件缺少键：$required_key"
       return 1
@@ -629,6 +729,14 @@ validate_loaded_environment() {
   }
   [[ "$WORKER_CONCURRENCY" =~ ^[1-9][0-9]*$ ]] || {
     die 'WORKER_CONCURRENCY 无效'
+    return 1
+  }
+  [[ "$UPDATER_CONTROL_ROOT" == '/var/lib/ai-image-workshop-updater' ]] || {
+    die 'UPDATER_CONTROL_ROOT 必须是 /var/lib/ai-image-workshop-updater'
+    return 1
+  }
+  [[ "$UPDATER_CONTROL_GID" =~ ^[1-9][0-9]*$ ]] || {
+    die 'UPDATER_CONTROL_GID 无效'
     return 1
   }
 
@@ -1045,6 +1153,7 @@ run_deployment_stages() {
 
   if ! stage_at_least migrated; then
     DIAGNOSTIC_SERVICES=(web)
+    prepare_build_metadata
     compose build web
     compose run --rm \
       -e MIGRATE_CONFIRM=APPLY_PRODUCTION_MIGRATIONS \
@@ -1152,6 +1261,7 @@ run_upgrade() {
   write_upgrade_state 0 || die 'cannot record completed upgrade backup'
   UPGRADE_PHASE='building'
   write_upgrade_state 0 || die 'cannot record upgrade build phase'
+  prepare_build_metadata
   compose build web
   UPGRADE_PHASE='migrating'
   write_upgrade_state 0 || die 'cannot record upgrade migration phase'
@@ -1201,16 +1311,22 @@ main() {
 
   if [[ "$MODE" == 'upgrade' ]]; then
     preflight_common
+    prepare_updater_control_root
+    migrate_updater_environment "$ENV_PATH" "$UPDATER_CONTROL_ROOT" "$UPDATER_CONTROL_GID"
     prepare_upgrade
     run_upgrade
+    install_system_updater
     print_success
     return 0
   elif [[ "$MODE" == 'resume' ]]; then
     preflight_common
+    prepare_updater_control_root
+    migrate_updater_environment "$ENV_PATH" "$UPDATER_CONTROL_ROOT" "$UPDATER_CONTROL_GID"
     prepare_resume
   else
     prepare_fresh_mode
     preflight_common
+    prepare_updater_control_root
     fresh_state_guard
     collect_install_inputs
     set_fresh_environment_defaults
@@ -1223,6 +1339,7 @@ main() {
   fi
 
   run_deployment_stages
+  install_system_updater
   print_success
 }
 

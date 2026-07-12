@@ -70,5 +70,6 @@ export default [
     route("admin/inspiration-submissions", "routes/_admin.inspiration-submissions.tsx"), // §13.1 灵感投稿审核
     route("admin/packages", "routes/_admin.packages.tsx"),
     route("admin/notifications", "routes/_admin.notifications.tsx"), // §9 广播公告
+    route("admin/system-update", "routes/_admin.system-update.tsx"),
   ]),
 ] satisfies RouteConfig;

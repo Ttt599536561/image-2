@@ -277,6 +277,8 @@ set_render_fixture_inputs() {
   RELAY_API_KEY='relay-key-test'
   RELAY_BASE_URL='https://api.tangguo.xin/v1'
   CUSTOM_KEY_JOB_ENCRYPTION_KEY='encryption-key-test'
+  UPDATER_CONTROL_ROOT='/var/lib/ai-image-workshop-updater'
+  UPDATER_CONTROL_GID='995'
 }
 
 test_compose_service_env_file_round_trip() {
@@ -462,6 +464,8 @@ test_render_production_env_is_complete_private_and_safe() {
   RELAY_API_KEY="relay # \$HOME \$(touch $marker) \\ ' exact"
   RELAY_BASE_URL='https://api.tangguo.xin/v1'
   CUSTOM_KEY_JOB_ENCRYPTION_KEY='encryption_key-123'
+  UPDATER_CONTROL_ROOT='/var/lib/ai-image-workshop-updater'
+  UPDATER_CONTROL_GID='995'
   ADMIN_EMAIL='must-not-be-rendered@example.com'
   ADMIN_PASSWORD='must-not-be-rendered-password'
   ADMIN_PASSWORD_CONFIRM="$ADMIN_PASSWORD"
@@ -478,14 +482,15 @@ test_render_production_env_is_complete_private_and_safe() {
   assert_not_contains "$contents" 'ADMIN_EMAIL' 'admin email must not be persisted'
   assert_not_contains "$contents" 'ADMIN_PASSWORD' 'admin password must not be persisted'
   assert_not_contains "$contents" 'SEED_ADMIN' 'seed fields must not be persisted'
-  assert_equal '22' "$(wc -l <"$env_file" | tr -d ' ')" 'rendered file should contain every production key exactly once'
+  assert_equal '24' "$(wc -l <"$env_file" | tr -d ' ')" 'rendered file should contain every production key exactly once'
 
   local required_key
   for required_key in \
     COMPOSE_PROJECT_NAME COMPOSE_PROFILES IMAGE_TAG DOMAIN WEB_BIND_ADDRESS WEB_HOST_PORT \
     POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD DATABASE_DRIVER DATABASE_URL DATABASE_URL_UNPOOLED \
     STORAGE_DRIVER LOCAL_STORAGE_ROOT BETTER_AUTH_SECRET BETTER_AUTH_URL RELAY_API_KEY RELAY_BASE_URL \
-    CUSTOM_KEY_JOB_ENCRYPTION_KEY CUSTOM_KEY_MODES_ENABLED WORKER_CONCURRENCY TRUST_PROXY; do
+    CUSTOM_KEY_JOB_ENCRYPTION_KEY CUSTOM_KEY_MODES_ENABLED WORKER_CONCURRENCY TRUST_PROXY \
+    UPDATER_CONTROL_ROOT UPDATER_CONTROL_GID; do
     grep -q "^${required_key}=" "$env_file" || fail_assertion 'rendered dotenv file is missing a required key'
   done
 

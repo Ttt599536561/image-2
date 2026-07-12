@@ -54,6 +54,16 @@ npm run test:deploy:smoke
 | 本地媒体 | `/media/*` 可读，重建 web/worker/scheduler 后仍可读 |
 | 备份恢复演练 | 备份校验通过；恢复到新空卷后 DB、图片和 `/healthz` 正常 |
 | 端口隔离 | 宿主机 `3000` 已占用仍可安装，宿主机不发布 `5432` |
+| 系统更新 | 后台能检查官方稳定版；维护时阻止新写入；成功后版本/提交与 tag 一致 |
+| 更新恢复 | 迁移前故障自动回滚；迁移后只允许精确请求 ID 的数据库恢复命令 |
+
+## 系统更新演练
+
+1. 确认 `systemctl status ai-image-workshop-update.path` 正常，Web 无 Docker socket 挂载。
+2. 在 `/admin/system-update` 检查更新并记录请求 ID、旧版本和备份 ID。
+3. 更新过程中确认新写请求返回维护响应，已有 generation 先收口，状态按阶段推进。
+4. 成功后确认 `/healthz=204`、页面版本和容器 `APP_COMMIT_SHA` 对应发布 tag。
+5. 在隔离环境分别模拟迁移前失败和迁移后失败；前者应自动回滚，后者应保留 pin/rollback/checkpoint，并只接受页面给出的 `recover REQUEST_ID`。
 
 ## 备份恢复演练
 

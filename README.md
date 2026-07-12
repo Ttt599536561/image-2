@@ -16,6 +16,7 @@ AI 图像工坊是一个需要登录的对话式 AI 生图应用，固定使用 
 - PostgreSQL 任务队列，独立 `worker` 执行生成，单例 `scheduler` 处理超时、对账和清理。
 - 本地持久化媒体、兑换码充值、积分批次、管理后台和审计记录。
 - Debian Docker Compose 一键安装、升级、备份与恢复。
+- 管理后台检查官方 GitHub 稳定版，并通过受限的宿主机更新器完成备份、更新和回滚。
 
 ## 生产拓扑
 
@@ -26,6 +27,8 @@ web/worker/scheduler -> media_data
 ```
 
 PostgreSQL 不发布宿主机 `5432`，Web 仅绑定安装器选择的 `127.0.0.1` 端口。生产配置保存在被 Git 忽略的 `deploy/.env.production`。
+
+系统更新入口是 `/admin/system-update`。Web 只能写入更新请求并读取状态，不挂载 Docker socket、项目目录或宿主机 shell；实际更新由 root systemd oneshot 完成。
 
 ## 本地开发
 

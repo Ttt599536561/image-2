@@ -321,6 +321,26 @@ printf 'real mv executable not found\n' >&2
 exit 127
 FAKE_MV
 
+  cat >"$CASE_ROOT/fake-bin/git" <<'FAKE_GIT'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ " $* " == *' rev-parse --verify HEAD '* ]]; then
+  printf '%040d\n' 0 | tr '0' 'a'
+  exit 0
+fi
+exit 64
+FAKE_GIT
+
+  cat >"$CASE_ROOT/fake-bin/jq" <<'FAKE_JQ'
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ " $* " == *' package.json '* ]]; then
+  printf '0.2.0\n'
+  exit 0
+fi
+exit 64
+FAKE_JQ
+
   chmod 0700 "$CASE_ROOT/fake-bin/"*
 }
 
@@ -334,7 +354,12 @@ make_fixture() {
   mkdir -p "$CASE_ROOT/deploy" "$CASE_ROOT/scripts" "$FAKE_STATE"
   cp "$INSTALLER_SOURCE" "$CASE_ROOT/deploy/install.sh"
   cp "$LIBRARY_SOURCE" "$CASE_ROOT/deploy/install-lib.sh"
+  cp "$SCRIPT_DIR/ai-image-workshop-update" "$CASE_ROOT/deploy/ai-image-workshop-update"
+  mkdir -p "$CASE_ROOT/deploy/systemd"
+  cp "$SCRIPT_DIR/systemd/ai-image-workshop-update.service.in" "$CASE_ROOT/deploy/systemd/"
+  cp "$SCRIPT_DIR/systemd/ai-image-workshop-update.path" "$CASE_ROOT/deploy/systemd/"
   printf 'services: {}\n' >"$CASE_ROOT/compose.yaml"
+  printf '{"version":"0.2.0"}\n' >"$CASE_ROOT/package.json"
   printf ':80 {}\n' >"$CASE_ROOT/deploy/Caddyfile"
   printf 'console.log("seed")\n' >"$CASE_ROOT/scripts/seed-admin.ts"
   printf 'ID=debian\n' >"$CASE_ROOT/os-release"
@@ -351,6 +376,7 @@ run_install() {
     env \
       PATH="$CASE_ROOT/fake-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
       INSTALL_ALLOW_NON_ROOT=1 \
+      INSTALL_SKIP_SYSTEM_UPDATER=1 \
       INSTALL_OS_RELEASE_FILE="$CASE_ROOT/os-release" \
       INSTALL_MIN_FREE_KIB=1000 \
       INSTALL_LOCK_PATH="$CASE_ROOT/install.lock" \
@@ -378,6 +404,7 @@ run_background_install() {
     env \
       PATH="$CASE_ROOT/fake-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
       INSTALL_ALLOW_NON_ROOT=1 \
+      INSTALL_SKIP_SYSTEM_UPDATER=1 \
       INSTALL_OS_RELEASE_FILE="$CASE_ROOT/os-release" \
       INSTALL_MIN_FREE_KIB=1000 \
       INSTALL_LOCK_PATH="$CASE_ROOT/install.lock" \

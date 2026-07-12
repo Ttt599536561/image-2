@@ -13,9 +13,16 @@ flowchart TB
   Worker --> Media
   Scheduler["scheduler\ntimeout + cleanup + reconciliation"] --> DB
   Scheduler --> Media
+  Admin["admin /admin/system-update"] --> Web
+  Web -->|"request only"| Control["updater inbox/state"]
+  Systemd["root systemd updater"] --> Control
+  Systemd --> GitHub["official stable GitHub Release"]
+  Systemd --> Docker["Docker Compose"]
 ```
 
 `web`、`worker`、`scheduler` 使用同一应用镜像和生产配置，但运行不同命令。它们共享私有 PostgreSQL 与 `media_data`；Caddy 只读挂载媒体卷。PostgreSQL 不发布宿主机端口，Web 的容器端口 `3000` 也不会占用宿主机 `3000`。
+
+更新链路刻意不把宿主机权限放进应用：Web 原子发布一个带管理员身份的 v1 请求，systemd path unit 唤醒 root oneshot。主机更新器在共享部署锁内重新校验请求、固定官方 Release、Git tag、版本和工作树，只有通过后才进入维护。迁移前可自动回滚；迁移边界后固定转入人工数据库恢复。
 
 ## 生成流程
 

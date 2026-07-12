@@ -1,0 +1,937 @@
+#!/usr/bin/env bash
+set -euo pipefail
+set +x
+umask 077
+
+OFFICIAL_REPOSITORY='Ttt599536561/image-2'
+OFFICIAL_API_URL='https://api.github.com/repos/Ttt599536561/image-2/releases/latest'
+OFFICIAL_GIT_URL='https://github.com/Ttt599536561/image-2.git'
+OFFICIAL_RELEASE_PREFIX='https://github.com/Ttt599536561/image-2/releases/tag/'
+CONFIG_PATH='/etc/ai-image-workshop-updater.conf'
+LOCK_PATH='/run/lock/ai-image-workshop-install.lock'
+UPDATER_GROUP='ai-image-workshop-updater'
+INSTALLED_UPDATER='/usr/local/sbin/ai-image-workshop-update'
+
+PROJECT_ROOT=''
+CONTROL_ROOT=''
+INBOX=''
+STATE_DIR=''
+WORK_DIR=''
+REQUEST_PATH=''
+RESERVATION_DIR=''
+STATUS_PATH=''
+CHECKPOINT_PATH=''
+CLAIMED_REQUEST_PATH=''
+ENV_PATH=''
+
+LOCK_FD=''
+UPDATE_ACTIVE=0
+RECOVERY_MODE=0
+MIGRATION_STARTED=0
+ROLLBACK_RUNNING=0
+SUCCESS=0
+PHASE='idle'
+MAINTENANCE=false
+REQUEST_ID=''
+REQUESTED_AT=''
+STARTED_AT=''
+FINISHED_AT=''
+CURRENT_VERSION=''
+TARGET_VERSION=''
+TARGET_TAG=''
+TARGET_COMMIT=''
+BACKUP_ID=''
+OLD_VERSION=''
+OLD_COMMIT=''
+OLD_IMAGE_ID=''
+IMAGE_TAG=''
+WEB_HOST_PORT=''
+POSTGRES_DB=''
+POSTGRES_USER=''
+COMPOSE_PROJECT_NAME=''
+UPDATER_CONTROL_GID=''
+TEMP_REF=''
+ROLLBACK_TAG=''
+FAIL_CODE='UPDATE_FAILED'
+FAIL_MESSAGE='System update failed.'
+OLD_SERVICES=()
+
+die() {
+  printf 'system update: %s\n' "$*" >&2
+  return 1
+}
+
+dotenv_unquote() {
+  local encoded="${1-}"
+  [[ "$encoded" != *$'\n'* && "$encoded" != *$'\r'* ]] || return 1
+  if [[ ${#encoded} -ge 2 && "${encoded:0:1}" == '"' && "${encoded: -1}" == '"' ]]; then
+    local inner="${encoded:1:${#encoded}-2}" decoded='' character next_character index=0
+    while ((index < ${#inner})); do
+      character="${inner:index:1}"
+      case "$character" in
+        '"') return 1 ;;
+        \\)
+          index=$((index + 1))
+          ((index < ${#inner})) || return 1
+          next_character="${inner:index:1}"
+          case "$next_character" in \\|'"') decoded+="$next_character" ;; *) return 1 ;; esac
+          ;;
+        '$')
+          index=$((index + 1))
+          ((index < ${#inner})) || return 1
+          [[ "${inner:index:1}" == '$' ]] || return 1
+          decoded+='$'
+          ;;
+        *) decoded+="$character" ;;
+      esac
+      index=$((index + 1))
+    done
+    printf '%s' "$decoded"
+    return 0
+  fi
+  [[ "$encoded" =~ ^[A-Za-z0-9_./:@+-]*$ ]] || return 1
+  printf '%s' "$encoded"
+}
+
+_deploy_env_key_allowed() {
+  case "$1" in
+    COMPOSE_PROJECT_NAME|COMPOSE_PROFILES|IMAGE_TAG|DOMAIN|WEB_BIND_ADDRESS|WEB_HOST_PORT|\
+    POSTGRES_DB|POSTGRES_USER|POSTGRES_PASSWORD|DATABASE_DRIVER|DATABASE_URL|DATABASE_URL_UNPOOLED|\
+    STORAGE_DRIVER|LOCAL_STORAGE_ROOT|BETTER_AUTH_SECRET|BETTER_AUTH_URL|RELAY_API_KEY|RELAY_BASE_URL|\
+    CUSTOM_KEY_JOB_ENCRYPTION_KEY|CUSTOM_KEY_MODES_ENABLED|WORKER_CONCURRENCY|TRUST_PROXY|\
+    UPDATER_CONTROL_ROOT|UPDATER_CONTROL_GID) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+strict_backup_checksums_are_valid() {
+  local directory="$1" line hash file
+  [[ -d "$directory" && ! -L "$directory" ]] || return 1
+  local artifact
+  for artifact in database.dump media.tar.gz manifest.env SHA256SUMS; do
+    [[ -f "$directory/$artifact" && ! -L "$directory/$artifact" ]] || return 1
+  done
+  local -a lines=()
+  local -A seen=()
+  mapfile -t lines <"$directory/SHA256SUMS" || return 1
+  ((${#lines[@]} == 3)) || return 1
+  for line in "${lines[@]}"; do
+    [[ "$line" =~ ^([0-9a-fA-F]{64})[[:space:]][[:space:]](database\.dump|media\.tar\.gz|manifest\.env)$ ]] || return 1
+    hash="${BASH_REMATCH[1]}"
+    file="${BASH_REMATCH[2]}"
+    [[ -z "${seen[$file]+present}" ]] || return 1
+    seen["$file"]="$hash"
+  done
+  for file in database.dump media.tar.gz manifest.env; do
+    [[ -n "${seen[$file]+present}" ]] || return 1
+  done
+  (cd -- "$directory" && sha256sum --check --strict SHA256SUMS >/dev/null 2>&1)
+}
+
+set_failure() {
+  FAIL_CODE="$1"
+  FAIL_MESSAGE="$2"
+  return 1
+}
+
+require_commands() {
+  local command
+  for command in bash curl date docker find flock git install jq mv realpath sha256sum stat sync timeout; do
+    command -v "$command" >/dev/null 2>&1 || die "required command is missing: $command"
+  done
+}
+
+strict_private_file() {
+  local path="$1" expected_uid="${2:-0}" mode
+  [[ -f "$path" && ! -L "$path" ]] || return 1
+  [[ "$(stat -c '%u' "$path")" == "$expected_uid" ]] || return 1
+  mode="$(stat -c '%a' "$path")" || return 1
+  [[ "$mode" == 600 ]]
+}
+
+load_config() {
+  if [[ "${AI_IMAGE_WORKSHOP_UPDATE_TEST_MODE:-0}" == 1 ]]; then
+    CONFIG_PATH="${AI_IMAGE_WORKSHOP_UPDATE_CONFIG:-$CONFIG_PATH}"
+  else
+    ((EUID == 0)) || die 'must run as root'
+    [[ -z "${AI_IMAGE_WORKSHOP_UPDATE_CONFIG:-}" ]] || die 'test override is not allowed'
+  fi
+
+  local expected_uid=0
+  [[ "${AI_IMAGE_WORKSHOP_UPDATE_TEST_MODE:-0}" != 1 ]] || expected_uid="$(id -u)"
+  strict_private_file "$CONFIG_PATH" "$expected_uid" || die "unsafe updater config: $CONFIG_PATH"
+
+  local line key value
+  local -A seen=()
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" == *=* && "$line" != *$'\r'* ]] || die 'invalid updater config line'
+    key="${line%%=*}"
+    value="${line#*=}"
+    [[ -n "$value" && "$value" != *$'\n'* ]] || die 'invalid updater config value'
+    [[ -z "${seen[$key]+present}" ]] || die "duplicate updater config key: $key"
+    seen["$key"]=1
+    case "$key" in
+      PROJECT_ROOT) PROJECT_ROOT="$value" ;;
+      CONTROL_ROOT) CONTROL_ROOT="$value" ;;
+      *) die "unknown updater config key: $key" ;;
+    esac
+  done <"$CONFIG_PATH"
+  [[ ${#seen[@]} -eq 2 && -n "$PROJECT_ROOT" && -n "$CONTROL_ROOT" ]] || die 'incomplete updater config'
+
+  PROJECT_ROOT="$(realpath -e -- "$PROJECT_ROOT")" || die 'project root does not exist'
+  if [[ "${AI_IMAGE_WORKSHOP_UPDATE_TEST_MODE:-0}" != 1 ]]; then
+    [[ "$CONTROL_ROOT" == '/var/lib/ai-image-workshop-updater' ]] || die 'invalid production control root'
+  else
+    CONTROL_ROOT="$(realpath -e -- "$CONTROL_ROOT")" || die 'test control root does not exist'
+  fi
+  [[ -d "$CONTROL_ROOT" && ! -L "$CONTROL_ROOT" ]] || die 'unsafe control root'
+
+  INBOX="$CONTROL_ROOT/inbox"
+  STATE_DIR="$CONTROL_ROOT/state"
+  WORK_DIR="$CONTROL_ROOT/work"
+  REQUEST_PATH="$INBOX/request.json"
+  RESERVATION_DIR="$INBOX/.start-reservation"
+  STATUS_PATH="$STATE_DIR/status.json"
+  CHECKPOINT_PATH="$WORK_DIR/checkpoint.json"
+  CLAIMED_REQUEST_PATH="$WORK_DIR/request.json"
+  ENV_PATH="$PROJECT_ROOT/deploy/.env.production"
+  [[ -d "$INBOX" && ! -L "$INBOX" && -d "$STATE_DIR" && ! -L "$STATE_DIR" ]] || die 'control directories are unavailable'
+  [[ -d "$WORK_DIR" && ! -L "$WORK_DIR" ]] || die 'updater work directory is unavailable'
+}
+
+load_deploy_environment() {
+  local expected_uid=0 mode
+  [[ "${AI_IMAGE_WORKSHOP_UPDATE_TEST_MODE:-0}" != 1 ]] || expected_uid="$(id -u)"
+  [[ -f "$ENV_PATH" && ! -L "$ENV_PATH" ]] || die 'deployment environment is unsafe'
+  [[ "$(stat -c '%u' "$ENV_PATH")" == "$expected_uid" ]] || die 'deployment environment owner is unsafe'
+  mode="$(stat -c '%a' "$ENV_PATH")"
+  [[ "$mode" =~ ^[0-7]{3,4}$ ]] && (((0$mode & 077) == 0)) || die 'deployment environment permissions are unsafe'
+
+  local line key encoded decoded control_root_seen=0
+  local -A seen=()
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    [[ "$line" == *=* ]] || die 'invalid deployment environment line'
+    key="${line%%=*}"
+    encoded="${line#*=}"
+    _deploy_env_key_allowed "$key" || die "unknown deployment environment key: $key"
+    [[ -z "${seen[$key]+present}" ]] || die "duplicate deployment environment key: $key"
+    seen["$key"]=1
+    decoded="$(dotenv_unquote "$encoded")" || die "invalid deployment environment value: $key"
+    case "$key" in
+      COMPOSE_PROJECT_NAME) COMPOSE_PROJECT_NAME="$decoded" ;;
+      IMAGE_TAG) IMAGE_TAG="$decoded" ;;
+      WEB_HOST_PORT) WEB_HOST_PORT="$decoded" ;;
+      POSTGRES_DB) POSTGRES_DB="$decoded" ;;
+      POSTGRES_USER) POSTGRES_USER="$decoded" ;;
+      UPDATER_CONTROL_ROOT)
+        [[ "$decoded" == "$CONTROL_ROOT" ]] || die 'control-root mismatch'
+        control_root_seen=1
+        ;;
+      UPDATER_CONTROL_GID) UPDATER_CONTROL_GID="$decoded" ;;
+    esac
+  done <"$ENV_PATH"
+  [[ "$COMPOSE_PROJECT_NAME" == 'ai-image-workshop' ]] || die 'invalid Compose project name'
+  [[ "$IMAGE_TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die 'invalid image tag'
+  [[ "$WEB_HOST_PORT" =~ ^[1-9][0-9]*$ ]] && ((WEB_HOST_PORT <= 65535)) || die 'invalid web port'
+  [[ "$POSTGRES_DB" =~ ^[A-Za-z0-9_]+$ && "$POSTGRES_USER" =~ ^[A-Za-z0-9_]+$ ]] || die 'invalid PostgreSQL identity'
+  ((control_root_seen == 1)) || die 'deployment environment is missing the updater control root'
+  [[ "$UPDATER_CONTROL_GID" =~ ^[1-9][0-9]*$ ]] || die 'invalid updater GID'
+}
+
+compose() {
+  docker compose --env-file deploy/.env.production "$@"
+}
+
+acquire_lock() {
+  local lock_dir="${LOCK_PATH%/*}"
+  [[ -d "$lock_dir" && ! -L "$lock_dir" ]] || die 'operation lock directory is unsafe'
+  if [[ -e "$LOCK_PATH" || -L "$LOCK_PATH" ]]; then
+    [[ -f "$LOCK_PATH" && ! -L "$LOCK_PATH" ]] || die 'operation lock is unsafe'
+  fi
+  exec {LOCK_FD}>"$LOCK_PATH" || die 'cannot open operation lock'
+  flock -n "$LOCK_FD" || die 'another install, backup, restore, or update is running'
+}
+
+stable_version() {
+  [[ "$1" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+}
+
+version_gt() {
+  local a1 a2 a3 b1 b2 b3
+  IFS=. read -r a1 a2 a3 <<<"$1"
+  IFS=. read -r b1 b2 b3 <<<"$2"
+  ((10#$a1 > 10#$b1)) || {
+    ((10#$a1 == 10#$b1 && 10#$a2 > 10#$b2)) ||
+      ((10#$a1 == 10#$b1 && 10#$a2 == 10#$b2 && 10#$a3 > 10#$b3))
+  }
+}
+
+current_version_from_tree() {
+  local version
+  version="$(jq -er '.version | select(type == "string")' "$PROJECT_ROOT/package.json")" || return 1
+  stable_version "$version" || return 1
+  printf '%s\n' "$version"
+}
+
+iso_now() {
+  date -u +%Y-%m-%dT%H:%M:%SZ
+}
+
+publish_status() {
+  local phase="$1" maintenance="$2" error_code="${3-}" error_message="${4-}" finished="${5:-false}"
+  local now temp recovery_command=''
+  now="$(iso_now)"
+  [[ "$finished" != true ]] || FINISHED_AT="$now"
+  [[ "$phase" != recovery_required ]] || recovery_command="sudo /usr/local/sbin/ai-image-workshop-update recover $REQUEST_ID"
+  temp="$(mktemp "$STATE_DIR/.status.XXXXXX")" || return 1
+  if ! jq -n \
+    --arg requestId "$REQUEST_ID" \
+    --arg currentVersion "$CURRENT_VERSION" \
+    --arg targetVersion "$TARGET_VERSION" \
+    --arg phase "$phase" \
+    --argjson maintenance "$maintenance" \
+    --arg startedAt "$STARTED_AT" \
+    --arg finishedAt "$FINISHED_AT" \
+    --arg updatedAt "$now" \
+    --arg errorCode "$error_code" \
+    --arg errorMessage "${error_message:0:500}" \
+    --arg backupId "$BACKUP_ID" \
+    --arg recoveryCommand "$recovery_command" \
+    '{
+      protocolVersion: 1,
+      requestId: ($requestId | if . == "" then null else . end),
+      currentVersion: $currentVersion,
+      targetVersion: ($targetVersion | if . == "" then null else . end),
+      phase: $phase,
+      maintenance: $maintenance,
+      startedAt: ($startedAt | if . == "" then null else . end),
+      finishedAt: ($finishedAt | if . == "" then null else . end),
+      updatedAt: $updatedAt,
+      errorCode: ($errorCode | if . == "" then null else . end),
+      errorMessage: ($errorMessage | if . == "" then null else . end),
+      backupId: ($backupId | if . == "" then null else . end),
+      recoveryCommand: ($recoveryCommand | if . == "" then null else . end)
+    }' >"$temp"; then
+    rm -f -- "$temp"
+    return 1
+  fi
+  chmod 0640 "$temp"
+  if [[ "${AI_IMAGE_WORKSHOP_UPDATE_TEST_MODE:-0}" != 1 ]]; then
+    chown root:"$UPDATER_GROUP" "$temp"
+  fi
+  sync -f "$temp"
+  mv -fT -- "$temp" "$STATUS_PATH"
+  sync -f "$STATE_DIR"
+  PHASE="$phase"
+  MAINTENANCE="$maintenance"
+}
+
+safe_json_file() {
+  local path="$1" max_bytes="$2" size links
+  [[ -f "$path" && ! -L "$path" ]] || return 1
+  size="$(stat -c '%s' "$path")" || return 1
+  links="$(stat -c '%h' "$path")" || return 1
+  ((size > 0 && size <= max_bytes && links == 1))
+}
+
+validate_request_json() {
+  local path="$1"
+  safe_json_file "$path" 65536 || return 1
+  jq --stream -e '
+    [select(length == 2 and (.[0] | length) == 1) | .[0][0]] as $keys |
+    ($keys | length) == 4 and ($keys | unique | length) == 4
+  ' "$path" >/dev/null || return 1
+  jq -e '
+    type == "object" and
+    (keys | sort) == ["protocolVersion","requestId","requestedAt","requestedBy"] and
+    .protocolVersion == 1 and
+    (.requestId | type == "string" and test("^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"; "i")) and
+    (.requestedBy | type == "string" and test("^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"; "i")) and
+    (.requestedAt | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"))
+  ' "$path" >/dev/null
+}
+
+validate_reservation() {
+  local request_id="$1" token files token_id requested expires requested_epoch expires_epoch now_epoch
+  [[ -d "$RESERVATION_DIR" && ! -L "$RESERVATION_DIR" ]] || return 1
+  mapfile -d '' -t files < <(find "$RESERVATION_DIR" -mindepth 1 -maxdepth 1 -print0)
+  ((${#files[@]} == 1)) || return 1
+  token="${files[0]}"
+  [[ "${token##*/}" == "$request_id.json" ]] || return 1
+  safe_json_file "$token" 4096 || return 1
+  jq --stream -e '
+    [select(length == 2 and (.[0] | length) == 1) | .[0][0]] as $keys |
+    ($keys | length) == 4 and ($keys | unique | length) == 4
+  ' "$token" >/dev/null || return 1
+  jq -e --arg id "$request_id" '
+    type == "object" and
+    (keys | sort) == ["expiresAt","protocolVersion","requestId","requestedAt"] and
+    .protocolVersion == 1 and .requestId == $id and
+    (.requestedAt | type == "string") and (.expiresAt | type == "string")
+  ' "$token" >/dev/null || return 1
+  token_id="$(jq -r '.requestId' "$token")"
+  [[ "$token_id" == "$request_id" ]] || return 1
+  requested="$(jq -r '.requestedAt' "$token")"
+  expires="$(jq -r '.expiresAt' "$token")"
+  [[ "$requested" == "$REQUESTED_AT" ]] || return 1
+  requested_epoch="$(date -u -d "$requested" +%s)" || return 1
+  expires_epoch="$(date -u -d "$expires" +%s)" || return 1
+  now_epoch="$(date -u +%s)"
+  ((expires_epoch - requested_epoch == 900 && now_epoch < expires_epoch)) || return 1
+}
+
+claim_request() {
+  validate_request_json "$REQUEST_PATH" || set_failure INVALID_REQUEST 'The update request is invalid.'
+  REQUEST_ID="$(jq -r '.requestId' "$REQUEST_PATH")"
+  REQUESTED_AT="$(jq -r '.requestedAt' "$REQUEST_PATH")"
+  validate_reservation "$REQUEST_ID" || set_failure INVALID_RESERVATION 'The update reservation is invalid or expired.'
+  [[ ! -e "$CLAIMED_REQUEST_PATH" && ! -L "$CLAIMED_REQUEST_PATH" ]] || set_failure CLAIM_CONFLICT 'A claimed request already exists.'
+  STARTED_AT="$(iso_now)"
+  CURRENT_VERSION="$(current_version_from_tree)" || set_failure INVALID_CURRENT_VERSION 'The installed version is invalid.'
+  publish_status claiming false
+  mv -T -- "$REQUEST_PATH" "$CLAIMED_REQUEST_PATH"
+  validate_request_json "$CLAIMED_REQUEST_PATH" || set_failure INVALID_REQUEST 'The claimed request changed during publication.'
+  rm -f -- "$RESERVATION_DIR/$REQUEST_ID.json"
+  rmdir -- "$RESERVATION_DIR"
+  sync -f "$INBOX"
+  UPDATE_ACTIVE=1
+}
+
+cleanup_stale_reservation() {
+  [[ ! -e "$REQUEST_PATH" && ! -L "$REQUEST_PATH" ]] || return 0
+  [[ -d "$RESERVATION_DIR" && ! -L "$RESERVATION_DIR" ]] || return 0
+  local -a files=()
+  local expires expires_epoch now_epoch
+  mapfile -d '' -t files < <(find "$RESERVATION_DIR" -mindepth 1 -maxdepth 1 -print0)
+  ((${#files[@]} == 1)) || return 0
+  safe_json_file "${files[0]}" 4096 || return 0
+  expires="$(jq -er '.expiresAt | select(type == "string")' "${files[0]}")" || return 0
+  expires_epoch="$(date -u -d "$expires" +%s)" || return 0
+  now_epoch="$(date -u +%s)"
+  ((now_epoch >= expires_epoch)) || return 0
+  rm -f -- "${files[0]}"
+  rmdir -- "$RESERVATION_DIR"
+}
+
+fetch_latest_release() {
+  publish_status checking_release false
+  local response tag version html_url
+  response="$(mktemp "$WORK_DIR/release.XXXXXX")" || return 1
+  if ! curl --fail --silent --show-error --proto '=https' \
+    --connect-timeout 10 --max-time 30 \
+    -H 'Accept: application/vnd.github+json' \
+    -H 'X-GitHub-Api-Version: 2022-11-28' \
+    -H 'User-Agent: ai-image-workshop-updater/1' \
+    --output "$response" "$OFFICIAL_API_URL"; then
+    rm -f -- "$response"
+    set_failure RELEASE_CHECK_FAILED 'Unable to read the official GitHub Release.'
+    return 1
+  fi
+  [[ "$(stat -c '%s' "$response")" -le 1048576 ]] || {
+    rm -f -- "$response"
+    set_failure RELEASE_TOO_LARGE 'The GitHub Release response is too large.'
+    return 1
+  }
+  jq -e '
+    type == "object" and .draft == false and .prerelease == false and
+    (.tag_name | type == "string" and test("^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")) and
+    (.html_url | type == "string")
+  ' "$response" >/dev/null || {
+    rm -f -- "$response"
+    set_failure INVALID_RELEASE 'The latest GitHub Release is not a stable release.'
+    return 1
+  }
+  tag="$(jq -r '.tag_name' "$response")"
+  version="${tag#v}"
+  html_url="$(jq -r '.html_url' "$response")"
+  rm -f -- "$response"
+  [[ "$html_url" == "$OFFICIAL_RELEASE_PREFIX$tag" ]] || set_failure INVALID_RELEASE_URL 'The GitHub Release URL is not official.'
+  version_gt "$version" "$CURRENT_VERSION" || set_failure NO_NEW_VERSION 'No newer stable release is available.'
+  TARGET_TAG="$tag"
+  TARGET_VERSION="$version"
+  TEMP_REF="refs/ai-image-workshop-updater/$REQUEST_ID"
+  ROLLBACK_TAG="rollback-${REQUEST_ID}"
+  publish_status preflight false
+}
+
+assert_clean_worktree() {
+  git diff --quiet --ignore-submodules -- || set_failure DIRTY_WORKTREE 'Tracked project files have local changes.'
+  git diff --cached --quiet --ignore-submodules -- || set_failure DIRTY_INDEX 'The Git index has local changes.'
+}
+
+checkpoint_write() {
+  local boundary="$1" temp services_json
+  services_json="$(printf '%s\n' "${OLD_SERVICES[@]}" | jq -Rsc 'split("\n") | map(select(length > 0))')"
+  temp="$(mktemp "$WORK_DIR/.checkpoint.XXXXXX")" || return 1
+  jq -n \
+    --arg requestId "$REQUEST_ID" --arg targetVersion "$TARGET_VERSION" \
+    --arg targetTag "$TARGET_TAG" --arg targetCommit "$TARGET_COMMIT" \
+    --arg oldVersion "$OLD_VERSION" --arg oldCommit "$OLD_COMMIT" \
+    --arg oldImageId "$OLD_IMAGE_ID" --arg imageTag "$IMAGE_TAG" \
+    --arg backupId "$BACKUP_ID" --arg tempRef "$TEMP_REF" \
+    --arg rollbackTag "$ROLLBACK_TAG" --arg boundary "$boundary" \
+    --argjson services "$services_json" \
+    '{protocolVersion:1,requestId:$requestId,targetVersion:$targetVersion,targetTag:$targetTag,
+      targetCommit:($targetCommit|if .=="" then null else . end),oldVersion:$oldVersion,
+      oldCommit:$oldCommit,oldImageId:$oldImageId,imageTag:$imageTag,
+      backupId:($backupId|if .=="" then null else . end),services:$services,
+      tempRef:$tempRef,rollbackTag:$rollbackTag,boundary:$boundary}' >"$temp"
+  chmod 0600 "$temp"
+  sync -f "$temp"
+  mv -fT -- "$temp" "$CHECKPOINT_PATH"
+  sync -f "$WORK_DIR"
+}
+
+load_checkpoint() {
+  safe_json_file "$CHECKPOINT_PATH" 65536 || die 'checkpoint is unsafe'
+  jq -e '
+    type=="object" and .protocolVersion==1 and
+    (.requestId|type=="string") and (.services|type=="array") and
+    (all(.services[]; .=="web" or .=="worker" or .=="scheduler")) and
+    (.boundary=="pre_migration" or .boundary=="migrating")
+  ' "$CHECKPOINT_PATH" >/dev/null || die 'checkpoint is invalid'
+  REQUEST_ID="$(jq -r '.requestId' "$CHECKPOINT_PATH")"
+  TARGET_VERSION="$(jq -r '.targetVersion' "$CHECKPOINT_PATH")"
+  TARGET_TAG="$(jq -r '.targetTag' "$CHECKPOINT_PATH")"
+  TARGET_COMMIT="$(jq -r '.targetCommit // ""' "$CHECKPOINT_PATH")"
+  OLD_VERSION="$(jq -r '.oldVersion' "$CHECKPOINT_PATH")"
+  OLD_COMMIT="$(jq -r '.oldCommit' "$CHECKPOINT_PATH")"
+  OLD_IMAGE_ID="$(jq -r '.oldImageId' "$CHECKPOINT_PATH")"
+  IMAGE_TAG="$(jq -r '.imageTag' "$CHECKPOINT_PATH")"
+  BACKUP_ID="$(jq -r '.backupId // ""' "$CHECKPOINT_PATH")"
+  TEMP_REF="$(jq -r '.tempRef' "$CHECKPOINT_PATH")"
+  ROLLBACK_TAG="$(jq -r '.rollbackTag' "$CHECKPOINT_PATH")"
+  mapfile -t OLD_SERVICES < <(jq -r '.services[]' "$CHECKPOINT_PATH")
+  [[ "$(jq -r '.boundary' "$CHECKPOINT_PATH")" != migrating ]] || MIGRATION_STARTED=1
+  CURRENT_VERSION="$OLD_VERSION"
+  STARTED_AT="$(jq -r '.startedAt // empty' "$STATUS_PATH" 2>/dev/null || true)"
+  [[ -n "$STARTED_AT" ]] || STARTED_AT="$(iso_now)"
+  UPDATE_ACTIVE=1
+}
+
+capture_checkpoint() {
+  OLD_VERSION="$CURRENT_VERSION"
+  OLD_COMMIT="$(git rev-parse --verify HEAD)" || set_failure GIT_STATE_FAILED 'Cannot read the installed commit.'
+  [[ "$OLD_COMMIT" =~ ^[0-9a-f]{40,64}$ ]] || set_failure GIT_STATE_FAILED 'The installed commit is invalid.'
+  OLD_IMAGE_ID="$(docker image inspect "ai-image-workshop:$IMAGE_TAG" --format '{{.Id}}')" || set_failure IMAGE_STATE_FAILED 'Cannot read the running image.'
+  [[ "$OLD_IMAGE_ID" =~ ^sha256:[0-9a-f]{64}$ ]] || set_failure IMAGE_STATE_FAILED 'The running image ID is invalid.'
+  local service running_services
+  local -A seen=()
+  OLD_SERVICES=()
+  running_services="$(compose ps --status running --status restarting --services web worker scheduler)" || \
+    set_failure SERVICE_STATE_FAILED 'Cannot determine the running writer services.'
+  while IFS= read -r service; do
+    [[ -n "$service" ]] || continue
+    case "$service" in web|worker|scheduler) ;; *) set_failure SERVICE_STATE_FAILED 'Compose returned an unexpected service.'; return 1 ;; esac
+    [[ -n "${seen[$service]+present}" ]] || OLD_SERVICES+=("$service")
+    seen["$service"]=1
+  done <<<"$running_services"
+  checkpoint_write pre_migration
+}
+
+active_generation_count() {
+  local count
+  count="$(compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc \
+    "SELECT count(*) FROM generations WHERE status IN ('queued','claimed','running');")" || return 1
+  [[ "$count" =~ ^[0-9]+$ ]] || return 1
+  printf '%s\n' "$count"
+}
+
+drain_generations() {
+  local timeout_seconds="${1:-300}" deadline count
+  deadline=$((SECONDS + timeout_seconds))
+  while ((SECONDS < deadline)); do
+    count="$(active_generation_count)" || return 1
+    ((count == 0)) && return 0
+    sleep 2
+  done
+  set_failure DRAIN_TIMEOUT 'Existing generation jobs did not finish before the update timeout.'
+}
+
+stop_writers() {
+  compose stop web
+  [[ "$(active_generation_count)" == 0 ]] || set_failure ACTIVE_GENERATIONS 'Generation jobs appeared after Web stopped.'
+  compose stop worker scheduler
+  [[ "$(active_generation_count)" == 0 ]] || set_failure ACTIVE_GENERATIONS 'Generation jobs remain after writers stopped.'
+}
+
+create_pinned_backup() {
+  publish_status backing_up true
+  BACKUP_ID="$(date -u +%Y%m%dT%H%M%SZ)"
+  local backup_fd
+  exec {backup_fd}>&"$LOCK_FD"
+  if ! BACKUP_LOCK_FD="$backup_fd" BACKUP_LOCK_INHERITED=1 \
+    BACKUP_LEAVE_STOPPED_ON_SUCCESS=1 BACKUP_TIMESTAMP="$BACKUP_ID" \
+    bash "$PROJECT_ROOT/deploy/backup.sh"; then
+    exec {backup_fd}>&-
+    set_failure BACKUP_FAILED 'The verified database and media backup failed.'
+    return 1
+  fi
+  exec {backup_fd}>&-
+  local backup_dir="$PROJECT_ROOT/deploy/backups/$BACKUP_ID"
+  strict_backup_checksums_are_valid "$backup_dir" || set_failure BACKUP_INVALID 'Backup verification failed.'
+  printf '%s\n' "$REQUEST_ID" >"$backup_dir/.system-update-pin"
+  chmod 0600 "$backup_dir/.system-update-pin"
+  [[ "${AI_IMAGE_WORKSHOP_UPDATE_TEST_MODE:-0}" == 1 ]] || chown root:root "$backup_dir/.system-update-pin"
+  checkpoint_write pre_migration
+  publish_status backing_up true
+}
+
+tag_rollback_image() {
+  docker image tag "$OLD_IMAGE_ID" "ai-image-workshop:$ROLLBACK_TAG"
+}
+
+fetch_target_commit() {
+  publish_status fetching true
+  git fetch --no-tags --force "$OFFICIAL_GIT_URL" "refs/tags/$TARGET_TAG:$TEMP_REF"
+  TARGET_COMMIT="$(git rev-parse --verify "$TEMP_REF^{commit}")"
+  [[ "$TARGET_COMMIT" =~ ^[0-9a-f]{40,64}$ ]] || set_failure TARGET_COMMIT_INVALID 'The release tag does not resolve to a commit.'
+  local tree_version lock_version
+  tree_version="$(git show "$TARGET_COMMIT:package.json" | jq -er '.version')" || set_failure TARGET_TREE_INVALID 'The release package.json is invalid.'
+  lock_version="$(git show "$TARGET_COMMIT:package-lock.json" | jq -er '.version')" || set_failure TARGET_TREE_INVALID 'The release lockfile is invalid.'
+  [[ "$tree_version" == "$TARGET_VERSION" && "$lock_version" == "$TARGET_VERSION" ]] || set_failure TARGET_VERSION_MISMATCH 'Release files do not match the Release tag.'
+  checkpoint_write pre_migration
+  git checkout --detach "$TARGET_COMMIT"
+}
+
+build_target() {
+  publish_status building true
+  BUILD_APP_VERSION="$TARGET_VERSION"
+  BUILD_APP_COMMIT_SHA="$TARGET_COMMIT"
+  export BUILD_APP_VERSION BUILD_APP_COMMIT_SHA
+  compose build web
+}
+
+run_migrations() {
+  checkpoint_write migrating
+  MIGRATION_STARTED=1
+  publish_status migrating true
+  compose run --rm -e MIGRATE_CONFIRM=APPLY_PRODUCTION_MIGRATIONS \
+    web npm run db:migrate:production
+}
+
+start_target_services() {
+  publish_status starting_services true
+  compose up -d --remove-orphans web worker scheduler
+}
+
+wait_for_health() {
+  local deadline=$((SECONDS + 180)) code
+  while ((SECONDS < deadline)); do
+    code="$(curl --silent --show-error --connect-timeout 2 --max-time 4 \
+      --output /dev/null --write-out '%{http_code}' \
+      "http://127.0.0.1:$WEB_HOST_PORT/healthz" 2>/dev/null || true)"
+    [[ "$code" == 204 ]] && return 0
+    sleep 2
+  done
+  set_failure HEALTH_CHECK_FAILED 'Web did not become healthy after the update.'
+}
+
+install_next_updater() {
+  local source="$PROJECT_ROOT/deploy/ai-image-workshop-update" staged="$WORK_DIR/ai-image-workshop-update.next"
+  [[ -f "$source" && ! -L "$source" ]] || set_failure UPDATER_MISSING 'The target release is missing its updater.'
+  install -m 0755 "$source" "$staged"
+  sync -f "$staged"
+  if [[ "${AI_IMAGE_WORKSHOP_UPDATE_TEST_MODE:-0}" != 1 ]]; then
+    install -o root -g root -m 0755 "$staged" "$INSTALLED_UPDATER"
+    sync -f "$INSTALLED_UPDATER"
+  fi
+  rm -f -- "$staged"
+}
+
+cleanup_pin() {
+  [[ -n "$BACKUP_ID" ]] || return 0
+  local pin="$PROJECT_ROOT/deploy/backups/$BACKUP_ID/.system-update-pin"
+  [[ -e "$pin" || -L "$pin" ]] || return 0
+  [[ -f "$pin" && ! -L "$pin" && "$(<"$pin")" == "$REQUEST_ID" ]] || return 1
+  rm -f -- "$pin"
+}
+
+cleanup_update_artifacts() {
+  cleanup_pin
+  [[ -z "$ROLLBACK_TAG" ]] || docker image rm "ai-image-workshop:$ROLLBACK_TAG" >/dev/null 2>&1 || true
+  [[ -z "$TEMP_REF" ]] || git update-ref -d "$TEMP_REF" || true
+  rm -f -- "$CLAIMED_REQUEST_PATH" "$CHECKPOINT_PATH"
+  sync -f "$WORK_DIR"
+}
+
+complete_update() {
+  install_next_updater
+  CURRENT_VERSION="$TARGET_VERSION"
+  publish_status completed false '' '' true
+  SUCCESS=1
+  UPDATE_ACTIVE=0
+  MIGRATION_STARTED=0
+  cleanup_update_artifacts
+}
+
+restore_original_runtime() {
+  ROLLBACK_RUNNING=1
+  compose stop web worker scheduler >/dev/null 2>&1 || true
+  git checkout --detach "$OLD_COMMIT" || return 1
+  docker image tag "$OLD_IMAGE_ID" "ai-image-workshop:$IMAGE_TAG" || return 1
+  if ((${#OLD_SERVICES[@]} > 0)); then
+    compose up -d "${OLD_SERVICES[@]}" || return 1
+  fi
+  if [[ " ${OLD_SERVICES[*]} " == *' web '* ]]; then
+    wait_for_health || return 1
+  fi
+  ROLLBACK_RUNNING=0
+}
+
+mark_recovery_required() {
+  CURRENT_VERSION="${OLD_VERSION:-$CURRENT_VERSION}"
+  publish_status recovery_required true "$FAIL_CODE" "$FAIL_MESSAGE" true || true
+}
+
+handle_failed_update() {
+  local original_status="$1"
+  ((UPDATE_ACTIVE == 1 && SUCCESS == 0)) || return "$original_status"
+  set +e
+  if ((RECOVERY_MODE == 1 || MIGRATION_STARTED == 1)); then
+    compose stop web worker scheduler >/dev/null 2>&1 || true
+    mark_recovery_required
+  elif [[ -f "$CHECKPOINT_PATH" && ! -L "$CHECKPOINT_PATH" ]]; then
+    local pending_backup_id="$BACKUP_ID"
+    load_checkpoint >/dev/null 2>&1 || true
+    [[ -n "$BACKUP_ID" ]] || BACKUP_ID="$pending_backup_id"
+    if restore_original_runtime; then
+      CURRENT_VERSION="$OLD_VERSION"
+      if publish_status failed false "$FAIL_CODE" "$FAIL_MESSAGE" true; then
+        cleanup_update_artifacts || true
+      fi
+    else
+      FAIL_CODE='ROLLBACK_FAILED'
+      FAIL_MESSAGE='The update failed before migration and the old service did not recover.'
+      mark_recovery_required
+    fi
+  else
+    if publish_status failed false "$FAIL_CODE" "$FAIL_MESSAGE" true; then
+      rm -f -- "$CLAIMED_REQUEST_PATH"
+    fi
+  fi
+  set -e
+  return "$original_status"
+}
+
+on_exit() {
+  local status=$?
+  trap - EXIT
+  if ((status != 0)); then
+    handle_failed_update "$status" || true
+  fi
+  if [[ -n "$LOCK_FD" ]]; then
+    flock -u "$LOCK_FD" >/dev/null 2>&1 || true
+    exec {LOCK_FD}>&-
+  fi
+  exit "$status"
+}
+
+reconcile_interrupted_work() {
+  if [[ -f "$CHECKPOINT_PATH" && ! -L "$CHECKPOINT_PATH" ]]; then
+    local recorded_phase='' recorded_request=''
+    if safe_json_file "$STATUS_PATH" 65536; then
+      recorded_phase="$(jq -r '.phase // ""' "$STATUS_PATH" 2>/dev/null || true)"
+      recorded_request="$(jq -r '.requestId // ""' "$STATUS_PATH" 2>/dev/null || true)"
+    fi
+    load_checkpoint
+    if [[ "$recorded_request" == "$REQUEST_ID" ]]; then
+      case "$recorded_phase" in
+        completed|failed|recovered)
+          cleanup_update_artifacts
+          SUCCESS=1
+          UPDATE_ACTIVE=0
+          MIGRATION_STARTED=0
+          return 0
+          ;;
+      esac
+    fi
+    if ((MIGRATION_STARTED == 1)); then
+      FAIL_CODE='INTERRUPTED_AFTER_MIGRATION'
+      FAIL_MESSAGE='The update was interrupted after database migration began.'
+      mark_recovery_required
+      SUCCESS=1
+      UPDATE_ACTIVE=0
+      return 0
+    fi
+    FAIL_CODE='INTERRUPTED_BEFORE_MIGRATION'
+    FAIL_MESSAGE='The update was interrupted before database migration.'
+    if restore_original_runtime; then
+      CURRENT_VERSION="$OLD_VERSION"
+      publish_status failed false "$FAIL_CODE" "$FAIL_MESSAGE" true
+      cleanup_update_artifacts
+      SUCCESS=1
+      UPDATE_ACTIVE=0
+      return 0
+    fi
+    FAIL_CODE='ROLLBACK_FAILED'
+    FAIL_MESSAGE='The interrupted update could not restore the old service.'
+    mark_recovery_required
+    SUCCESS=1
+    UPDATE_ACTIVE=0
+    return 0
+  fi
+  if [[ -f "$CLAIMED_REQUEST_PATH" && ! -L "$CLAIMED_REQUEST_PATH" ]]; then
+    validate_request_json "$CLAIMED_REQUEST_PATH" || die 'orphaned claimed request is invalid'
+    REQUEST_ID="$(jq -r '.requestId' "$CLAIMED_REQUEST_PATH")"
+    CURRENT_VERSION="$(current_version_from_tree)"
+    STARTED_AT="$(iso_now)"
+    publish_status failed false CLAIM_INTERRUPTED 'The request was interrupted before update preflight.' true
+    rm -f -- "$CLAIMED_REQUEST_PATH"
+  fi
+}
+
+process_request() {
+  acquire_lock
+  reconcile_interrupted_work
+  cleanup_stale_reservation
+  [[ -e "$REQUEST_PATH" || -L "$REQUEST_PATH" ]] || return 0
+  claim_request
+  fetch_latest_release
+  assert_clean_worktree
+  capture_checkpoint
+  publish_status entering_maintenance true
+  publish_status draining true
+  drain_generations 300
+  publish_status stopping_writers true
+  stop_writers
+  create_pinned_backup
+  tag_rollback_image
+  fetch_target_commit
+  build_target
+  run_migrations
+  start_target_services
+  publish_status health_check true
+  wait_for_health
+  complete_update
+}
+
+read_public_status() {
+  safe_json_file "$STATUS_PATH" 65536 || die 'status file is unavailable or unsafe'
+  jq -e '.protocolVersion==1 and (.phase|type=="string")' "$STATUS_PATH" >/dev/null || die 'status file is invalid'
+}
+
+show_status() {
+  local request_id="$1" active_id
+  read_public_status
+  active_id="$(jq -r '.requestId // ""' "$STATUS_PATH")"
+  [[ "$active_id" == "$request_id" ]] || die 'request ID does not match the active update'
+  jq -r '
+    "request_id=" + (.requestId // "-"),
+    "phase=" + .phase,
+    "current_version=" + .currentVersion,
+    "target_version=" + (.targetVersion // "-"),
+    "backup_id=" + (.backupId // "-"),
+    (if .recoveryCommand then "recovery_command=" + .recoveryCommand else empty end)
+  ' "$STATUS_PATH"
+}
+
+recover_update() {
+  local requested_id="$1" state_id state_phase confirmation backup_dir
+  acquire_lock
+  read_public_status
+  state_id="$(jq -r '.requestId // ""' "$STATUS_PATH")"
+  state_phase="$(jq -r '.phase' "$STATUS_PATH")"
+  [[ "$state_id" == "$requested_id" && "$state_phase" == recovery_required ]] || die 'this request is not awaiting recovery'
+  load_checkpoint
+  [[ "$REQUEST_ID" == "$requested_id" && "$BACKUP_ID" =~ ^[0-9]{8}T[0-9]{6}Z$ ]] || die 'recovery checkpoint does not match'
+  backup_dir="$PROJECT_ROOT/deploy/backups/$BACKUP_ID"
+  strict_backup_checksums_are_valid "$backup_dir" || die 'recovery backup verification failed'
+  [[ -f "$backup_dir/.system-update-pin" && ! -L "$backup_dir/.system-update-pin" ]] || die 'recovery backup is not pinned'
+  [[ "$(<"$backup_dir/.system-update-pin")" == "$REQUEST_ID" ]] || die 'recovery backup pin does not match'
+
+  printf '输入 RECOVER ai-image-workshop 以确认仅恢复数据库：'
+  IFS= read -r confirmation
+  [[ "$confirmation" == 'RECOVER ai-image-workshop' ]] || die 'recovery confirmation did not match'
+
+  RECOVERY_MODE=1
+  UPDATE_ACTIVE=1
+  FAIL_CODE='RECOVERY_FAILED'
+  FAIL_MESSAGE='Database recovery failed; all recovery artifacts were retained.'
+  publish_status recovering true
+  compose stop web worker scheduler >/dev/null 2>&1 || true
+  git checkout --detach "$OLD_COMMIT"
+  docker image tag "$OLD_IMAGE_ID" "ai-image-workshop:$IMAGE_TAG"
+  compose up -d postgres
+  compose exec -T postgres pg_restore \
+    --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" \
+    --exit-on-error --single-transaction --clean --if-exists \
+    --no-owner --no-privileges <"$backup_dir/database.dump"
+  if ((${#OLD_SERVICES[@]} > 0)); then
+    compose up -d "${OLD_SERVICES[@]}"
+  fi
+  if [[ " ${OLD_SERVICES[*]} " == *' web '* ]]; then
+    wait_for_health
+  fi
+  CURRENT_VERSION="$OLD_VERSION"
+  publish_status recovered false '' '' true
+  SUCCESS=1
+  UPDATE_ACTIVE=0
+  RECOVERY_MODE=0
+  MIGRATION_STARTED=0
+  cleanup_update_artifacts
+}
+
+initialize() {
+  [[ ! -e "$CHECKPOINT_PATH" && ! -L "$CHECKPOINT_PATH" ]] || die 'cannot initialize while recovery artifacts exist'
+  [[ ! -e "$REQUEST_PATH" && ! -L "$REQUEST_PATH" && ! -e "$CLAIMED_REQUEST_PATH" && ! -L "$CLAIMED_REQUEST_PATH" ]] || \
+    die 'cannot initialize while an update request exists'
+  CURRENT_VERSION="$(current_version_from_tree)" || die 'installed version is invalid'
+  REQUEST_ID=''
+  TARGET_VERSION=''
+  STARTED_AT=''
+  FINISHED_AT=''
+  BACKUP_ID=''
+  publish_status idle false
+}
+
+usage() {
+  printf '%s\n' \
+    'usage: ai-image-workshop-update process-request' \
+    '       ai-image-workshop-update status REQUEST_ID' \
+    '       ai-image-workshop-update recover REQUEST_ID' \
+    '       ai-image-workshop-update initialize'
+}
+
+valid_uuid() {
+  [[ "$1" =~ ^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89aAbB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$ ]]
+}
+
+main() {
+  require_commands
+  load_config
+  cd -- "$PROJECT_ROOT"
+  load_deploy_environment
+  trap on_exit EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+
+  case "${1-}" in
+    process-request)
+      (($# == 1)) || { usage >&2; return 2; }
+      process_request
+      ;;
+    status)
+      (($# == 2)) || { usage >&2; return 2; }
+      valid_uuid "$2" || die 'invalid request ID'
+      show_status "$2"
+      ;;
+    recover)
+      (($# == 2)) || { usage >&2; return 2; }
+      valid_uuid "$2" || die 'invalid request ID'
+      recover_update "$2"
+      ;;
+    initialize)
+      (($# == 1)) || { usage >&2; return 2; }
+      initialize
+      ;;
+    *)
+      usage >&2
+      return 2
+      ;;
+  esac
+}
+
+main "$@"

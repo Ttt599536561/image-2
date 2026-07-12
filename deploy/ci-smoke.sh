@@ -19,6 +19,8 @@ ENV_FILE=''
 ENV_RELATIVE_PATH=''
 OVERRIDE_FILE=''
 OVERRIDE_RELATIVE_PATH=''
+CONTROL_ROOT=''
+CONTROL_GID=''
 PORT_3000_PID=''
 PORT_3000_TOKEN=''
 WEB_HOST_PORT_VALUE=''
@@ -126,6 +128,15 @@ cleanup() {
     fi
   fi
 
+  if [[ -n "$CONTROL_ROOT" ]]; then
+    if [[ "$CONTROL_ROOT" == "$SCRIPT_DIR"/.ci-smoke.*.control.* && -d "$CONTROL_ROOT" && ! -L "$CONTROL_ROOT" ]]; then
+      rmdir -- "$CONTROL_ROOT/inbox" "$CONTROL_ROOT/state" "$CONTROL_ROOT" || cleanup_status=1
+    else
+      printf 'temporary updater control root is unsafe: %s\n' "$CONTROL_ROOT" >&2
+      cleanup_status=1
+    fi
+  fi
+
   if ((original_status == 0 && cleanup_status != 0)); then
     original_status="$cleanup_status"
   fi
@@ -174,6 +185,8 @@ write_smoke_environment() {
     CUSTOM_KEY_MODES_ENABLED 'true'
     WORKER_CONCURRENCY '1'
     TRUST_PROXY 'true'
+    UPDATER_CONTROL_ROOT "$CONTROL_ROOT"
+    UPDATER_CONTROL_GID "$CONTROL_GID"
   )
 
   local index
@@ -317,6 +330,22 @@ assert_custom_mode_enabled() {
     "const f=await import('./src/server/generation/feature.server.ts'); const c=await import('./src/server/generation/credential.server.ts'); if(!f.isCustomKeyModesEnabled()) process.exit(1); const id='00000000-0000-4000-8000-000000000001'; const value=c.encryptCustomApiKey(id,'ci-custom-key'); if(c.decryptCustomApiKey(id,value)!=='ci-custom-key') process.exit(1);"
 }
 
+assert_updater_mount_boundary() {
+  timeout --signal=KILL 20 "${COMPOSE_COMMAND[@]}" exec -T web sh -eu -c '
+    test -d /run/ai-image-workshop-updater/inbox
+    test -w /run/ai-image-workshop-updater/inbox
+    test -d /run/ai-image-workshop-updater/state
+    test -r /run/ai-image-workshop-updater/state
+    ! touch /run/ai-image-workshop-updater/state/write-probe
+    touch /run/ai-image-workshop-updater/inbox/write-probe
+    rm /run/ai-image-workshop-updater/inbox/write-probe
+  '
+  timeout --signal=KILL 20 "${COMPOSE_COMMAND[@]}" exec -T worker sh -eu -c \
+    'test ! -e /run/ai-image-workshop-updater/inbox && test ! -e /run/ai-image-workshop-updater/state'
+  timeout --signal=KILL 20 "${COMPOSE_COMMAND[@]}" exec -T scheduler sh -eu -c \
+    'test ! -e /run/ai-image-workshop-updater/inbox && test ! -e /run/ai-image-workshop-updater/state'
+}
+
 main() {
   (($# == 0)) || die 'ci-smoke.sh does not accept arguments'
   trap cleanup EXIT
@@ -337,6 +366,14 @@ main() {
   [[ "$IMAGE_TAG_VALUE" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die 'IMAGE_TAG is invalid for the CI image'
   PROJECT_NAME="ai-image-workshop-ci-${RUN_ID}-$$"
   project_name_is_safe || die 'isolated Compose project name failed validation'
+  CONTROL_ROOT="$(mktemp -d "$SCRIPT_DIR/.ci-smoke.${PROJECT_NAME}.control.XXXXXX")"
+  CONTROL_GID="$(id -g)"
+  [[ "$CONTROL_GID" =~ ^[0-9]+$ ]] || die 'cannot determine updater control GID'
+  mkdir -m 2770 "$CONTROL_ROOT/inbox"
+  mkdir -m 0750 "$CONTROL_ROOT/state"
+  chgrp "$CONTROL_GID" "$CONTROL_ROOT" "$CONTROL_ROOT/inbox" "$CONTROL_ROOT/state"
+  chmod 0750 "$CONTROL_ROOT" "$CONTROL_ROOT/state"
+  chmod 2770 "$CONTROL_ROOT/inbox"
 
   if project_resources_exist; then
     die "refusing to overwrite an existing isolated project: $PROJECT_NAME"
@@ -392,6 +429,7 @@ main() {
   wait_for_web
   assert_admin_roles
   assert_custom_mode_enabled
+  assert_updater_mount_boundary
 
   timeout --signal=KILL 30 "${COMPOSE_COMMAND[@]}" exec -T web \
     node --import tsx --input-type=module -e \

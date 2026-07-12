@@ -27,8 +27,14 @@ export function requireSystemUpdatePost(
     const requestOrigin = new URL(origin);
     const configuredOrigin = new URL(configuredUrl);
     const isHttpOrigin = (url: URL) => url.protocol === "https:" || url.protocol === "http:";
+    const explicitDefaultPort =
+      requestOrigin.protocol === "https:"
+        ? `${requestOrigin.origin}:443`
+        : requestOrigin.protocol === "http:"
+          ? `${requestOrigin.origin}:80`
+          : "";
     const hasOriginOnlySyntax =
-      origin === requestOrigin.origin &&
+      (origin === requestOrigin.origin || origin === explicitDefaultPort) &&
       requestOrigin.username === "" &&
       requestOrigin.password === "" &&
       requestOrigin.pathname === "/" &&

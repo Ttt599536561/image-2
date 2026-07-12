@@ -1,6 +1,6 @@
 # Docker 部署与运维
 
-要求 Debian、Docker Engine、Docker Compose v2 和 Git。所有命令都从项目根目录执行；首次安装从空 PostgreSQL 和空媒体卷开始，不迁移 Neon、Supabase 或 Netlify 数据。
+要求 Debian、Docker Engine、Docker Compose v2、Git、jq 和 systemd。所有命令都从项目根目录执行；首次安装从空 PostgreSQL 和空媒体卷开始，不迁移 Neon、Supabase 或 Netlify 数据。
 
 ## 安装
 
@@ -49,6 +49,8 @@ curl -fsS -o /dev/null -w '%{http_code}\n' https://images.example.com/healthz
 
 健康检查应返回 `204`。`postgres` 和 `web` 应为 healthy，`worker`、`scheduler` 应处于运行状态；Caddy 模式还应看到 `caddy`。
 
+安装成功后还会创建 `ai-image-workshop-updater` 系统组、初始化 `/var/lib/ai-image-workshop-updater`，并启用 `ai-image-workshop-update.service` 与 `.path`。旧部署执行一次 `sudo bash deploy/install.sh --upgrade` 后会自动补齐这套初始化；不需要给 Web Docker socket。
+
 随后依次检查：
 
 1. 使用安装时的邮箱登录 `/admin/login`。
@@ -58,6 +60,23 @@ curl -fsS -o /dev/null -w '%{http_code}\n' https://images.example.com/healthz
 5. 打开 `/favicon.svg?v=1`；浏览器仍缓存旧标签图标时，关闭标签页后重新打开。
 
 ## 更新与运维
+
+管理员可在 `/admin/system-update` 点击“检查更新”。更新通道固定为公开仓库 `Ttt599536561/image-2` 的最新稳定 GitHub Release；draft、prerelease、非严格 `vMAJOR.MINOR.PATCH` 和非递增版本都会被拒绝。点击“立即更新”后，网站会进入数分钟维护窗口：先排空任务、停止写入服务、校验备份，再拉取精确 tag、构建、迁移和健康检查。
+
+页面重连期间可在服务器查看同一请求：
+
+```bash
+sudo /usr/local/sbin/ai-image-workshop-update status <REQUEST_ID>
+```
+
+迁移前失败会自动恢复旧提交、旧镜像和原服务。迁移开始后的失败不会自动重复迁移，页面与 `status` 会给出唯一恢复命令：
+
+```bash
+sudo /usr/local/sbin/ai-image-workshop-update recover <REQUEST_ID>
+# 按提示输入：RECOVER ai-image-workshop
+```
+
+该恢复只把已校验备份中的数据库恢复到旧版本，不覆盖媒体，也不运行迁移。恢复成功前不要删除 `deploy/backups/<BACKUP_ID>/.system-update-pin`、更新器状态或 rollback 镜像。
 
 ```bash
 # 更新代码并升级；升级会先备份，再构建、迁移和重启
@@ -77,6 +96,8 @@ sudo bash deploy/restore.sh deploy/backups/20260712T120000Z
 ```
 
 升级开始迁移后的失败必须按脚本提示恢复，不要直接反复执行 `--upgrade`。恢复只允许写入已停止且为空的目标卷，并要求输入确认串。
+
+发布新版时，先把 `package.json` 与 `package-lock.json` 改为同一稳定版本并合入 `main`，再由维护者创建并推送匹配的 `vX.Y.Z` tag。CI 会验证版本单调递增、tag 指向 `main` 中的精确提交，再发布 stable/latest GitHub Release。不要修改或复用已经发布的 tag；建议在 GitHub ruleset 中禁止 tag 更新和删除。
 
 ## 已知故障
 
@@ -132,4 +153,5 @@ docker compose --env-file deploy/.env.production exec -T web node -e '
 - PostgreSQL 的 `5432` 不发布到宿主机，Web 只绑定安装器选择的回环端口。
 - `deploy/.env.production` 含 Relay Key 和内部密钥，权限应为 `600`，不得提交到 Git。
 - 业务 Compose 命令必须显式带 `--env-file deploy/.env.production`。
+- Web 只挂载控制目录的 `inbox`（读写）和 `state`（只读）；worker/scheduler 均不挂载，任何应用容器都不挂载 Docker socket 或项目根目录。
 - 不要删除数据卷、安装状态或生产环境文件来处理普通启动故障。

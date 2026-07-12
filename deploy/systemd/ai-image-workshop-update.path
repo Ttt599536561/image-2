@@ -1,0 +1,9 @@
+[Unit]
+Description=Watch for AI Image Workshop update requests
+
+[Path]
+PathExists=/var/lib/ai-image-workshop-updater/inbox/request.json
+Unit=ai-image-workshop-update.service
+
+[Install]
+WantedBy=multi-user.target
