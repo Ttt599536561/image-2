@@ -542,6 +542,39 @@ describe("checkLatestStableRelease", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
+  it("prevents a pre-reset request from overwriting the post-reset cache", async () => {
+    const oldResponse = deferred<Response>();
+    const newResponse = deferred<Response>();
+    const oldRelease = githubRelease({
+      tag_name: "v1.3.0",
+      html_url: "https://github.com/Ttt599536561/image-2/releases/tag/v1.3.0",
+    });
+    const newRelease = githubRelease({
+      tag_name: "v1.4.0",
+      html_url: "https://github.com/Ttt599536561/image-2/releases/tag/v1.4.0",
+    });
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(() => oldResponse.promise)
+      .mockImplementationOnce(() => newResponse.promise)
+      .mockImplementation(() => Promise.resolve(jsonResponse(newRelease)));
+
+    const oldCheck = checkLatestStableRelease({ currentVersion: "1.2.2", fetchImpl });
+    resetReleaseCacheForTests();
+    const newCheck = checkLatestStableRelease({ currentVersion: "1.2.2", fetchImpl });
+
+    newResponse.resolve(jsonResponse(newRelease));
+    const newResult = await newCheck;
+    oldResponse.resolve(jsonResponse(oldRelease));
+    const oldResult = await oldCheck;
+    const cachedResult = await checkLatestStableRelease({ currentVersion: "1.2.2", fetchImpl });
+
+    expect(newResult.release?.version).toBe("1.4.0");
+    expect(oldResult.release?.version).toBe("1.3.0");
+    expect(cachedResult.release?.version).toBe("1.4.0");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   it("force bypasses freshness and conditionally revalidates with the cached ETag", async () => {
     const fetchImpl = vi
       .fn<typeof fetch>()

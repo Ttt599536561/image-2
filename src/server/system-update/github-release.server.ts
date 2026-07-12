@@ -82,10 +82,12 @@ type CachedReleaseResult = {
 
 const releaseCache = new Map<string, CachedReleaseResult>();
 const inFlightReleaseChecks = new Map<string, Promise<LatestStableReleaseResult>>();
+let releaseCacheEpoch = 0;
 
 export function resetReleaseCacheForTests(): void {
   releaseCache.clear();
   inFlightReleaseChecks.clear();
+  releaseCacheEpoch += 1;
 }
 
 function error(code: GitHubReleaseErrorCode): GitHubReleaseError {
@@ -196,12 +198,15 @@ function cacheResult(
   value: LatestStableReleaseResult,
   response: Response,
   checkedAt: number,
+  requestEpoch: number,
 ): LatestStableReleaseResult {
-  releaseCache.set(currentVersion, {
-    value,
-    etag: response.headers.get("etag"),
-    checkedAt,
-  });
+  if (requestEpoch === releaseCacheEpoch) {
+    releaseCache.set(currentVersion, {
+      value,
+      etag: response.headers.get("etag"),
+      checkedAt,
+    });
+  }
   return value;
 }
 
@@ -241,6 +246,7 @@ async function requestLatestStableRelease(
   cached: CachedReleaseResult | undefined,
   checkedAt: number,
   fetchImpl: typeof fetch,
+  requestEpoch: number,
 ): Promise<LatestStableReleaseResult> {
   const headers: Record<string, string> = {
     Accept: GITHUB_ACCEPT_HEADER,
@@ -266,14 +272,22 @@ async function requestLatestStableRelease(
     if (response.status === 304) {
       await cancelResponseBody(response);
       if (!cached?.etag) throw error("malformed_response");
-      cached.checkedAt = checkedAt;
-      cached.etag = response.headers.get("etag") ?? cached.etag;
+      if (requestEpoch === releaseCacheEpoch) {
+        cached.checkedAt = checkedAt;
+        cached.etag = response.headers.get("etag") ?? cached.etag;
+      }
       return cached.value;
     }
 
     if (response.status === 404) {
       await cancelResponseBody(response);
-      return cacheResult(currentVersion, { state: "none", release: null }, response, checkedAt);
+      return cacheResult(
+        currentVersion,
+        { state: "none", release: null },
+        response,
+        checkedAt,
+        requestEpoch,
+      );
     }
 
     const rateLimitExhausted =
@@ -293,11 +307,17 @@ async function requestLatestStableRelease(
     const body = await readBoundedBody(response);
     const payload = selectGitHubPayload(JSON.parse(body) as unknown);
     if (payload.draft || payload.prerelease) {
-      return cacheResult(currentVersion, { state: "none", release: null }, response, checkedAt);
+      return cacheResult(
+        currentVersion,
+        { state: "none", release: null },
+        response,
+        checkedAt,
+        requestEpoch,
+      );
     }
 
     const result = parseStableRelease(payload, currentVersion);
-    return cacheResult(currentVersion, result, response, checkedAt);
+    return cacheResult(currentVersion, result, response, checkedAt, requestEpoch);
   } catch (cause) {
     if (cause instanceof GitHubReleaseError) throw cause;
     if (isTimeoutOrAbortError(cause)) throw error("timeout");
@@ -323,7 +343,14 @@ export async function checkLatestStableRelease({
   if (existing) return existing;
 
   let inFlight!: Promise<LatestStableReleaseResult>;
-  inFlight = requestLatestStableRelease(currentVersion, cached, checkedAt, fetchImpl).finally(() => {
+  const requestEpoch = releaseCacheEpoch;
+  inFlight = requestLatestStableRelease(
+    currentVersion,
+    cached,
+    checkedAt,
+    fetchImpl,
+    requestEpoch,
+  ).finally(() => {
     if (inFlightReleaseChecks.get(currentVersion) === inFlight) {
       inFlightReleaseChecks.delete(currentVersion);
     }
