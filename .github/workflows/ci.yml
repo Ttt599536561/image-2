@@ -59,6 +59,9 @@ jobs:
       - name: Validate Docker Compose
         run: npm run docker:validate
 
+      - name: Deployment script contract tests
+        run: npm run test:deploy
+
       - name: Build Docker image
         run: docker build --tag ai-image-workshop:ci .
 
@@ -77,6 +80,11 @@ jobs:
             if (require('/app/package.json').devDependencies) throw new Error('Runtime manifest still has devDependencies');
             console.log('Docker runtime dependency boundary is valid');
           "
+
+      - name: Empty self-hosted stack smoke
+        env:
+          IMAGE_TAG: ci
+        run: npm run test:deploy:smoke
 
 # TODO（需 Neon API token，10 §11.10）：每 PR 起一条 Neon test branch → 跑迁移 → 注入 DATABASE_URL_UNPOOLED 给
 #   `npm run test:money`（钱链路真库测试，命门）→ PR 关闭时销毁分支。当前 test:money 对共享 direct 串本地跑，

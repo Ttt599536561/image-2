@@ -2,7 +2,7 @@ x-app: &app
   build: .
   image: ai-image-workshop:${IMAGE_TAG:-latest}
   env_file:
-    - path: deploy/.env.production
+    - path: "${DEPLOY_ENV_FILE:-deploy/.env.production}"
       required: false
   restart: unless-stopped
   networks: [app]
