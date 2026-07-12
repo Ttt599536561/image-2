@@ -1,8 +1,11 @@
 // @vitest-environment node
+import { execFile, spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
+import { promisify } from "node:util";
+import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   SystemUpdateStatus as SystemUpdateStatusValue,
@@ -17,6 +20,17 @@ const fsControl = vi.hoisted(() => ({
   lstat: undefined as FsOverride | undefined,
   unlink: undefined as FsOverride | undefined,
 }));
+
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...actual,
+    constants: {
+      ...actual.constants,
+      O_NONBLOCK: actual.constants.O_NONBLOCK || 0x800,
+    },
+  };
+});
 
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
@@ -48,6 +62,7 @@ import {
   UPDATE_INBOX_PATH,
   UPDATE_STATUS_PATH,
   UpdateRequestConflictError,
+  UpdateRequestPublicationUncertainError,
 } from "./state.server";
 
 const status: SystemUpdateStatusValue = {
@@ -74,15 +89,74 @@ const request: UpdateRequestValue = {
 };
 
 const tempRoots: string[] = [];
+const execFileAsync = promisify(execFile);
 
 function errno(code: string, message = code): NodeJS.ErrnoException {
   return Object.assign(new Error(message), { code });
+}
+
+function makeRequestTempHandle() {
+  return {
+    write: vi.fn(async (buffer: Uint8Array, offset = 0, length = buffer.byteLength - offset) => ({
+      buffer,
+      bytesWritten: length,
+    })),
+    sync: vi.fn(async () => {}),
+    close: vi.fn(async () => {}),
+  };
+}
+
+function makeDirectoryHandle() {
+  return {
+    sync: vi.fn(async () => {}),
+    close: vi.fn(async () => {}),
+  };
 }
 
 async function makeTempDir(): Promise<string> {
   const path = await mkdtemp(join(tmpdir(), "system-update-state-"));
   tempRoots.push(path);
   return path;
+}
+
+async function readStatusInChild(
+  path: string,
+): Promise<{ code: number | null; stderr: string; timedOut: boolean }> {
+  const moduleUrl = pathToFileURL(
+    join(process.cwd(), "src/server/system-update/state.server.ts"),
+  ).href;
+  const source = `
+    import { readSystemUpdateStatus } from ${JSON.stringify(moduleUrl)};
+    try {
+      await readSystemUpdateStatus(${JSON.stringify(path)});
+      process.exitCode = 2;
+    } catch (error) {
+      process.exitCode = error instanceof Error && /regular file/i.test(error.message) ? 0 : 3;
+    }
+  `;
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(
+      process.execPath,
+      ["--import", "tsx", "--input-type=module", "--eval", source],
+      { cwd: process.cwd(), stdio: ["ignore", "ignore", "pipe"] },
+    );
+    let stderr = "";
+    let timedOut = false;
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    child.once("error", reject);
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill("SIGKILL");
+    }, 1_500);
+    child.once("close", (code) => {
+      clearTimeout(timer);
+      resolve({ code, stderr, timedOut });
+    });
+  });
 }
 
 beforeEach(() => {
@@ -140,6 +214,20 @@ describe("system update state I/O", () => {
     await expect(readSystemUpdateStatus(oversized)).rejects.toThrow(/64 KiB/i);
   });
 
+  it.runIf(process.platform === "linux")(
+    "rejects a FIFO without blocking the status reader",
+    async () => {
+      const root = await makeTempDir();
+      const fifo = join(root, "status.fifo");
+      await execFileAsync("mkfifo", [fifo]);
+
+      const result = await readStatusInChild(fifo);
+
+      expect(result.timedOut, result.stderr).toBe(false);
+      expect(result.code, result.stderr).toBe(0);
+    },
+  );
+
   it.each([
     ["invalid UTF-8", Buffer.from([0xc3, 0x28])],
     ["invalid JSON", Buffer.from("{not-json", "utf8")],
@@ -193,7 +281,26 @@ describe("system update state I/O", () => {
     await expect(result).rejects.not.toBe(lstatFailure);
   });
 
-  it("uses O_NOFOLLOW, bounds bytes read after fstat, and always closes", async () => {
+  it("adds O_NONBLOCK when opening status on POSIX", async () => {
+    const platform = vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+    try {
+      const failure = errno("EACCES");
+      const open = vi.fn(async () => {
+        throw failure;
+      });
+      fsControl.open = open;
+
+      await expect(readSystemUpdateStatus("/run/updater/status.json")).rejects.toBe(failure);
+      expect(open).toHaveBeenCalledWith(
+        "/run/updater/status.json",
+        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      );
+    } finally {
+      platform.mockRestore();
+    }
+  });
+
+  it("uses platform-safe flags, bounds bytes read after fstat, and always closes", async () => {
     const close = vi.fn(async () => {});
     const open = vi.fn(async () => ({
       stat: vi.fn(async () => ({ isFile: () => true, size: 1 })),
@@ -210,7 +317,9 @@ describe("system update state I/O", () => {
 
     expect(open).toHaveBeenCalledWith(
       "C:\\status.json",
-      constants.O_RDONLY | constants.O_NOFOLLOW,
+      constants.O_RDONLY |
+        constants.O_NOFOLLOW |
+        (process.platform === "win32" ? 0 : constants.O_NONBLOCK),
     );
     expect(close).toHaveBeenCalledOnce();
   });
@@ -242,6 +351,35 @@ describe("system update state I/O", () => {
       .rejects.toBeInstanceOf(UpdateRequestConflictError);
     expect(await readFile(fixedPath)).toEqual(original);
     expect(await readdir(inbox)).toEqual(["request.json"]);
+  });
+
+  it("rejects an oversized schema-valid request before filesystem I/O", async () => {
+    const oversized = {
+      ...request,
+      requestedAt: `2026-07-12T10:00:00.${"1".repeat(MAX_UPDATE_JSON_BYTES)}Z`,
+    };
+    const open = vi.fn(async () => {
+      throw new Error("filesystem touched");
+    });
+    const link = vi.fn(async () => {});
+    fsControl.open = open;
+    fsControl.link = link;
+
+    await expect(createSystemUpdateRequest(oversized, "C:\\updater\\inbox")).rejects.toThrow(
+      /64 KiB/i,
+    );
+    expect(open).not.toHaveBeenCalled();
+    expect(link).not.toHaveBeenCalled();
+  });
+
+  it("exposes a sanitized publication uncertainty with its request ID", () => {
+    const error = new UpdateRequestPublicationUncertainError(request.requestId);
+
+    expect(error.name).toBe("UpdateRequestPublicationUncertainError");
+    expect(error.message).toBe(
+      "System update request was published but durability could not be confirmed",
+    );
+    expect(error.requestId).toBe(request.requestId);
   });
 
   it("fully writes, fsyncs, and closes the temp file before linking the fixed name", async () => {
@@ -306,9 +444,10 @@ describe("system update state I/O", () => {
     expect(events.indexOf("file-sync")).toBeGreaterThan(events.lastIndexOf("write"));
     expect(events.indexOf("file-close")).toBeGreaterThan(events.indexOf("file-sync"));
     expect(events.indexOf("link")).toBeGreaterThan(events.indexOf("file-close"));
-    expect(events.indexOf("directory-sync")).toBeGreaterThan(events.indexOf("link"));
+    expect(events.indexOf("unlink")).toBeGreaterThan(events.indexOf("link"));
+    expect(events.indexOf("directory-sync")).toBeGreaterThan(events.indexOf("unlink"));
     expect(events.indexOf("directory-close")).toBeGreaterThan(events.indexOf("directory-sync"));
-    expect(events.at(-1)).toBe("unlink");
+    expect(events.at(-1)).toBe("directory-close");
   });
 
   it("retries a temp UUID collision without reporting an active-request conflict", async () => {
@@ -342,34 +481,127 @@ describe("system update state I/O", () => {
     expect(fsControl.unlink).toHaveBeenCalledWith(tempPaths[1]);
   });
 
-  it("unlinks the temp file and preserves non-link filesystem failures", async () => {
-    const inbox = "C:\\updater\\inbox";
-    const failure = errno("EIO", "directory fsync failed");
-    const tempHandle = {
-      write: vi.fn(async (buffer: Uint8Array, offset = 0, length = buffer.byteLength - offset) => ({
-        buffer,
-        bytesWritten: length,
-      })),
-      sync: vi.fn(async () => {}),
-      close: vi.fn(async () => {}),
-    };
-    const directoryHandle = {
-      sync: vi.fn(async () => {
-        throw failure;
-      }),
-      close: vi.fn(async () => {}),
-    };
+  it.each(["open", "sync"] as const)(
+    "reports sanitized publication uncertainty when directory %s fails",
+    async (failureStage) => {
+      const inbox = "C:\\updater\\inbox";
+      const rawFailure = errno("EIO", `raw ${failureStage} failure: ${inbox}`);
+      const events: string[] = [];
+      let fixedVisible = false;
+      const tempHandle = makeRequestTempHandle();
+      const directoryHandle = makeDirectoryHandle();
+      directoryHandle.sync.mockImplementation(async () => {
+        events.push("directory-sync");
+        expect(fixedVisible).toBe(true);
+        if (failureStage === "sync") throw rawFailure;
+      });
+      if (failureStage === "sync") {
+        directoryHandle.close.mockRejectedValue(errno("EIO", "directory close failed"));
+      }
 
+      fsControl.open = vi.fn(async (path: string) => {
+        if (path !== inbox) return tempHandle;
+        events.push("directory-open");
+        if (failureStage === "open") throw rawFailure;
+        return directoryHandle;
+      });
+      fsControl.link = vi.fn(async () => {
+        fixedVisible = true;
+        events.push("link");
+      });
+      fsControl.unlink = vi.fn(async () => {
+        events.push("unlink");
+      });
+
+      let caught: unknown;
+      try {
+        await createSystemUpdateRequest(request, inbox);
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(fixedVisible).toBe(true);
+      expect(caught).toBeInstanceOf(UpdateRequestPublicationUncertainError);
+      expect(caught).toMatchObject({
+        name: "UpdateRequestPublicationUncertainError",
+        message: "System update request was published but durability could not be confirmed",
+        requestId: request.requestId,
+      });
+      expect(caught).not.toBe(rawFailure);
+      expect(events.indexOf("unlink")).toBeGreaterThan(events.indexOf("link"));
+      expect(events.indexOf("directory-open")).toBeGreaterThan(events.indexOf("unlink"));
+      if (failureStage === "sync") {
+        expect(events.indexOf("directory-sync")).toBeGreaterThan(events.indexOf("unlink"));
+      }
+    },
+  );
+
+  it("accepts a durably synced request when temp cleanup fails", async () => {
+    const inbox = "C:\\updater\\inbox";
+    const tempHandle = makeRequestTempHandle();
+    const directoryHandle = makeDirectoryHandle();
+    fsControl.open = vi.fn(async (path: string) =>
+      path === inbox ? directoryHandle : tempHandle,
+    );
+    fsControl.link = vi.fn(async () => {});
+    fsControl.unlink = vi.fn(async () => {
+      throw errno("EACCES", "temp cleanup failed");
+    });
+
+    await expect(createSystemUpdateRequest(request, inbox)).resolves.toBeUndefined();
+    expect(directoryHandle.sync).toHaveBeenCalledOnce();
+  });
+
+  it("accepts a durably synced request when directory close fails", async () => {
+    const inbox = "C:\\updater\\inbox";
+    const tempHandle = makeRequestTempHandle();
+    const directoryHandle = makeDirectoryHandle();
+    directoryHandle.close.mockRejectedValue(errno("EIO", "directory close failed"));
     fsControl.open = vi.fn(async (path: string) =>
       path === inbox ? directoryHandle : tempHandle,
     );
     fsControl.link = vi.fn(async () => {});
     fsControl.unlink = vi.fn(async () => {});
 
-    await expect(createSystemUpdateRequest(request, inbox)).rejects.toBe(failure);
-    expect(fsControl.unlink).toHaveBeenCalledOnce();
-    expect(directoryHandle.close).toHaveBeenCalledOnce();
+    await expect(createSystemUpdateRequest(request, inbox)).resolves.toBeUndefined();
+    expect(directoryHandle.sync).toHaveBeenCalledOnce();
   });
+
+  it("preserves a target conflict when temp cleanup fails", async () => {
+    const inbox = "C:\\updater\\inbox";
+    fsControl.open = vi.fn(async () => makeRequestTempHandle());
+    fsControl.link = vi.fn(async () => {
+      throw errno("EEXIST", "request exists");
+    });
+    fsControl.unlink = vi.fn(async () => {
+      throw errno("EACCES", "temp cleanup failed");
+    });
+
+    await expect(createSystemUpdateRequest(request, inbox)).rejects.toBeInstanceOf(
+      UpdateRequestConflictError,
+    );
+  });
+
+  it.each(["write", "file-sync", "file-close", "link"] as const)(
+    "preserves the primary %s failure when temp cleanup also fails",
+    async (failureStage) => {
+      const inbox = "C:\\updater\\inbox";
+      const primary = new Error(`${failureStage} failed`);
+      const tempHandle = makeRequestTempHandle();
+      if (failureStage === "write") tempHandle.write.mockRejectedValue(primary);
+      if (failureStage === "file-sync") tempHandle.sync.mockRejectedValue(primary);
+      if (failureStage === "file-close") tempHandle.close.mockRejectedValue(primary);
+      fsControl.open = vi.fn(async () => tempHandle);
+      fsControl.link = vi.fn(async () => {
+        if (failureStage === "link") throw primary;
+      });
+      fsControl.unlink = vi.fn(async () => {
+        throw errno("EACCES", "temp cleanup failed");
+      });
+
+      await expect(createSystemUpdateRequest(request, inbox)).rejects.toBe(primary);
+    },
+  );
 
   it.each(["repository", "tag", "path", "command"])(
     "rejects caller-supplied %s before publishing",

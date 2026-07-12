@@ -14,7 +14,6 @@ export const UPDATE_STATUS_PATH = "/run/ai-image-workshop-updater/state/status.j
 export const MAX_UPDATE_JSON_BYTES = 64 * 1024;
 
 const TEMP_FILE_ATTEMPTS = 10;
-const STATUS_OPEN_FLAGS = constants.O_RDONLY | constants.O_NOFOLLOW;
 const REQUEST_TEMP_OPEN_FLAGS =
   constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW;
 
@@ -28,6 +27,14 @@ function sizeError(): Error {
 
 function statusPathUnavailableError(): Error {
   return new Error("System update status path is unavailable");
+}
+
+function statusOpenFlags(): number {
+  return (
+    constants.O_RDONLY |
+    constants.O_NOFOLLOW |
+    (process.platform === "win32" ? 0 : constants.O_NONBLOCK)
+  );
 }
 
 async function confirmStatusPathMissing(path: string): Promise<null> {
@@ -45,7 +52,7 @@ export async function readSystemUpdateStatus(
 ): Promise<SystemUpdateStatusValue | null> {
   let handle;
   try {
-    handle = await open(path, STATUS_OPEN_FLAGS);
+    handle = await open(path, statusOpenFlags());
   } catch (error) {
     if (hasCode(error, "ENOENT")) return confirmStatusPathMissing(path);
     throw error;
@@ -93,6 +100,16 @@ export class UpdateRequestConflictError extends Error {
   }
 }
 
+export class UpdateRequestPublicationUncertainError extends Error {
+  readonly requestId: string;
+
+  constructor(requestId: string) {
+    super("System update request was published but durability could not be confirmed");
+    this.name = "UpdateRequestPublicationUncertainError";
+    this.requestId = requestId;
+  }
+}
+
 async function openRequestTemp(inbox: string) {
   for (let attempt = 0; attempt < TEMP_FILE_ATTEMPTS; attempt += 1) {
     const path = join(inbox, `${randomUUID()}.tmp`);
@@ -128,17 +145,58 @@ async function writeComplete(
   }
 }
 
-async function syncInbox(inbox: string): Promise<void> {
-  const directory = await open(inbox, constants.O_RDONLY);
+async function runAndClosePreservingPrimary(
+  handle: { close(): Promise<void> },
+  operation: () => Promise<void>,
+): Promise<void> {
+  let failed = false;
+  let primaryError: unknown;
   try {
-    try {
-      await directory.sync();
-    } catch (error) {
-      if (!(process.platform === "win32" && hasCode(error, "EPERM"))) throw error;
-    }
-  } finally {
-    await directory.close();
+    await operation();
+  } catch (error) {
+    failed = true;
+    primaryError = error;
   }
+  try {
+    await handle.close();
+  } catch (error) {
+    if (!failed) {
+      failed = true;
+      primaryError = error;
+    }
+  }
+  if (failed) throw primaryError;
+}
+
+async function bestEffortUnlink(path: string): Promise<void> {
+  try {
+    await unlink(path);
+  } catch {
+    // Cleanup cannot replace publication or pre-publication outcomes.
+  }
+}
+
+async function syncInbox(inbox: string): Promise<boolean> {
+  let directory;
+  try {
+    directory = await open(inbox, constants.O_RDONLY);
+  } catch {
+    return false;
+  }
+
+  let synced = false;
+  try {
+    await directory.sync();
+    synced = true;
+  } catch (error) {
+    synced = process.platform === "win32" && hasCode(error, "EPERM");
+  }
+  try {
+    await directory.close();
+  } catch {
+    // A close failure cannot downgrade an already durable publication.
+  }
+  return synced;
 }
 
 export async function createSystemUpdateRequest(
@@ -147,15 +205,15 @@ export async function createSystemUpdateRequest(
 ): Promise<void> {
   const parsed = UpdateRequest.parse(request);
   const bytes = Buffer.from(JSON.stringify(parsed), "utf8");
+  if (bytes.byteLength > MAX_UPDATE_JSON_BYTES) throw sizeError();
   const { path: tempPath, handle } = await openRequestTemp(inbox);
+  let published = false;
 
   try {
-    try {
+    await runAndClosePreservingPrimary(handle, async () => {
       await writeComplete(handle, bytes);
       await handle.sync();
-    } finally {
-      await handle.close();
-    }
+    });
 
     const fixedPath = join(inbox, "request.json");
     try {
@@ -164,9 +222,14 @@ export async function createSystemUpdateRequest(
       if (hasCode(error, "EEXIST")) throw new UpdateRequestConflictError();
       throw error;
     }
+    published = true;
 
-    await syncInbox(inbox);
-  } finally {
-    await unlink(tempPath);
+    await bestEffortUnlink(tempPath);
+    if (!(await syncInbox(inbox))) {
+      throw new UpdateRequestPublicationUncertainError(parsed.requestId);
+    }
+  } catch (error) {
+    if (!published) await bestEffortUnlink(tempPath);
+    throw error;
   }
 }
