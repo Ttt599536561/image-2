@@ -1,56 +1,32 @@
-# Debian Docker 一键部署
+# Docker 部署与运维
 
-在项目根目录选择一种部署方式：
+要求 Debian、Docker Engine、Docker Compose v2 和 Git。所有命令都从项目根目录执行；首次安装从空 PostgreSQL 和空媒体卷开始，不迁移 Neon、Supabase 或 Netlify 数据。
+
+## 安装
 
 ```bash
-# Bundled Caddy owns 80/443
+git clone https://github.com/Ttt599536561/image-2.git ai-image-workshop
+cd ai-image-workshop
+
+# 方式 A：Caddy 自动配置 HTTPS；域名需已解析，80/443 需空闲
 sudo bash deploy/install.sh --domain images.example.com
 
-# Existing reverse proxy forwards to the printed 127.0.0.1 port
-sudo bash deploy/install.sh --existing-proxy --public-url https://images.example.com
-
-# Resume an interrupted install without rotating generated secrets
-sudo bash deploy/install.sh --resume
+# 方式 B：使用已有反向代理
+sudo bash deploy/install.sh \
+  --existing-proxy \
+  --public-url https://images.example.com
 ```
 
-## 前提
+安装器依次询问系统 Relay API Key、管理员邮箱和管理员密码，其余数据库、认证和 custom Key 加密密钥自动生成。Key 和密码会显示在终端中，请只在可信终端操作并注意滚动记录、录屏和远程操作日志。管理员入口是 `https://images.example.com/admin/login`。
 
-- 一台全新的 Debian 服务器，已安装 Docker Engine 与 Compose v2。
-- 项目代码已位于服务器，命令从仓库根目录执行。
-- 域名模式需要域名已解析到服务器，且宿主机 `80/443` 空闲。
-- 现有代理模式不会启动 Caddy；安装器会选择空闲的 `127.0.0.1` 端口并输出上游地址。
+新部署默认同时开放两种模式：
 
-首次安装从空数据开始，不迁移旧 Neon、Supabase 或 Netlify 数据。
+- `system`：使用站长 Relay Key，成功落图后扣本站积分。
+- `custom`：使用用户自己的 Key，不检查或扣除本站积分。
 
-## 安装时输入
+已有代理应转发到脚本最后打印的 `http://127.0.0.1:<端口>`。固定端口可在安装命令中追加 `--port 18080`。
 
-终端只要求提供 3 个值：
-
-1. 系统 Relay API Key，并确认一次。
-2. 管理员邮箱。
-3. 管理员密码，连续输入两次以校验一致。
-
-Key 和密码使用普通可见输入。这样便于核对，但内容会留在终端滚动记录、录屏或远程操作日志中；请在可信终端操作。输入不会进入 shell 命令历史，管理员密码也不会写入长期配置。
-
-确认后，脚本会自动完成预检、生成数据库与认证密钥、创建权限为 `600` 的 `deploy/.env.production`、启动 PostgreSQL、执行迁移、创建管理员、启动服务并检查 `/healthz`。不要手工填写示例环境文件。
-
-管理员入口：`https://你的域名/admin/login`。
-
-部署完成即同时开放 system 和 custom：system 使用站长 Relay Key 并扣本站积分；custom 由用户在网页 Key 设置中填写自己的 Key，本站不扣积分。custom 加密密钥由安装器自动生成，不增加部署输入。
-
-## 端口与数据
-
-- PostgreSQL 的 `5432` 仅在 Compose 私有网络内使用，不发布到宿主机。
-- Web 的 `3000` 仅在容器内使用；宿主机已有 `3000` 服务不会冲突。
-- 域名模式由 Caddy 对公网发布 `80/443`；Web 仍只绑定自动选择的回环端口。
-- 现有代理模式只发布安装器选择的 `127.0.0.1:<端口>`。
-- 数据库保存于 `postgres_data`，图片保存于 `media_data`；重建应用容器不会删除数据。
-
-现有代理需要固定回环端口时可追加 `--port 18081`；端口已占用时安装器会停止，不会接管已有服务。
-
-## 现有代理
-
-安装器会打印类似 `http://127.0.0.1:18080` 的上游。Nginx 最小配置示例：
+Nginx 最小示例：
 
 ```nginx
 location / {
@@ -62,7 +38,7 @@ location / {
 }
 ```
 
-若打印的端口不是 `18080`，以实际输出为准。`X-Forwarded-For` 必须覆盖为直连客户端地址，不要使用会保留客户端伪造首段的 `$proxy_add_x_forwarded_for`。TLS、域名和公网入口由现有代理负责。
+`X-Forwarded-For` 必须覆盖为直连客户端地址。应用在 `TRUST_PROXY=true` 时使用首个转发地址做 IP 限流，因此不要改用会保留客户端伪造首段的 `$proxy_add_x_forwarded_for`。
 
 ## 验证
 
@@ -71,30 +47,89 @@ docker compose --env-file deploy/.env.production ps
 curl -fsS -o /dev/null -w '%{http_code}\n' https://images.example.com/healthz
 ```
 
-预期健康检查返回 `204`，`postgres`、`web`、`worker`、`scheduler` 均正常；域名模式还应看到 `caddy`。随后用安装时设置的账号登录 `/admin/login`，完成一次 system 模式生图；再以普通用户选择 custom、填写自己的 Key 生图，确认本站余额不变且 `/media/*` 图片可打开。
+健康检查应返回 `204`。`postgres` 和 `web` 应为 healthy，`worker`、`scheduler` 应处于运行状态；Caddy 模式还应看到 `caddy`。
 
-## 日常运维
+随后依次检查：
+
+1. 使用安装时的邮箱登录 `/admin/login`。
+2. 完成一次 `system` 生成并确认成功后只扣一次积分。
+3. 使用普通用户选择 `custom`、填写自己的 Key，确认能够生成且本站余额不变。
+4. 打开生成结果的 `/media/*` 地址。
+5. 打开 `/favicon.svg?v=1`；浏览器仍缓存旧标签图标时，关闭标签页后重新打开。
+
+## 更新与运维
 
 ```bash
-sudo bash deploy/backup.sh
+# 更新代码并升级；升级会先备份，再构建、迁移和重启
+git pull --ff-only
 sudo bash deploy/install.sh --upgrade
-sudo bash deploy/restore.sh deploy/backups/20260712T120000Z
+
+# 中断安装后继续；不会轮换已经生成的密钥
+sudo bash deploy/install.sh --resume
+
+# 状态与日志
 docker compose --env-file deploy/.env.production ps
-docker compose --env-file deploy/.env.production logs --tail=100 web worker scheduler postgres
+docker compose --env-file deploy/.env.production logs --tail=100 -f web worker scheduler postgres
+
+# 备份与恢复
+sudo bash deploy/backup.sh
+sudo bash deploy/restore.sh deploy/backups/20260712T120000Z
 ```
 
-- 备份同时包含 PostgreSQL dump、媒体归档、校验和和版本清单，默认只保留最近 7 份完整本地备份。
-- 升级会先备份，再构建镜像、迁移和重启；迁移开始后的失败必须按脚本提示恢复，不能直接反复升级。
-- 恢复会校验三份归档文件和清单，只允许写入已停止且为空的目标卷，并要求输入 `RESTORE ai-image-workshop` 确认。
-- 安装、备份、恢复和升级共用操作锁，同一时间只能运行一个。
+升级开始迁移后的失败必须按脚本提示恢复，不要直接反复执行 `--upgrade`。恢复只允许写入已停止且为空的目标卷，并要求输入确认串。
 
-`deploy/.env.production` 含系统 Key 和内部密钥，不得提交到 Git，也不在普通备份包中；请用权限 `600` 单独保管。多机高可用和自动异地备份不在当前单机部署范围内。
+## 已知故障
 
-`CUSTOM_KEY_MODES_ENABLED` 仍是紧急停止入口的 kill switch。关闭后不得轮换或删除 `CUSTOM_KEY_JOB_ENCRYPTION_KEY`，直到在途 custom 任务和临时凭据全部收口。
+### 无法读取 `/etc/os-release`
 
-## 故障处理
+安装器默认读取 `INSTALL_OS_RELEASE_FILE=/etc/os-release`，并要求它是可读的普通文件。如果该路径是符号链接，而 `/usr/lib/os-release` 是真实文件，请给当前命令添加覆盖值：
 
-- 安装中断：修复终端提示的问题后运行 `sudo bash deploy/install.sh --resume`。
-- 查看日志：运行上面的 `logs` 命令；域名模式可额外加入 `caddy`。
-- 不要删除 `postgres_data` 或 `media_data` 来处理启动失败。
-- 不要直接执行不带 `--env-file deploy/.env.production` 的业务 Compose 命令。
+```bash
+sudo INSTALL_OS_RELEASE_FILE=/usr/lib/os-release bash deploy/install.sh --upgrade
+
+# 续装时使用相同前缀
+sudo INSTALL_OS_RELEASE_FILE=/usr/lib/os-release bash deploy/install.sh --resume
+```
+
+首次安装也可以在原安装命令前使用同一个环境变量。不要把其他发行版的文件伪装成 Debian。
+
+### 已创建管理员的状态缺少管理员邮箱
+
+此错误表示 `deploy/install.state` 已记录管理员创建完成，但缺少对应邮箱。不要删除状态文件或数据卷。先确认已有管理员的真实邮箱，再修复状态并续装：
+
+```bash
+sudo cp --preserve=mode,ownership deploy/install.state /root/ai-image-workshop-install.state.bak
+sudo sed -i '/^ADMIN_EMAIL=/d' deploy/install.state
+printf 'ADMIN_EMAIL="%s"\n' 'admin@example.com' | sudo tee -a deploy/install.state >/dev/null
+sudo chmod 600 deploy/install.state
+sudo bash deploy/install.sh --resume
+```
+
+必须把示例邮箱替换为已经创建的管理员邮箱。若无法确认邮箱，应先从数据库或备份核实，不要猜测。
+
+### custom 无法提交请求
+
+使用运行中的 Web 容器按应用相同规则检查开关和密钥格式，命令只输出 `<valid>` 或 `<invalid>`，不会打印密钥：
+
+```bash
+docker compose --env-file deploy/.env.production exec -T web node -e '
+  const key = process.env.CUSTOM_KEY_JOB_ENCRYPTION_KEY ?? "";
+  let valid = false;
+  for (const encoding of ["base64", "base64url"]) {
+    const decoded = Buffer.from(key, encoding);
+    if (decoded.length === 32 && decoded.toString(encoding) === key) valid = true;
+  }
+  console.log(`CUSTOM_KEY_MODES_ENABLED=${process.env.CUSTOM_KEY_MODES_ENABLED}`);
+  console.log(`CUSTOM_KEY_JOB_ENCRYPTION_KEY=${valid ? "<valid>" : "<invalid>"}`);
+'
+```
+
+`CUSTOM_KEY_MODES_ENABLED` 应为 `"true"`，并且必须存在 `CUSTOM_KEY_JOB_ENCRYPTION_KEY`。该密钥必须严格解码为 32 字节，可使用 canonical base64 或无填充 base64url；后者通常为 43 个字符。不要在仍有 custom 任务运行时轮换或删除该密钥；缺失时应从原生产配置恢复。修改旧部署的开关或密钥后，需要重建 `web`、`worker`、`scheduler` 才会生效。
+
+## 数据与秘密
+
+- PostgreSQL 保存于 `postgres_data`，图片保存于 `media_data`；重建应用容器不会删除数据。
+- PostgreSQL 的 `5432` 不发布到宿主机，Web 只绑定安装器选择的回环端口。
+- `deploy/.env.production` 含 Relay Key 和内部密钥，权限应为 `600`，不得提交到 Git。
+- 业务 Compose 命令必须显式带 `--env-file deploy/.env.production`。
+- 不要删除数据卷、安装状态或生产环境文件来处理普通启动故障。
