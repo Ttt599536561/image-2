@@ -31,6 +31,29 @@ const idle = {
   recoveryCommand: null,
 };
 
+const fullCommitSha = `abcdef0${"1".repeat(33)}`;
+const build: BuildInfo = {
+  version: "0.2.0",
+  commitSha: fullCommitSha,
+  shortCommitSha: "abcdef0",
+};
+const release: StableRelease = {
+  tag: "v0.3.0",
+  version: "0.3.0",
+  name: "Version 0.3.0",
+  summary: "Stable release",
+  htmlUrl: "https://github.com/Ttt599536561/image-2/releases/tag/v0.3.0",
+  publishedAt: "2026-07-12T10:00:00.000Z",
+};
+const snapshot: UpdateSnapshot = {
+  enabled: true,
+  disabledReason: null,
+  build,
+  status: null,
+  releaseState: "available",
+  latestRelease: release,
+};
+
 describe("system update contracts", () => {
   it("pins the protocol version and system update phases", () => {
     expect(UPDATE_PROTOCOL_VERSION).toBe(1);
@@ -115,44 +138,77 @@ describe("system update contracts", () => {
     expect(UpdateRequest.safeParse({ ...request, repository: "evil/repo" }).success).toBe(false);
   });
 
+  it("keeps unknown build SHAs paired", () => {
+    expect(
+      BuildInfo.safeParse({ ...build, commitSha: "unknown", shortCommitSha: "unknown" }).success,
+    ).toBe(true);
+    expect(
+      BuildInfo.safeParse({ ...build, commitSha: "unknown", shortCommitSha: "abcdef0" }).success,
+    ).toBe(false);
+    expect(BuildInfo.safeParse({ ...build, shortCommitSha: "unknown" }).success).toBe(false);
+  });
+
+  it("requires a short build SHA to match the full SHA prefix", () => {
+    expect(BuildInfo.safeParse({ ...build, shortCommitSha: "1234567" }).success).toBe(false);
+  });
+
+  it("requires a stable Release tag to match its version", () => {
+    expect(
+      StableRelease.safeParse({
+        ...release,
+        tag: "v0.4.0",
+        htmlUrl: "https://github.com/Ttt599536561/image-2/releases/tag/v0.4.0",
+      }).success,
+    ).toBe(false);
+  });
+
+  it.each([
+    "javascript:alert(1)",
+    "http://github.com/Ttt599536561/image-2/releases/tag/v0.3.0",
+    "https://github.com/other/repository/releases/tag/v0.3.0",
+    "https://github.com/Ttt599536561/image-2/releases/v0.3.0",
+    "https://github.com/Ttt599536561/image-2/releases/tag/v0.3.0?source=admin",
+    "https://github.com/Ttt599536561/image-2/releases/tag/v0.3.0#details",
+  ])("rejects a non-official release URL: %s", (htmlUrl) => {
+    expect(StableRelease.safeParse({ ...release, htmlUrl }).success).toBe(false);
+  });
+
+  it("requires an available snapshot to include the latest release", () => {
+    expect(UpdateSnapshot.safeParse({ ...snapshot, latestRelease: null }).success).toBe(false);
+  });
+
+  it.each(["unchecked", "none"] as const)(
+    "requires a %s snapshot to omit the latest release",
+    (releaseState) => {
+      expect(UpdateSnapshot.safeParse({ ...snapshot, releaseState }).success).toBe(false);
+    },
+  );
+
+  it("allows an up-to-date snapshot with or without the latest release", () => {
+    expect(UpdateSnapshot.safeParse({ ...snapshot, releaseState: "up_to_date" }).success).toBe(true);
+    expect(
+      UpdateSnapshot.safeParse({
+        ...snapshot,
+        releaseState: "up_to_date",
+        latestRelease: null,
+      }).success,
+    ).toBe(true);
+  });
+
   it("defines strict build, release, snapshot, and start contracts", () => {
-    const build = {
-      version: "0.2.0",
-      commitSha: "a".repeat(40),
-      shortCommitSha: "abcdef0",
-    };
-    const release = {
-      tag: "v0.3.0",
-      version: "0.3.0",
-      name: "Version 0.3.0",
-      summary: "Stable release",
-      htmlUrl: "https://github.com/example/project/releases/tag/v0.3.0",
-      publishedAt: "2026-07-12T10:00:00.000Z",
-    };
-    const snapshot = {
-      enabled: true,
-      disabledReason: null,
-      build,
-      status: idle,
-      releaseState: "available",
-      latestRelease: release,
+    const start: StartSystemUpdate = { action: "start" };
+    const startResponse: StartSystemUpdateResponse = {
+      requestId: "00000000-0000-4000-8000-000000000001",
+      targetVersion: "0.3.0",
     };
 
     expect(BuildInfo.parse(build)).toEqual(build);
     expect(StableRelease.parse(release)).toEqual(release);
     expect(UpdateSnapshot.parse(snapshot)).toEqual(snapshot);
     expect(UpdateSnapshot.safeParse({ ...snapshot, repository: "evil/repo" }).success).toBe(false);
-    expect(StartSystemUpdate.parse({ action: "start" })).toEqual({ action: "start" });
+    expect(StartSystemUpdate.parse(start)).toEqual(start);
     expect(StartSystemUpdate.safeParse({ action: "start", targetVersion: "0.3.0" }).success).toBe(false);
-    expect(
-      StartSystemUpdateResponse.parse({
-        requestId: "00000000-0000-4000-8000-000000000001",
-        targetVersion: "0.3.0",
-      }),
-    ).toEqual({
-      requestId: "00000000-0000-4000-8000-000000000001",
-      targetVersion: "0.3.0",
-    });
+    expect(StartSystemUpdateResponse.parse(startResponse)).toEqual(startResponse);
   });
 
   it("publishes the system update API error codes", () => {
