@@ -112,7 +112,8 @@ export async function action({ request }: Route.ActionArgs): Promise<Response> {
     const admin = await requireAdmin(request);
     try {
       StartSystemUpdate.parse(await request.json());
-    } catch {
+    } catch (error) {
+      if (error instanceof Response) return error;
       return httpError(400, "INVALID_PARAM", "Invalid system update request.");
     }
 

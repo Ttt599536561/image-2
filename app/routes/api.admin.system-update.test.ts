@@ -188,6 +188,23 @@ describe("admin system update status/start route", () => {
     expect(await action({ request: startRequest() } as never)).toBe(forbidden);
   });
 
+  it("passes through a Response thrown while parsing the action body", async () => {
+    const thrown = Response.json(
+      { error: { code: "MAINTENANCE", message: "busy" } },
+      { status: 503 },
+    );
+    const request = startRequest();
+    vi.spyOn(request, "json").mockRejectedValue(thrown);
+
+    expect(await action({ request } as never)).toBe(thrown);
+    expect(mocks.getCurrentBuild).not.toHaveBeenCalled();
+    expect(mocks.readSystemUpdateStatus).not.toHaveBeenCalled();
+    expect(mocks.access).not.toHaveBeenCalled();
+    expect(mocks.checkLatestStableRelease).not.toHaveBeenCalled();
+    expect(mocks.writeAuditHttp).not.toHaveBeenCalled();
+    expect(mocks.createSystemUpdateRequest).not.toHaveBeenCalled();
+  });
+
   it.each([
     null,
     {},
