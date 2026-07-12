@@ -265,7 +265,6 @@ describe("fail custom generations operation", () => {
         // The transaction was already committed or the connection was closed.
       }
       locker.release();
-      await lockerPool.end();
     }
 
     const generation = await ctx.gen(job.generationId);
