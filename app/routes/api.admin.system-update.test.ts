@@ -1,0 +1,353 @@
+// @vitest-environment node
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  UpdateRequestConflictError,
+  UpdateRequestPublicationUncertainError,
+} from "../../src/server/system-update/state.server";
+import { action, loader } from "./api.admin.system-update";
+
+const mocks = vi.hoisted(() => ({
+  access: vi.fn(),
+  checkLatestStableRelease: vi.fn(),
+  clientIp: vi.fn(),
+  createSystemUpdateRequest: vi.fn(),
+  getCurrentBuild: vi.fn(),
+  randomUUID: vi.fn(),
+  readSystemUpdateStatus: vi.fn(),
+  requireAdmin: vi.fn(),
+  writeAuditHttp: vi.fn(),
+}));
+
+vi.mock("node:crypto", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("node:crypto")>()),
+  randomUUID: mocks.randomUUID,
+}));
+
+vi.mock("node:fs/promises", () => ({
+  default: {},
+  access: mocks.access,
+  link: vi.fn(),
+  lstat: vi.fn(),
+  open: vi.fn(),
+  unlink: vi.fn(),
+}));
+
+vi.mock("../../src/lib/guard", () => ({ requireAdmin: mocks.requireAdmin }));
+vi.mock("../../src/server/rateLimit", () => ({ clientIp: mocks.clientIp }));
+vi.mock("../../src/server/admin/audit.server", () => ({ writeAuditHttp: mocks.writeAuditHttp }));
+vi.mock("../../src/server/system-update/version.server", () => ({
+  getCurrentBuild: mocks.getCurrentBuild,
+}));
+vi.mock("../../src/server/system-update/github-release.server", () => ({
+  checkLatestStableRelease: mocks.checkLatestStableRelease,
+}));
+vi.mock("../../src/server/system-update/state.server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../src/server/system-update/state.server")>()),
+  createSystemUpdateRequest: mocks.createSystemUpdateRequest,
+  readSystemUpdateStatus: mocks.readSystemUpdateStatus,
+}));
+
+const ADMIN_ID = "00000000-0000-4000-8000-000000000002";
+const REQUEST_ID = "00000000-0000-4000-8000-000000000001";
+const build = {
+  version: "0.2.0",
+  commitSha: "unknown",
+  shortCommitSha: "unknown",
+};
+const status = {
+  protocolVersion: 1,
+  requestId: null,
+  currentVersion: "0.2.0",
+  targetVersion: null,
+  phase: "idle",
+  maintenance: false,
+  startedAt: null,
+  finishedAt: null,
+  updatedAt: "2026-07-12T10:00:00.000Z",
+  errorCode: null,
+  errorMessage: null,
+  backupId: null,
+  recoveryCommand: null,
+};
+const release = {
+  tag: "v0.3.0",
+  version: "0.3.0",
+  name: "Version 0.3.0",
+  summary: "Stable release",
+  htmlUrl: "https://github.com/Ttt599536561/image-2/releases/tag/v0.3.0",
+  publishedAt: "2026-07-12T10:00:00.000Z",
+};
+
+function startRequest(body: unknown = { action: "start" }, headers: Record<string, string> = {}) {
+  return new Request("https://images.example.com/api/admin/system-update", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Origin: "https://images.example.com",
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+async function expectError(response: Response, statusCode: number, code: string) {
+  expect(response.status).toBe(statusCode);
+  expect(await response.json()).toMatchObject({ error: { code } });
+}
+
+describe("admin system update status/start route", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.BETTER_AUTH_URL = "https://images.example.com";
+    mocks.requireAdmin.mockResolvedValue({
+      userId: ADMIN_ID,
+      role: "admin",
+      maxConcurrency: 4,
+    });
+    mocks.getCurrentBuild.mockReturnValue(build);
+    mocks.readSystemUpdateStatus.mockResolvedValue(status);
+    mocks.access.mockResolvedValue(undefined);
+    mocks.checkLatestStableRelease.mockResolvedValue({ state: "available", release });
+    mocks.writeAuditHttp.mockResolvedValue(undefined);
+    mocks.createSystemUpdateRequest.mockResolvedValue(undefined);
+    mocks.clientIp.mockReturnValue("203.0.113.9");
+    mocks.randomUUID.mockReturnValue(REQUEST_ID);
+  });
+
+  it("passes through a non-admin loader response before reading updater state", async () => {
+    const forbidden = Response.json({ error: { code: "FORBIDDEN", message: "no" } }, { status: 403 });
+    mocks.requireAdmin.mockRejectedValue(forbidden);
+
+    const response = await loader({ request: new Request("https://images.example.com/api/admin/system-update") } as never);
+
+
+    expect(response).toBe(forbidden);
+    expect(mocks.getCurrentBuild).not.toHaveBeenCalled();
+    expect(mocks.readSystemUpdateStatus).not.toHaveBeenCalled();
+  });
+
+  it("returns an unchecked enabled snapshot without calling GitHub", async () => {
+    const response = await loader({ request: new Request("https://images.example.com/api/admin/system-update") } as never);
+
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      enabled: true,
+      disabledReason: null,
+      build,
+      status,
+      releaseState: "unchecked",
+      latestRelease: null,
+    });
+    expect(mocks.checkLatestStableRelease).not.toHaveBeenCalled();
+  });
+
+  it("reports a missing updater status as disabled", async () => {
+    mocks.readSystemUpdateStatus.mockResolvedValue(null);
+
+    const response = await loader({ request: new Request("https://images.example.com/api/admin/system-update") } as never);
+    const snapshot = await response.json();
+
+    expect(snapshot).toMatchObject({ enabled: false, status: null, releaseState: "unchecked" });
+    expect(snapshot.disabledReason).toEqual(expect.any(String));
+    expect(snapshot.disabledReason.length).toBeGreaterThan(0);
+    expect(mocks.access).not.toHaveBeenCalled();
+  });
+
+  it("keeps a valid status but disables the loader when the inbox is unwritable", async () => {
+    mocks.access.mockRejectedValue(Object.assign(new Error("denied"), { code: "EACCES" }));
+
+    const response = await loader({ request: new Request("https://images.example.com/api/admin/system-update") } as never);
+
+    expect(await response.json()).toMatchObject({ enabled: false, status });
+  });
+
+  it("sanitizes malformed status failures", async () => {
+    mocks.readSystemUpdateStatus.mockRejectedValue(new Error("secret bad status payload"));
+
+    await expectError(
+      await loader({ request: new Request("https://images.example.com/api/admin/system-update") } as never),
+      503,
+      "UPDATE_UNAVAILABLE",
+    );
+  });
+
+  it("runs POST security before admin authentication", async () => {
+    const response = await action({
+      request: startRequest(undefined, { Origin: "https://evil.example.com" }),
+    } as never);
+
+    await expectError(response, 403, "FORBIDDEN");
+    expect(mocks.requireAdmin).not.toHaveBeenCalled();
+  });
+
+  it("passes through a non-admin action response", async () => {
+    const forbidden = Response.json({ error: { code: "FORBIDDEN", message: "no" } }, { status: 403 });
+    mocks.requireAdmin.mockRejectedValue(forbidden);
+
+    expect(await action({ request: startRequest() } as never)).toBe(forbidden);
+  });
+
+  it.each([
+    null,
+    {},
+    { action: "check" },
+    { action: "start", targetVersion: "0.3.0" },
+    { action: "start", repository: "evil/repo" },
+  ])("rejects an invalid or extended start body: %j", async (body) => {
+    const response = await action({ request: startRequest(body) } as never);
+
+    await expectError(response, 400, "INVALID_PARAM");
+    expect(mocks.getCurrentBuild).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["missing", null],
+    ["mismatch", { ...status, currentVersion: "0.1.0" }],
+  ])("rejects unavailable or mismatched updater state: %s", async (_name, updaterStatus) => {
+    mocks.readSystemUpdateStatus.mockResolvedValue(updaterStatus);
+
+    const response = await action({ request: startRequest() } as never);
+
+    await expectError(response, 503, "UPDATE_UNAVAILABLE");
+    expect(mocks.checkLatestStableRelease).not.toHaveBeenCalled();
+  });
+
+  it("rejects an unwritable inbox before checking GitHub", async () => {
+    mocks.access.mockRejectedValue(new Error("denied"));
+
+    await expectError(await action({ request: startRequest() } as never), 503, "UPDATE_UNAVAILABLE");
+    expect(mocks.checkLatestStableRelease).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { ...status, phase: "claiming" },
+    { ...status, maintenance: true },
+  ])("rejects active or maintenance status with a conflict", async (updaterStatus) => {
+    mocks.readSystemUpdateStatus.mockResolvedValue(updaterStatus);
+
+    await expectError(await action({ request: startRequest() } as never), 409, "UPDATE_CONFLICT");
+    expect(mocks.checkLatestStableRelease).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { state: "none", release: null },
+    { state: "up_to_date", release },
+  ])("rejects when no newer stable release remains", async (releaseResult) => {
+    mocks.checkLatestStableRelease.mockResolvedValue(releaseResult);
+
+    await expectError(await action({ request: startRequest() } as never), 409, "UPDATE_CONFLICT");
+    expect(mocks.writeAuditHttp).not.toHaveBeenCalled();
+    expect(mocks.createSystemUpdateRequest).not.toHaveBeenCalled();
+  });
+
+  it("sanitizes GitHub failures", async () => {
+    mocks.checkLatestStableRelease.mockRejectedValue(new Error("GitHub secret payload"));
+
+    await expectError(await action({ request: startRequest() } as never), 503, "UPDATE_UNAVAILABLE");
+  });
+
+  it("rejects an invalid available release before audit or publication", async () => {
+    mocks.checkLatestStableRelease.mockResolvedValue({
+      state: "available",
+      release: { ...release, version: "not-a-stable-version" },
+    });
+
+    await expectError(await action({ request: startRequest() } as never), 503, "UPDATE_UNAVAILABLE");
+    expect(mocks.writeAuditHttp).not.toHaveBeenCalled();
+    expect(mocks.createSystemUpdateRequest).not.toHaveBeenCalled();
+  });
+
+  it("audits and publishes the fixed strict request before returning 202", async () => {
+    const response = await action({ request: startRequest() } as never);
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ requestId: REQUEST_ID, targetVersion: "0.3.0" });
+    expect(mocks.checkLatestStableRelease).toHaveBeenCalledWith({
+      currentVersion: "0.2.0",
+      force: true,
+    });
+    const published = mocks.createSystemUpdateRequest.mock.calls[0][0];
+    expect(published).toEqual({
+      protocolVersion: 1,
+      requestId: REQUEST_ID,
+      requestedAt: expect.any(String),
+      requestedBy: ADMIN_ID,
+    });
+    expect(Object.keys(published).sort()).toEqual([
+      "protocolVersion",
+      "requestId",
+      "requestedAt",
+      "requestedBy",
+    ]);
+    expect(mocks.writeAuditHttp).toHaveBeenCalledWith({
+      adminId: ADMIN_ID,
+      action: "system_update_start",
+      targetType: "system_update",
+      targetId: REQUEST_ID,
+      after: {
+        requestId: REQUEST_ID,
+        currentVersion: "0.2.0",
+        targetVersion: "0.3.0",
+      },
+      ip: "203.0.113.9",
+    });
+  });
+
+  it("waits for audit completion before publishing", async () => {
+    let finishAudit!: () => void;
+    mocks.writeAuditHttp.mockImplementation(
+      () => new Promise<void>((resolve) => { finishAudit = resolve; }),
+    );
+
+    const pending = action({ request: startRequest() } as never);
+    await vi.waitFor(() => expect(mocks.writeAuditHttp).toHaveBeenCalledOnce());
+    expect(mocks.createSystemUpdateRequest).not.toHaveBeenCalled();
+
+    finishAudit();
+    expect((await pending).status).toBe(202);
+    expect(mocks.createSystemUpdateRequest).toHaveBeenCalledOnce();
+  });
+
+  it("does not publish when audit fails", async () => {
+    mocks.writeAuditHttp.mockRejectedValue(new Error("database unavailable"));
+
+    await expectError(await action({ request: startRequest() } as never), 500, "INTERNAL");
+    expect(mocks.createSystemUpdateRequest).not.toHaveBeenCalled();
+  });
+
+  it("maps a duplicate request publication to conflict", async () => {
+    mocks.createSystemUpdateRequest.mockRejectedValue(new UpdateRequestConflictError());
+
+    await expectError(await action({ request: startRequest() } as never), 409, "UPDATE_CONFLICT");
+  });
+
+  it("returns 202 for matching publication uncertainty without retrying", async () => {
+    mocks.createSystemUpdateRequest.mockImplementation(async (requestValue) => {
+      throw new UpdateRequestPublicationUncertainError(requestValue.requestId);
+    });
+
+    const response = await action({ request: startRequest() } as never);
+
+    expect(response.status).toBe(202);
+    expect(await response.json()).toEqual({ requestId: REQUEST_ID, targetVersion: "0.3.0" });
+    expect(mocks.createSystemUpdateRequest).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed for mismatched publication uncertainty and generic filesystem errors", async () => {
+    mocks.createSystemUpdateRequest.mockRejectedValueOnce(
+      new UpdateRequestPublicationUncertainError("00000000-0000-4000-8000-000000000099"),
+    );
+    await expectError(await action({ request: startRequest() } as never), 503, "UPDATE_UNAVAILABLE");
+
+    mocks.createSystemUpdateRequest.mockRejectedValueOnce(new Error("filesystem path leaked"));
+    await expectError(await action({ request: startRequest() } as never), 503, "UPDATE_UNAVAILABLE");
+  });
+
+  it("passes through a Response thrown during request publication", async () => {
+    const response = Response.json({ error: { code: "MAINTENANCE", message: "busy" } }, { status: 503 });
+    mocks.createSystemUpdateRequest.mockRejectedValue(response);
+
+    expect(await action({ request: startRequest() } as never)).toBe(response);
+  });
+});

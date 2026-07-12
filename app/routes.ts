@@ -43,6 +43,8 @@ export default [
   route("api/admin/notifications", "routes/api.admin.notifications.ts"),
   route("api/admin/audit", "routes/api.admin.audit.ts"),
   route("api/admin/dashboard", "routes/api.admin.dashboard.ts"),
+  route("api/admin/system-update", "routes/api.admin.system-update.ts"),
+  route("api/admin/system-update/check", "routes/api.admin.system-update.check.ts"),
   layout("routes/_app.tsx", [
     index("routes/_app._index.tsx"), // 主对话 /（新建生成）
     route("c/:id", "routes/_app.c.$id.tsx"), // 某会话线程
