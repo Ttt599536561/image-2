@@ -29,6 +29,9 @@ export const API_ERROR_CODES = [
   "CUSTOM_KEY_REQUIRED",
   "SYSTEM_MODE_FORBIDS_CUSTOM_KEY",
   "CUSTOM_KEY_MODES_DISABLED",
+  "MAINTENANCE",
+  "UPDATE_UNAVAILABLE",
+  "UPDATE_CONFLICT",
   "INTERNAL",
 ] as const;
 export type ApiErrorCode = (typeof API_ERROR_CODES)[number];
