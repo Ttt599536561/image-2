@@ -60,6 +60,7 @@ jobs:
         run: npm run docker:validate
 
       - name: Deployment script contract tests
+        timeout-minutes: 5
         run: npm run test:deploy
 
       - name: Build Docker image
@@ -82,6 +83,7 @@ jobs:
           "
 
       - name: Empty self-hosted stack smoke
+        timeout-minutes: 10
         env:
           IMAGE_TAG: ci
         run: npm run test:deploy:smoke

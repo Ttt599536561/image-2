@@ -12,6 +12,7 @@ test-results/
 !.env.example
 !deploy/.env.production.example
 deploy/.env.production
+deploy/.ci-smoke.*
 deploy/backups/
 deploy/*.state
 *.log

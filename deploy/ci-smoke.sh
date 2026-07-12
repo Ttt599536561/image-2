@@ -17,6 +17,8 @@ IMAGE_TAG_VALUE="${IMAGE_TAG:-ci}"
 PROJECT_NAME=''
 ENV_FILE=''
 ENV_RELATIVE_PATH=''
+OVERRIDE_FILE=''
+OVERRIDE_RELATIVE_PATH=''
 PORT_3000_PID=''
 PORT_3000_TOKEN=''
 WEB_HOST_PORT_VALUE=''
@@ -26,6 +28,7 @@ ENCRYPTION_KEY_VALUE=''
 COMPOSE_CLEANUP_ALLOWED=0
 SMOKE_ASSERTIONS_PASSED=0
 COMPOSE_COMMAND=()
+CLEANUP_COMPOSE_COMMAND=()
 
 ADMIN_EMAIL='admin@example.test'
 ADMIN_PASSWORD='ci-password-123'
@@ -43,11 +46,14 @@ project_name_is_safe() {
 
 project_resources_exist() {
   local ids=''
-  ids="$(docker ps -aq --filter "label=com.docker.compose.project=$PROJECT_NAME")" || return 2
+  ids="$(timeout --signal=KILL 10 docker ps -aq \
+    --filter "label=com.docker.compose.project=$PROJECT_NAME")" || return 2
   [[ -z "$ids" ]] || return 0
-  ids="$(docker volume ls -q --filter "label=com.docker.compose.project=$PROJECT_NAME")" || return 2
+  ids="$(timeout --signal=KILL 10 docker volume ls -q \
+    --filter "label=com.docker.compose.project=$PROJECT_NAME")" || return 2
   [[ -z "$ids" ]] || return 0
-  ids="$(docker network ls -q --filter "label=com.docker.compose.project=$PROJECT_NAME")" || return 2
+  ids="$(timeout --signal=KILL 10 docker network ls -q --filter \
+    "label=com.docker.compose.project=$PROJECT_NAME")" || return 2
   [[ -z "$ids" ]] || return 0
   return 1
 }
@@ -59,47 +65,63 @@ cleanup() {
   trap - EXIT HUP INT TERM
   set +e
 
-  if ((COMPOSE_CLEANUP_ALLOWED == 1)) && project_name_is_safe && ((${#COMPOSE_COMMAND[@]} > 0)); then
-    if ! timeout --signal=KILL 90 "${COMPOSE_COMMAND[@]}" \
+  if [[ -n "$PORT_3000_PID" && "$PORT_3000_PID" =~ ^[0-9]+$ ]]; then
+    kill "$PORT_3000_PID" >/dev/null 2>&1 || true
+    wait "$PORT_3000_PID" >/dev/null 2>&1 || true
+  fi
+
+  if [[ -n "$ENV_FILE" && -n "$OVERRIDE_FILE" ]]; then
+    rm -f -- "$ENV_FILE" "$OVERRIDE_FILE" || cleanup_status=1
+  elif [[ -n "$ENV_FILE" ]]; then
+    rm -f -- "$ENV_FILE" || cleanup_status=1
+  elif [[ -n "$OVERRIDE_FILE" ]]; then
+    rm -f -- "$OVERRIDE_FILE" || cleanup_status=1
+  fi
+  if [[ -n "$ENV_FILE" && ( -e "$ENV_FILE" || -L "$ENV_FILE" ) ]]; then
+    printf 'temporary smoke environment remains after cleanup\n' >&2
+    cleanup_status=1
+  fi
+  if [[ -n "$OVERRIDE_FILE" && ( -e "$OVERRIDE_FILE" || -L "$OVERRIDE_FILE" ) ]]; then
+    printf 'temporary smoke override remains after cleanup\n' >&2
+    cleanup_status=1
+  fi
+
+  if ((COMPOSE_CLEANUP_ALLOWED == 1)) && project_name_is_safe && \
+    ((${#CLEANUP_COMPOSE_COMMAND[@]} > 0)); then
+    if ! timeout --signal=KILL 90 "${CLEANUP_COMPOSE_COMMAND[@]}" \
       down --volumes --remove-orphans >/dev/null 2>&1; then
-      printf 'isolated Compose cleanup failed for %s\n' "$PROJECT_NAME" >&2
+      printf 'isolated Compose cleanup timed out or failed for %s\n' "$PROJECT_NAME" >&2
       cleanup_status=1
     fi
 
-    if ids="$(docker ps -aq --filter "label=com.docker.compose.project=$PROJECT_NAME")"; then
+    if ids="$(timeout --signal=KILL 10 docker ps -aq \
+      --filter "label=com.docker.compose.project=$PROJECT_NAME")"; then
       if [[ -n "$ids" ]]; then
         printf 'isolated project containers remain after cleanup: %s\n' "$PROJECT_NAME" >&2
         cleanup_status=1
       fi
     else
+      printf 'cannot verify isolated project containers after cleanup: %s\n' "$PROJECT_NAME" >&2
       cleanup_status=1
     fi
-    if ids="$(docker volume ls -q --filter "label=com.docker.compose.project=$PROJECT_NAME")"; then
+    if ids="$(timeout --signal=KILL 10 docker volume ls -q \
+      --filter "label=com.docker.compose.project=$PROJECT_NAME")"; then
       if [[ -n "$ids" ]]; then
         printf 'isolated project volumes remain after cleanup: %s\n' "$PROJECT_NAME" >&2
         cleanup_status=1
       fi
     else
+      printf 'cannot verify isolated project volumes after cleanup: %s\n' "$PROJECT_NAME" >&2
       cleanup_status=1
     fi
-    if ids="$(docker network ls -q --filter "label=com.docker.compose.project=$PROJECT_NAME")"; then
+    if ids="$(timeout --signal=KILL 10 docker network ls -q --filter \
+      "label=com.docker.compose.project=$PROJECT_NAME")"; then
       if [[ -n "$ids" ]]; then
         printf 'isolated project networks remain after cleanup: %s\n' "$PROJECT_NAME" >&2
         cleanup_status=1
       fi
     else
-      cleanup_status=1
-    fi
-  fi
-
-  if [[ -n "$PORT_3000_PID" && "$PORT_3000_PID" =~ ^[0-9]+$ ]]; then
-    kill "$PORT_3000_PID" >/dev/null 2>&1 || true
-    wait "$PORT_3000_PID" >/dev/null 2>&1 || true
-  fi
-  if [[ -n "$ENV_FILE" ]]; then
-    rm -f -- "$ENV_FILE" || cleanup_status=1
-    if [[ -e "$ENV_FILE" || -L "$ENV_FILE" ]]; then
-      printf 'temporary smoke environment remains after cleanup\n' >&2
+      printf 'cannot verify isolated project networks after cleanup: %s\n' "$PROJECT_NAME" >&2
       cleanup_status=1
     fi
   fi
@@ -112,11 +134,6 @@ cleanup() {
   fi
   exit "$original_status"
 }
-
-trap cleanup EXIT
-trap 'exit 129' HUP
-trap 'exit 130' INT
-trap 'exit 143' TERM
 
 random_hex() {
   node -e 'process.stdout.write(require("node:crypto").randomBytes(32).toString("hex"))'
@@ -135,7 +152,6 @@ write_env_line() {
 write_smoke_environment() {
   local database_url="postgresql://${POSTGRES_USER_VALUE}:${POSTGRES_PASSWORD_VALUE}@postgres:5432/${POSTGRES_DB_VALUE}"
   local -a entries=(
-    DEPLOY_ENV_FILE "$ENV_RELATIVE_PATH"
     COMPOSE_PROJECT_NAME "$PROJECT_NAME"
     COMPOSE_PROFILES ''
     IMAGE_TAG "$IMAGE_TAG_VALUE"
@@ -165,6 +181,25 @@ write_smoke_environment() {
     write_env_line "${entries[index]}" "${entries[index + 1]}"
   done >"$ENV_FILE"
   chmod 0600 -- "$ENV_FILE"
+}
+
+write_smoke_override() {
+  cat >"$OVERRIDE_FILE" <<EOF
+services:
+  web:
+    env_file: !override
+      - path: $ENV_RELATIVE_PATH
+        required: true
+  worker:
+    env_file: !override
+      - path: $ENV_RELATIVE_PATH
+        required: true
+  scheduler:
+    env_file: !override
+      - path: $ENV_RELATIVE_PATH
+        required: true
+EOF
+  chmod 0600 -- "$OVERRIDE_FILE"
 }
 
 select_free_web_port() {
@@ -278,12 +313,19 @@ assert_exact_running_services() {
 
 main() {
   (($# == 0)) || die 'ci-smoke.sh does not accept arguments'
+  trap cleanup EXIT
+  trap 'exit 129' HUP
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+
   local command resource_status
   for command in docker node curl cmp mktemp chmod timeout sort sleep; do
     command -v "$command" >/dev/null 2>&1 || die "required command is missing: $command"
   done
-  docker info >/dev/null 2>&1 || die 'Docker daemon is unavailable'
-  docker compose version >/dev/null 2>&1 || die 'Docker Compose v2 is unavailable'
+  timeout --signal=KILL 10 docker info >/dev/null 2>&1 || \
+    die 'Docker daemon probe timed out or failed'
+  timeout --signal=KILL 10 docker compose version >/dev/null 2>&1 || \
+    die 'Docker Compose v2 probe timed out or failed'
 
   [[ "$RUN_ID" =~ ^[a-z0-9][a-z0-9_-]{0,31}$ ]] || die 'GITHUB_RUN_ID is unsafe for an isolated Compose project'
   [[ "$IMAGE_TAG_VALUE" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]] || die 'IMAGE_TAG is invalid for the CI image'
@@ -297,8 +339,9 @@ main() {
     ((resource_status == 1)) || die 'cannot inspect existing Docker project resources'
   fi
 
-  docker image inspect "ai-image-workshop:${IMAGE_TAG_VALUE}" >/dev/null 2>&1 || \
-    die "required image is missing: ai-image-workshop:${IMAGE_TAG_VALUE}"
+  timeout --signal=KILL 10 docker image inspect \
+    "ai-image-workshop:${IMAGE_TAG_VALUE}" >/dev/null 2>&1 || \
+    die "required image inspection timed out or image is missing: ai-image-workshop:${IMAGE_TAG_VALUE}"
   WEB_HOST_PORT_VALUE="$(select_free_web_port)"
   [[ "$WEB_HOST_PORT_VALUE" =~ ^[0-9]+$ ]] || die 'Node returned an invalid free port'
   ((WEB_HOST_PORT_VALUE >= 1 && WEB_HOST_PORT_VALUE <= 65535 && WEB_HOST_PORT_VALUE != 3000)) || \
@@ -307,17 +350,25 @@ main() {
   ENV_FILE="$(mktemp "$SCRIPT_DIR/.ci-smoke.${PROJECT_NAME}.XXXXXX")"
   [[ "$ENV_FILE" != "$PRODUCTION_ENV_PATH" ]] || die 'refusing to replace deploy/.env.production'
   ENV_RELATIVE_PATH="deploy/${ENV_FILE##*/}"
+  OVERRIDE_FILE="$SCRIPT_DIR/.ci-smoke.${PROJECT_NAME}.override.yaml"
+  OVERRIDE_RELATIVE_PATH="deploy/${OVERRIDE_FILE##*/}"
+  [[ ! -e "$OVERRIDE_FILE" && ! -L "$OVERRIDE_FILE" ]] || \
+    die 'refusing to replace an existing smoke override'
   POSTGRES_PASSWORD_VALUE="$(random_hex)"
   BETTER_AUTH_SECRET_VALUE="$(random_base64url)"
   ENCRYPTION_KEY_VALUE="$(random_base64url)"
   write_smoke_environment
+  write_smoke_override
 
   # Prevent caller variables from taking precedence over the isolated --env-file.
   unset DEPLOY_ENV_FILE COMPOSE_PROJECT_NAME COMPOSE_PROFILES IMAGE_TAG DOMAIN WEB_BIND_ADDRESS WEB_HOST_PORT
   unset POSTGRES_DB POSTGRES_USER POSTGRES_PASSWORD DATABASE_DRIVER DATABASE_URL DATABASE_URL_UNPOOLED
   unset STORAGE_DRIVER LOCAL_STORAGE_ROOT BETTER_AUTH_SECRET BETTER_AUTH_URL RELAY_API_KEY RELAY_BASE_URL
   unset CUSTOM_KEY_JOB_ENCRYPTION_KEY CUSTOM_KEY_MODES_ENABLED WORKER_CONCURRENCY TRUST_PROXY
-  COMPOSE_COMMAND=(docker compose --project-name "$PROJECT_NAME" --env-file "$ENV_RELATIVE_PATH")
+  COMPOSE_COMMAND=(docker compose --project-name "$PROJECT_NAME" --env-file "$ENV_RELATIVE_PATH" \
+    -f compose.yaml -f "$OVERRIDE_RELATIVE_PATH")
+  CLEANUP_COMPOSE_COMMAND=(docker compose --project-name "$PROJECT_NAME" \
+    --env-file deploy/.env.production.example -f compose.yaml)
   COMPOSE_CLEANUP_ALLOWED=1
 
   start_port_3000_occupier
@@ -347,4 +398,6 @@ main() {
   SMOKE_ASSERTIONS_PASSED=1
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi
