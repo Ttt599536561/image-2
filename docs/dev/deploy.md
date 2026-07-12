@@ -1,84 +1,94 @@
-# Debian Docker production deployment
+# Debian Docker 一键部署
 
-Status: Docker runtime is implemented and locally verified, but production has
-not yet switched from the historical Netlify deployment. The target stack is
-Caddy, React Router SSR `web`, one generation `worker`, and one `scheduler`.
-
-## 1. Host preparation
-
-Use Debian 12 or newer. Install Docker Engine and the Compose plugin from the
-official Docker repository, enable the service, and allow inbound TCP 80/443.
-Point the production domain A/AAAA record at the server before starting Caddy.
-
-## 2. Configuration
+在项目根目录选择一种部署方式：
 
 ```bash
-cp deploy/.env.production.example deploy/.env.production
-chmod 600 deploy/.env.production
+# Bundled Caddy owns 80/443
+sudo bash deploy/install.sh --domain images.example.com
+
+# Existing reverse proxy forwards to the printed 127.0.0.1 port
+sudo bash deploy/install.sh --existing-proxy --public-url https://images.example.com
+
+# Resume an interrupted install without rotating generated secrets
+sudo bash deploy/install.sh --resume
 ```
 
-Fill every database, auth, storage, relay, and encryption value. Set `DOMAIN`
-and `BETTER_AUTH_URL=https://<domain>`. Keep
-`CUSTOM_KEY_MODES_ENABLED=false` for the first rollout. Use the Neon pooled URL
-for `DATABASE_URL` and direct URL for `DATABASE_URL_UNPOOLED`. Keep certificate
-verification explicit with `sslmode=verify-full`; do not rely on the current
-`pg` aliasing of `sslmode=require`, because that compatibility changes in its
-next major release.
+## 前提
 
-Never bake this file into the image or commit it. Apply the checked-in migrations
-from a controlled maintenance container before the application rollout:
+- 一台全新的 Debian 服务器，已安装 Docker Engine 与 Compose v2。
+- 项目代码已位于服务器，命令从仓库根目录执行。
+- 域名模式需要域名已解析到服务器，且宿主机 `80/443` 空闲。
+- 现有代理模式不会启动 Caddy；安装器会选择空闲的 `127.0.0.1` 端口并输出上游地址。
 
-```bash
-docker compose --env-file deploy/.env.production build web
-docker compose --env-file deploy/.env.production run --rm \
-  -e MIGRATE_CONFIRM=APPLY_PRODUCTION_MIGRATIONS web npm run db:migrate:production
+首次安装从空数据开始，不迁移旧 Neon、Supabase 或 Netlify 数据。
+
+## 安装时输入
+
+终端只要求提供 3 个值：
+
+1. 系统 Relay API Key，并确认一次。
+2. 管理员邮箱。
+3. 管理员密码，连续输入两次以校验一致。
+
+Key 和密码使用普通可见输入。这样便于核对，但内容会留在终端滚动记录、录屏或远程操作日志中；请在可信终端操作。输入不会进入 shell 命令历史，管理员密码也不会写入长期配置。
+
+确认后，脚本会自动完成预检、生成数据库与认证密钥、创建权限为 `600` 的 `deploy/.env.production`、启动 PostgreSQL、执行迁移、创建管理员、启动服务并检查 `/healthz`。不要手工填写示例环境文件。
+
+管理员入口：`https://你的域名/admin/login`。
+
+## 端口与数据
+
+- PostgreSQL 的 `5432` 仅在 Compose 私有网络内使用，不发布到宿主机。
+- Web 的 `3000` 仅在容器内使用；宿主机已有 `3000` 服务不会冲突。
+- 域名模式由 Caddy 对公网发布 `80/443`；Web 仍只绑定自动选择的回环端口。
+- 现有代理模式只发布安装器选择的 `127.0.0.1:<端口>`。
+- 数据库保存于 `postgres_data`，图片保存于 `media_data`；重建应用容器不会删除数据。
+
+现有代理需要固定回环端口时可追加 `--port 18081`；端口已占用时安装器会停止，不会接管已有服务。
+
+## 现有代理
+
+安装器会打印类似 `http://127.0.0.1:18080` 的上游。Nginx 最小配置示例：
+
+```nginx
+location / {
+  proxy_pass http://127.0.0.1:18080;
+  proxy_set_header Host $host;
+  proxy_set_header X-Forwarded-Proto https;
+}
 ```
 
-This command must target a backed-up database and complete before `up -d`.
-`/healthz` verifies the current generation deadline/credential schema, so Caddy
-will not expose an application whose required migration is missing.
+若打印的端口不是 `18080`，以实际输出为准。TLS、域名和公网入口由现有代理负责。
 
-## 3. Deploy
+## 验证
 
 ```bash
-docker compose --env-file deploy/.env.production config
-docker compose --env-file deploy/.env.production build
-docker compose --env-file deploy/.env.production up -d
 docker compose --env-file deploy/.env.production ps
+curl -fsS -o /dev/null -w '%{http_code}\n' https://images.example.com/healthz
 ```
 
-Caddy obtains and renews TLS certificates automatically. Only Caddy publishes
-host ports. Web, worker, and scheduler remain on the private Compose network.
+预期健康检查返回 `204`，`postgres`、`web`、`worker`、`scheduler` 均正常；域名模式还应看到 `caddy`。随后用安装时设置的账号登录 `/admin/login`，完成一次 system 模式生图并确认 `/media/*` 图片可打开。
 
-## 4. Verify
+## 日常运维
 
 ```bash
-curl -fsS -o /dev/null https://<domain>/healthz
-curl -i https://<domain>/api/me
-docker compose --env-file deploy/.env.production logs --tail=200 web worker scheduler caddy
+sudo bash deploy/backup.sh
+sudo bash deploy/install.sh --upgrade
+sudo bash deploy/restore.sh deploy/backups/20260712T120000Z
+docker compose --env-file deploy/.env.production ps
+docker compose --env-file deploy/.env.production logs --tail=100 web worker scheduler postgres
 ```
 
-Expected: `/healthz` is 204 and unauthenticated `/api/me` is 401. Then perform a
-controlled system-key generation, confirm one terminal generation row, one
-stored image, and at most one debit. Check logs and audit data for secret
-redaction before enabling custom-key mode.
+- 备份同时包含 PostgreSQL dump、媒体归档、校验和和版本清单，默认只保留最近 7 份完整本地备份。
+- 升级会先备份，再构建镜像、迁移和重启；迁移开始后的失败必须按脚本提示恢复，不能直接反复升级。
+- 恢复会校验三份归档文件和清单，只允许写入已停止且为空的目标卷，并要求输入 `RESTORE ai-image-workshop` 确认。
+- 安装、备份、恢复和升级共用操作锁，同一时间只能运行一个。
 
-## 5. Operations and rollback
+`deploy/.env.production` 含系统 Key 和内部密钥，不得提交到 Git，也不在普通备份包中；请用权限 `600` 单独保管。多机高可用和自动异地备份不在当前单机部署范围内。
 
-```bash
-IMAGE_TAG=release-2026-07-11 docker compose --env-file deploy/.env.production build
-IMAGE_TAG=release-2026-07-11 docker compose --env-file deploy/.env.production up -d --no-build
-docker compose --env-file deploy/.env.production logs -f worker
-```
+## 故障处理
 
-Build and retain a local image tag for every release. Roll back with an existing
-tag and `IMAGE_TAG=<previous> docker compose --env-file deploy/.env.production
-up -d --no-build`. `compose.yaml` does not configure an image registry, so do
-not use `docker compose pull` as an application-release step. Do not roll code
-back across an incompatible migration. Neon PITR and Supabase bucket backup or
-replication remain separate operational responsibilities.
-
-Run exactly one scheduler replica. Worker replicas may be increased after load
-testing because `runGenerationJob` atomically claims database rows. If sustained
-queue load outgrows PostgreSQL polling, evaluate Redis/Valkey plus BullMQ as a
-later architecture change rather than mixing queue systems during this migration.
+- 安装中断：修复终端提示的问题后运行 `sudo bash deploy/install.sh --resume`。
+- 查看日志：运行上面的 `logs` 命令；域名模式可额外加入 `caddy`。
+- 不要删除 `postgres_data` 或 `media_data` 来处理启动失败。
+- 不要直接执行不带 `--env-file deploy/.env.production` 的业务 Compose 命令。

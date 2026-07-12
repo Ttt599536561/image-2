@@ -23,7 +23,7 @@
 |---|---|
 | 前缀 | 全部挂 `/api/admin/*`（RR resource routes + server service modules） |
 | 鉴权 | 每个 handler 首行 `const admin = await requireAdmin(req)`；非 admin → `403` |
-| 钱/码事务 | 走 Pool/WS + `FOR UPDATE`（[00 §1.3](00-overview.md)）；看板只读走 HTTP |
+| 钱/码事务 | 走 transaction pool + `FOR UPDATE`（[运行时与配置](00-overview.md)）；看板只读走 `getSql()` |
 | 契约 | 请求/响应 Zod schema 放 `src/contracts/admin.ts`（[07-api.md §8.5](07-api.md)） |
 | 审计 | 敏感写操作**必须**在同事务内写 `audit_log`（§10.6） |
 | 错误码 | 复用 [07-api.md §8.2](07-api.md) 语义（402/409/410/429/403） |
@@ -108,7 +108,7 @@ RETURNING id;
 
 ### 批次对账（GET `/api/admin/codes/batch/:batchId`）
 
-发出 / 已用 / 未用 / 已作废 / 金额，单查询聚合（HTTP 只读）：
+发出 / 已用 / 未用 / 已作废 / 金额，通过 `getSql()` 单查询聚合：
 
 ```sql
 SELECT
@@ -296,7 +296,7 @@ LIMIT $pageSize OFFSET $offset;
 - 列：**缩略图 + 用户邮箱 + 生图时长(`duration_ms` → `M:SS`) + 提示词 + 状态 + 时间**。
 - 点缩略图 → **全局 lightbox**（[08-frontend.md §9.6](08-frontend.md) 通用浮层，仅「下载」，[§19](../redesign-requirements.md) 通用 lightbox）。
 - **失败行直显三列 `error_code` / `error` / `http_status`**。system 展示 [§5.8](04-generation-pipeline.md) 七值既有语义，custom 展示 [07 §8.7](07-api.md) 十值；读取取并集，`error` 是脱敏人读串。
-- 缩略图走 Supabase Storage `public_url`（前端只读，[06 §7.6](06-storage.md)），失败行无图占灰位。
+- 缩略图只读数据库 `public_url`（自托管默认 `/media/*`，见 [06 §7.6](06-storage.md)），失败行无图占灰位。
 
 ---
 
@@ -367,7 +367,7 @@ async function writeAudit(c, e: {
 
 ## 10.7 数据看板
 
-本期 7 卡 + 附加指标，**全部从 `events` 表聚合**（[02 §3.2](02-database.md) append-only 事实表，job/历史清理后不丢数据）。看板**走 HTTP 只读**（[00 §1.3](00-overview.md)）；**`SUM()`/`count` 大聚合用 string codec 再换算**（mp 求和可能超 `2^53`，[10-ops-test.md §11.4](10-ops-test.md)）。
+本期 7 卡 + 附加指标，**全部从 `events` 表聚合**（[02 §3.2](02-database.md) append-only 事实表，job/历史清理后不丢数据）。看板通过 `getSql()` 只读；**`SUM()`/`count` 大聚合用 string codec 再换算**（mp 求和可能超 `2^53`，见 [10-ops-test.md](10-ops-test.md)）。
 
 > 事实事件由钱/生图链路写入：`user_registered` / `image_succeeded`(payload.durationMs) / `image_failed`(payload.reason) / `code_redeemed`(payload.cashValue 面值) / `credit_granted` / `credit_consumed` / `credit_expired`（[03](03-money.md) 各事务、[04](04-generation-pipeline.md)）。
 
@@ -392,7 +392,7 @@ async function writeAudit(c, e: {
 | DAU | `count(DISTINCT user_id) FROM events WHERE today`（活跃 = 当天有任意事件） |
 | 尺寸占比 | 直接查 `generations`：`SELECT size, count(*) FROM generations WHERE status='succeeded' GROUP BY size`（模型固定 gpt-image-2，**不做模型占比**，[§3](../redesign-requirements.md)） |
 
-> **三口径分工（统一裁决）**：① **余额/负债类快照查 `credit_lots`**（实时表，如账面负债 = 全站未过期 `remaining_mp` 之和）；② **资金流水/历史口径走 `events`**（append-only，不受清理影响，如发放/消耗/收入累计）；③ **运维实时口径查 `generations`**（要当前态，如队列健康、进行中并发）。所有 `SUM` 在 HTTP 返回前以 string 取出再 `BigInt` 换算（[10-ops-test.md §11.4](10-ops-test.md)），避免 number 截断把钱算错。
+> **三口径分工（统一裁决）**：① **余额/负债类快照查 `credit_lots`**（实时表，如账面负债 = 全站未过期 `remaining_mp` 之和）；② **资金流水/历史口径走 `events`**（append-only，不受清理影响，如发放/消耗/收入累计）；③ **运维实时口径查 `generations`**（要当前态，如队列健康、进行中并发）。所有 `SUM` 在 API 返回前以 string 取出再 `BigInt` 换算（见 [10-ops-test.md](10-ops-test.md)），避免 number 截断把钱算错。
 
 ---
 

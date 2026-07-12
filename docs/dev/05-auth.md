@@ -1,30 +1,27 @@
 # 6 · 鉴权与会话
 
 > 用 **Better Auth**（email+password、不验邮箱、admin 插件、bcryptjs）落地账号；把**封禁/改密的硬校验**做成「每请求查 DB」、把**注册原子发放**接到 [03-money.md §4.4](03-money.md)。
-> 规则真相源：规格 [§4 账号](../redesign-requirements.md) / [§24-1 注册登录错误与忘记密码占位](../redesign-requirements.md)。表关系见 [02-database.md §3.1](02-database.md)。
-> 密钥红线：`BETTER_AUTH_SECRET` / `BETTER_AUTH_URL` 只在服务端（[00-overview.md §1.4](00-overview.md)）。
+> 规则真相源：规格 [§4 账号](../redesign-requirements.md) / [§24-1 注册登录错误与忘记密码占位](../redesign-requirements.md)。表关系见 [02-database.md §3.2](02-database.md)。
+> 密钥红线：`BETTER_AUTH_SECRET` / `BETTER_AUTH_URL` 只在服务端（[00-overview.md](00-overview.md)）。
 
 ## 6.1 Better Auth 配置
 
 落地形态：email+password（**不验邮箱**，规格 §4「注册即用」）+ **admin 插件**（角色/封禁能力）+ **bcryptjs**（纯 JS、无 native 依赖，适合容器运行）。
 
-**钉版避 multi-session CVE**：`better-auth` 与各插件锁定到经核验的精确版本，规避历史上 multi-session 插件的会话越权问题。本期不启用 multi-session 插件。依赖审计目前是发布前人工检查，尚未作为 CI 门禁。
+**钉版避 multi-session CVE**：`better-auth` 与各插件锁定到经核验的精确版本，规避历史上 multi-session 插件的会话越权问题。本期不启用 multi-session 插件；high/critical 依赖审计是 CI 门禁。
 
 ```ts
 // src/lib/auth.ts —— 服务端唯一 Better Auth 实例
 import { betterAuth } from 'better-auth';
 import { admin } from 'better-auth/plugins';
-import { Pool, neonConfig } from '@neondatabase/serverless';
-import ws from 'ws';
 import bcrypt from 'bcryptjs';
 import { APIError } from 'better-auth/api';
 import { onUserRegistered } from './auth-hooks';   // §6.6 注册发放钩子
 import { onSessionCreated } from './auth-hooks';    // §6.6 孤儿兜底（登录补发）
+import { createAuthPool } from './auth-pool';
 
-neonConfig.webSocketConstructor = ws;
-
-// Better Auth 自管 user/session/account/verification —— 直连 Neon（与业务库同库，§6.2）
-const pool = new Pool({ connectionString: process.env.DATABASE_URL_UNPOOLED });
+// DATABASE_DRIVER=pg 使用标准 pg pool；显式托管场景仍可选 Neon pool。
+const pool = createAuthPool();
 
 export const auth = betterAuth({
   database: pool,                                  // pg Pool 适配器
@@ -83,7 +80,7 @@ export const action  = ({ request }: Route.ActionArgs) => auth.handler(request);
 
 | 表 | 归属 | 谁建/管 |
 |---|---|---|
-| `user` / `session` / `account` / `verification` | Better Auth | schema 已固化在受控迁移中；不在 `src/db/schema.ts` 重复定义，但落同一 Neon 库 |
+| `user` / `session` / `account` / `verification` | Better Auth | schema 已固化在受控迁移中；不在 `src/db/schema.ts` 重复定义，但与业务表落同一 PostgreSQL |
 | `users`（业务） | 业务 | `src/db/schema.ts`（[02-database.md §3.2](02-database.md)）：`role / max_concurrency / is_banned / has_paid` 等 |
 
 **对齐策略（明确定）**：
@@ -92,7 +89,7 @@ export const action  = ({ request }: Route.ActionArgs) => auth.handler(request);
 - 业务 `users.id` **去掉 DB DEFAULT**（[02-database.md §3.2](02-database.md)：`uuid PRIMARY KEY` 无 default），**恒由注册 after-hook 写入该 `user.id`**（§6.6），不另生成 UUID → 二者 **id 全程一致、均为同一 UUID 字符串**，可直接 join、外键引 `users(id)`。
 - `account` 表（Better Auth）存 **password_hash / provider**；业务 `users.password_hash` 列**留空或仅冗余**（[02-database.md §3.2](02-database.md) 已注「由 Better Auth/account 管」），改密走 Better Auth、不手改业务列。
 - **为何不把业务字段全塞 Better Auth `additionalFields`**：
-  1. **钱事务只碰业务表**（`users / credit_*`），与 Better Auth 的 `user/session/account` **互不干扰、各管各事务**（[01-architecture.md §2.1](01-architecture.md) 已述）；混表会让一笔扣费/调账事务被迫去锁鉴权表，放大锁冲突面。
+  1. **钱事务只碰业务表**（`users / credit_*`），与 Better Auth 的 `user/session/account` **互不干扰、各管各事务**（[01-architecture.md](01-architecture.md)）；混表会让一笔扣费/调账事务被迫去锁鉴权表，放大锁冲突面。
   2. `role / is_banned / max_concurrency` 是**高频热路径读**（入队闸、并发闸、敏感 guard），放在业务 `users` 与 `credit_*` 同库同区一把读，避免和会话签名逻辑耦合。
   3. admin 插件只需 `role`/`banned` 语义，我们让它读业务 `users.role`/`users.is_banned`（adminRoles 映射），无需把全部业务字段灌进鉴权表。
 
@@ -239,7 +236,7 @@ export async function onSessionCreated(session: { userId: string }) {
 
 ## 6.7 admin 鉴权
 
-- admin 插件以 **`role='admin'`** 标识管理员（业务 `users.role`，[02-database.md §3.2](02-database.md)）；初始 admin 经普通注册流程建号后**手改 `role='admin'`**（种子，[02-database.md §3.5](02-database.md)）。
+- admin 插件以 **`role='admin'`** 标识管理员。安装器调用 `scripts/seed-admin.ts` 创建账号，并验证业务 `users.role` 与 Better Auth `user.role` 都为 admin；登录入口是 `/admin/login`。
 - **`/admin/*` 前端路由**（[08-frontend.md §9.2](08-frontend.md)）的 loader 与**全部 `/api/admin/*` API** 必须经 `requireAdmin` guard：
 
 ```ts

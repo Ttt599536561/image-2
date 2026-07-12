@@ -4,7 +4,7 @@
 
 ## 当前运行时
 
-目标生产运行时为 Debian Docker Compose：Caddy -> React Router SSR `web`；私有 `worker` 消费 PostgreSQL `generations` 队列；单例 `scheduler` 跑维护任务。发布步骤只看 [deploy.md](deploy.md)。仓库中的 `netlify/` 是过渡兼容 handler 源码，Docker 运行时不依赖 Netlify 平台。
+当前生产运行时为 Debian Docker Compose：Caddy/现有代理 -> React Router SSR `web`；私有 `worker` 消费本机 PostgreSQL 的 `generations` 队列；单例 `scheduler` 跑维护任务；图片持久化到本机 `media_data`。发布步骤只看 [deploy.md](deploy.md)。仓库中的 `netlify/` 是过渡兼容 handler 源码，Docker 运行时不依赖 Netlify 平台。
 
 ## 按需阅读
 

@@ -1,8 +1,8 @@
 # AI 图像工坊 · 产品需求规格（v2 重构）
 
-> 状态：v2 基线和 2026-07-11“系统/自定义 Key + 多任务生成”本地实现均已完成；生产 rollout 状态见 [PROGRESS.md](PROGRESS.md)。本文件是 v2 的**完整产品规格**；增补细则以 [批准版 PRD](../tasks/prd-user-api-key-modes.md) 为准。
+> 状态：v2、系统/自定义 Key 和单机全自托管部署均已实现；目标服务器验收状态见 [PROGRESS.md](PROGRESS.md)。本文件是 v2 的**完整产品规格**；增补细则以 [批准版 PRD](../tasks/prd-user-api-key-modes.md) 为准。
 > 关联：[requirements.md](requirements.md)（v1 现状）、[development.md](development.md)（现有架构）、[test-cases.md](test-cases.md)（v1 用例）。
-> 更新：2026-07-11。产品规则以本文件 §25 和批准版 PRD 为准；实施/发布状态只看 [PROGRESS.md](PROGRESS.md)。
+> 更新：2026-07-12。产品规则以本文件 §25 和批准版 PRD 为准；实施/发布状态只看 [PROGRESS.md](PROGRESS.md)。
 
 ## 1. 背景与目标
 
@@ -233,7 +233,7 @@
 
 ## 15. 系统架构（技术选型已定稿；三步演进）
 
-> **技术选型已锁定（完整技术设计见开发文档）。** 目标部署为 **Debian Docker Compose**（Caddy + SSR web + worker + scheduler，DB-as-queue）；DB **Neon Postgres**（钱/码走 Pool/WS 事务 + `FOR UPDATE`，看板 HTTP）；ORM **Drizzle**；前端 **React Router 8 framework 模式** + Vite 8 + React 19；鉴权 **Better Auth**；存储为 **Supabase Storage 的 S3 兼容公有桶**；API 手写 REST + TanStack Query v5 + Zod 4；质量为 Vitest、Playwright、Sentry、GitHub Actions。生产 Docker rollout 尚未执行。
+> **当前生产选型（完整技术设计见开发文档）。** Debian Docker Compose 运行 Caddy/现有代理、SSR web、worker、单例 scheduler 和 PostgreSQL 17；DB-as-queue，钱/码使用标准 `pg` pool 事务 + `FOR UPDATE`；ORM 为 Drizzle；前端为 React Router 8 framework 模式 + Vite 8 + React 19；鉴权为 Better Auth；媒体默认写本机 `media_data` 并以 `/media/*` 读取。Neon 与 S3 兼容存储保留为显式可选驱动，不是自托管依赖。质量门禁为 Vitest、Docker smoke、秘密扫描与 GitHub Actions。
 >
 > **因「中转 api.tangguo.xin = 同步阻塞」的 4 条成本约束**：① system 保留单日预算熔断，custom 明确绕过且风险已接受；② 持续实测单图 worker/主机与存储成本；③ generations 抢占式状态机防 worker 重领/scheduler 重扫重复下单；④ system 只读服务端全局 Key，custom 只读 generation-scoped 加密临时凭据。
 >
@@ -245,9 +245,9 @@
 - 前端使用 owner-scoped 批量短轮询查询当前会话所有非终态 generation。system/custom 均以服务端 `deadline_at` 为准、创建后最多 5 分钟；不上 SSE/WebSocket。
 
 **第二步 · 上数据库 + 可靠队列（落地积分必做）**
-- **数据库**：Neon Postgres 承载用户、积分账本、批次、兑换码、会话、生成、图片、审计和事件。job 态以 **`generations` 表**为准。兑换核销可用 HTTP 单语句；扣费/FIFO/注册发放等多语句事务必须走 Pool/WebSocket。常驻进程复用 pool 并在退出时关闭。
+- **数据库**：自托管 PostgreSQL 承载用户、积分账本、批次、兑换码、会话、生成、图片、审计和事件。job 态以 **`generations` 表**为准。只读和单语句操作走 read pool；扣费/FIFO/注册发放等多语句事务必须走 transaction pool。常驻进程复用 pool 并在退出时关闭。
 - **队列**：不引独立队列服务——用 **generations 表状态机**（`queued→claimed→running→succeeded/failed`）+ worker 消费 + scheduler deadline 重扫。去重/幂等靠 `generation_id` 和原子抢占 `UPDATE…WHERE status='queued' RETURNING`。量大后才评估 Redis/Valkey + BullMQ，业务状态仍以 generations 为准。
-- **对象存储**：结果图从中转站临时 URL/base64 落到 **Supabase Storage（S3 兼容）**；DB 只存 `storage_key + public_url`，前端永远读稳定 URL。供应商由服务端 `STORAGE_*` 配置，历史 helper 名不代表当前供应商。
+- **媒体存储**：结果图从中转站临时 URL/base64 落到本机持久卷；DB 存 `storage_key + /media/<key>`，前端只读稳定 URL。S3 兼容后端仍可通过服务端 `STORAGE_*` 显式选择，历史 helper 名不代表当前供应商。
 - **幂等主键**：一个 `generation_id` 贯穿"提交 → 生图 → 落图 → 扣费"。
 - **扣费事务**：成功时单事务内「锁批次 → FIFO 扣减 → insert images → debit → 更新余额 → 标记成功」（可执行步骤与部分唯一索引见 §22 / §16）。
 - **provider 调用**：当前 relay 为同步接口，由常驻 worker 调用并受 `deadline_at` 约束；前端只轮询本站状态，不直连 provider。
@@ -256,7 +256,7 @@
 
 ## 16. 数据库 Schema（草案，参考调研）
 
-Neon Postgres。**金额一律用整数**（定死）：积分列用**毫积分 BIGINT**（1 积分=1000，0.07 积分=70），现金列用**分 BIGINT**（¥9.9=990）；绝不用 float / NUMERIC。下列所有 `credits/granted/remaining/amount/balance/credits_value` 均毫积分，`cash_value/price_cash` 均分。
+PostgreSQL。**金额一律用整数**（定死）：积分列用**毫积分 BIGINT**（1 积分=1000，0.07 积分=70），现金列用**分 BIGINT**（¥9.9=990）；绝不用 float / NUMERIC。下列所有 `credits/granted/remaining/amount/balance/credits_value` 均毫积分，`cash_value/price_cash` 均分。
 
 - **users**(id, email unique, password_hash, role, max_concurrency default 2, created_at)
 - **credit_accounts**(user_id pk/fk, balance, updated_at) — 物化余额
@@ -280,7 +280,7 @@ Neon Postgres。**金额一律用整数**（定死）：积分列用**毫积分 
 
 **并发计数**：不设独立计数列；system 账户并发 = `COUNT(*) FROM generations WHERE user_id=? AND credential_mode='system' AND status IN('queued','claimed','running')`。custom in-flight 可单独观测，但不占 `max_concurrency`；任务进终态自动释放。
 
-> **Better Auth 的会话表同库**：`user / session / account / verification` 四张表（Better Auth 管理）与上述业务表共用同一 Neon 库、各管各事务、互不干扰（钱/码事务只碰 credit_lots/redeem_codes/ledger 等）。`users` 业务字段（role、max_concurrency 等）与 Better Auth 的 user 表对齐方式在开发文档定。
+> **Better Auth 的会话表同库**：`user / session / account / verification` 四张表（Better Auth 管理）与上述业务表共用同一 PostgreSQL、各管各事务、互不干扰（钱/码事务只碰 credit_lots/redeem_codes/ledger 等）。`users` 业务字段（role、max_concurrency 等）与 Better Auth 的 user 表对齐方式在开发文档定。
 
 > job 状态以 **generations 表（Postgres）为准**，前端短轮询直接查它（不再用 Blobs 存 job 态）。本次面板 = `generations WHERE conversation_id`；资产库 = `images WHERE user_id`；最近 = `conversations WHERE user_id`。
 
@@ -314,14 +314,14 @@ Neon Postgres。**金额一律用整数**（定死）：积分列用**毫积分 
 
 > **产品决策已全部拍板。** system 保留赠送、FIFO、余额、默认并发、单日预算与成功扣费；custom 使用用户自己的单 Key、固定 Base URL、零扣费、零余额/预算/并发/提交限流且不自动回退 system。两种模式共用 `/api/generate`、图片存储和 5 分钟 deadline。完整矩阵见 §25。
 >
-> **技术实现已完成本地验证**：Neon 事务、AES-GCM 临时凭据、批量状态和 5 分钟终态竞争已有自动化证据。生产 Compose smoke、连接/吞吐上限与单图成本仍需实测，状态只看 [PROGRESS.md](PROGRESS.md)。
+> **技术实现已完成自动化验证**：标准 PostgreSQL 事务、AES-GCM 临时凭据、批量状态、5 分钟终态竞争和空数据 Compose 持久化 smoke 已有证据。真实 Relay、目标主机容量与单图成本需在服务器验收，状态只看 [PROGRESS.md](PROGRESS.md)。
 >
 > **残留风险（已接受）**：不验证邮箱 → 新号 0.14 免费额度可被批量注册薅、烧共享 Key/compute 额度（由单日预算熔断兜底）。日后若被规模化薅再补防护。
 
 ## 20. 历史分期
 
 - [x] 阶段一：Composer、五态、灵感画廊和主题。
-- [x] 阶段二：账号、Neon、对象存储、积分/兑换、后台、历史与资产库。
+- [x] 阶段二：账号、PostgreSQL、媒体存储、积分/兑换、后台、历史与资产库。
 - [x] 阶段三已选范围：搜索、资产增强、灵感运营与图生图。
 
 未选择的客服/RBAC、一次多图、单图编辑和应用层合规能力不属于当前待发布清单。

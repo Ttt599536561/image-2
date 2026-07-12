@@ -1,10 +1,10 @@
 # 生产成本对账
 
-状态：生产 Docker rollout 前待执行。
+状态：目标服务器部署后持续采集；不阻塞首次安装。
 
 ## 需要采集
 
-- system/custom 分别统计成功率、relay 耗时、失败率、队列等待、worker CPU/内存、Neon 连接与查询、对象存储容量/egress。
+- system/custom 分别统计成功率、relay 耗时、失败率、队列等待、worker CPU/内存、PostgreSQL 连接与查询、媒体卷容量和出口流量。
 - system 再统计每张收入、relay 成本、数据库/存储和 Docker 主机分摊，确认有效毛利为正。
 - custom 的本站积分收入为零；仍需量化主机、数据库和存储消耗，作为人工容量决策依据。
 

@@ -12,10 +12,11 @@ npm run test:money
 npm run build
 npm run assert-no-secrets
 npm run docker:validate
+npm run test:deploy
+npm run test:deploy:smoke
 ```
 
-当前最近证据：单元测试 `188/188`、金额测试 `74/74`。金额测试需要 gitignored
-`.env.test`，且 guard 必须拒绝生产候选数据库。
+金额测试使用 gitignored 的 `.env.test` 和一次性本地 PostgreSQL；guard 必须拒绝生产候选数据库。部署 smoke 会真实启动空 Compose 栈并自行清理，不使用生产配置或数据卷。
 
 ## 浏览器验收
 
@@ -41,5 +42,4 @@ npm run dev:disposable:test
 - custom 成功、失败和超时后 `generation_credentials` 无对应明文或遗留记录。
 - 兑换、资产删除/下载、灵感投稿审核和后台审计按 owner/admin 权限工作。
 
-完成任一次人工验收后，在 [PROGRESS.md](../PROGRESS.md) 记录范围和环境；不要把
-本地结果写成生产已上线。
+本地结果不能写成目标服务器已经验收；服务器步骤以 [deploy.md](deploy.md) 为准。

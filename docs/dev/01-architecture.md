@@ -1,70 +1,55 @@
 # 系统架构
 
-状态：下图描述 Docker 目标运行时。生产切换尚未执行。
+状态：下图是当前 Debian Docker 单机生产拓扑。
 
 ```mermaid
 flowchart TB
-  Browser["Browser\nReact Router client"] --> Caddy["Caddy\nTLS + reverse proxy"]
-  Caddy --> Web["web\nSSR + REST + Better Auth"]
-  Web --> DB[("Neon Postgres\nstate, money, queue")]
-  Web --> Storage[("Supabase Storage\nS3-compatible")]
-  Worker["worker\nclaim + runGenerationJob"] --> DB
+  Browser["Browser\nReact Router client"] --> Proxy["Caddy or existing proxy\nTLS + reverse proxy"]
+  Proxy --> Web["web\nSSR + REST + Better Auth"]
+  Web --> DB[("PostgreSQL\npostgres_data")]
+  Web --> Media[("local media\nmedia_data")]
+  Worker["worker\nclaim + generation"] --> DB
   Worker --> Relay["AI relay\nsynchronous"]
-  Worker --> Storage
+  Worker --> Media
   Scheduler["scheduler\ntimeout + cleanup + reconciliation"] --> DB
-  Scheduler --> Storage
+  Scheduler --> Media
 ```
 
-Only Caddy publishes host ports. Web, worker, and scheduler share one image and
-production environment file but have separate commands. Docker Compose starts one
-scheduler; worker replicas can scale only after load testing because job claiming
-is already atomic.
+`web`、`worker`、`scheduler` 使用同一应用镜像和生产配置，但运行不同命令。它们共享私有 PostgreSQL 与 `media_data`；Caddy 只读挂载媒体卷。PostgreSQL 不发布宿主机端口，Web 的容器端口 `3000` 也不会占用宿主机 `3000`。
 
-## Generation Flow
+## 生成流程
 
-1. Browser calls `POST /api/generate` after authentication and validation.
-2. Web writes a durable `generations(status='queued')` row. system applies balance,
-   budget, and concurrency gates; custom atomically adds an encrypted credential.
-3. Worker selects queued, unexpired IDs and calls `runGenerationJob`. The existing
-   atomic claim prevents duplicate relay calls when multiple workers observe one row.
-4. Worker calls the relay, writes the stable storage object, and finalizes the row.
-   system finalization performs FIFO debit; custom finalization writes no account,
-   lot, or debit records.
-5. Browser polls `GET /api/generate-status`; final states return a stable
-   `public_url` or normalized error.
+1. 浏览器认证后调用 `POST /api/generate`。
+2. Web 写入持久化 `generations(status='queued')`。system 模式执行余额、预算和并发闸；custom 模式原子写入任务级加密凭据。
+3. Worker 原子领取未过期任务，调用 Relay，并把结果写入本地媒体卷。
+4. system 成功事务写图片并 FIFO 扣费；custom 成功事务写图片但不碰本站积分。
+5. 浏览器轮询 `GET /api/generate-status`，终态返回相对地址 `/media/<key>` 或脱敏错误。
 
-`deadline_at` is authoritative. Success, failure, and timeout only update rows in
-eligible intermediate states, so they cannot overwrite each other. Terminal custom
-credentials are deleted immediately; the scheduler cleans expired/orphaned ones.
+`deadline_at` 是唯一超时依据。成功、失败和超时只更新符合状态谓词的在途行，避免终态互相覆盖；custom 凭据在终态立即删除。
 
-## Scheduled Work
+## 媒体读取
 
-The scheduler uses UTC and calls the existing maintenance logic:
+- 内置 Caddy 模式直接从只读 `media_data` 响应 `/media/*`。
+- 现有代理模式把所有请求转给 Web，由 `app/routes/media.$.ts` 安全读取同一卷。
+- 路径是同源相对地址，因此更换域名或代理端口不会破坏历史图片。
 
-| Schedule | Work |
+## 定时任务
+
+| UTC 时间 | 工作 |
 |---|---|
-| every minute | deadline timeout rescan |
-| every 5 minutes | expired custom credential cleanup |
-| 16:00 UTC | budget key cleanup and prior-day report |
-| 16:10 UTC | credit expiration |
-| 16:30 UTC | balance reconciliation |
-| 17:00 UTC | expired image and orphan cleanup |
+| 每分钟 | generation deadline 重扫 |
+| 每 5 分钟 | 过期 custom credential 清理 |
+| 16:00 | 预算清理与前一日报告 |
+| 16:10 | 积分过期 |
+| 16:30 | 余额对账 |
+| 17:00 | 过期图片与孤儿清理 |
 
-Each slot is marked complete only after a successful handler response; failures
-are retried during the current slot. Scheduler state is process-local, so exactly
-one scheduler replica is required.
+每个时段只有成功后才标记完成；失败在当前时段重试。scheduler 状态是进程内状态，所以生产只能运行一个 scheduler 副本。
 
-## Deployment Boundary
+## 边界与扩展
 
-`netlify/functions` remains as a migration-era source directory. Routes and
-scheduler currently import handler bodies from it, but Docker runs them inside
-normal Node processes. Netlify CLI, Vite adapter, Blobs dependency, and platform
-configuration have been removed. Renaming/extracting the remaining handlers is
-deferred cleanup. See [PROGRESS.md](../PROGRESS.md).
-
-## Scale Path
-
-Keep PostgreSQL as the queue while atomic claiming, relay latency, and worker
-throughput meet demand. Move to Redis/Valkey plus BullMQ only when measurements
-show PostgreSQL polling is insufficient; keep `generations` as the business state
-record during any future queue migration.
+- `generations` 始终是业务状态和队列真相源。
+- 金额、兑换和调账保持 PostgreSQL 事务、行锁和幂等索引语义。
+- 本地 PostgreSQL/媒体是自托管默认值；Neon 与 S3 兼容适配器仅用于明确选择的外部部署。
+- 先按指标增加 worker。只有 PostgreSQL polling 成为实测瓶颈时才评估 Redis/Valkey + BullMQ。
+- 多机高可用和自动异地备份不属于当前单机架构范围。

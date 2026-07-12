@@ -2,7 +2,7 @@
 
 > **本章是全文档最详、最不能错的一章。** 钱/码/并发在并发与重试下极易出错，下面给**可直接照写的事务步骤 + 幂等键 + 抢占式状态机**。所有金额毫积分（mp）整数。
 > 规则真相源：规格 [§6](../redesign-requirements.md)（计费）/ [§7](../redesign-requirements.md)（兑换）/ [§22](../redesign-requirements.md)（工程一致性）。本章把它们落成 SQL。
-> **所有多语句事务走 Neon Pool/WS + `FOR UPDATE`**（[00 §1.3](00-overview.md)）。
+> **所有多语句事务走 PostgreSQL transaction pool + `FOR UPDATE`**（[运行时与配置](00-overview.md)）。自托管默认是标准 `pg` pool，显式外部部署可选 Neon pool。
 
 ## 4.1 余额模型（批次为权威，物化余额为缓存）
 
@@ -11,7 +11,7 @@
 缓存余额 = credit_accounts.balance_mp      （每次钱事务内同步更新；每日 cron 对账）
 ```
 
-- **读余额（展示）**：读 `credit_accounts.balance_mp`（快、HTTP 即可）。
+- **读余额（展示）**：通过 `getSql()` 读 `credit_accounts.balance_mp`。
 - **判断能否扣费/对账**：以 `credit_lots` 之和为准。
 - **每日 scheduler 对账**：比对两者，不一致 → 告警 + 以批次为准修正（[10-ops-test.md](10-ops-test.md)）。
 
@@ -29,14 +29,14 @@
 
 ## 4.3 扣费事务（成功才扣 · 可执行步骤）
 
-**判定“成功” = 图落对象存储成功 + 写库成功。** 顺序：**先传 Supabase Storage（事务外，结果存临时变量）→ 再开单事务**。
+**判定“成功” = 图落媒体存储成功 + 写库成功。** 顺序：**先写当前存储驱动（自托管默认本地媒体卷，事务外）→ 再开单事务**。
 
 ```ts
 // —— 事务外：已从中转拿到图，先落对象存储 ——
 // putToR2 签名以 [06-storage.md §7.3](06-storage.md) 为准：(userId, generationId, relayImage)；relayImage = 中转返回的 {b64_json?,url?}，函数内部自取字节
 const { storageKey, publicUrl, contentType, width, height, sizeBytes } = await putToR2(userId, generationId, relayImage);
 
-// —— 单事务（Pool/WS）——
+// —— 单事务（transaction pool）——
 const client = await pool.connect();
 try {
   await client.query('BEGIN');
@@ -286,12 +286,12 @@ await tx(async (c) => {
 ## 4.10 钱链路实现约束
 
 - 金额全程 mp 整数，展示才转小数。
-- 多语句钱事务走 Pool/WS + `FOR UPDATE`，**不走 HTTP 单语句模式**。
+- 多语句钱事务走 transaction pool + `FOR UPDATE`，**不拆成无事务的单语句调用**。
 - 扣费事务**第一步 = 双守卫**：锁 generation 行断言 `running` + 探 debit，再扣 lots；`uq_debit` 兜底（4.3.1）。
 - 扣费 amount/balance_after 用**实扣量** charged 与物化余额 `RETURNING` 真值。
 - **预算硬上限**与递增使用同一原子语句（[04 §5.6](04-generation-pipeline.md)），入队闸只算软预拦。
 - 抢占式 `UPDATE…WHERE status='queued' RETURNING` 是 worker 第一步。
-- 兑换、注册、过期、退款和余额对账均保持事务与幂等约束；钱链路在隔离 Neon 分支库运行回归测试（[10](10-ops-test.md)）。
+- 兑换、注册、过期、退款和余额对账均保持事务与幂等约束；钱链路在一次性隔离 PostgreSQL 中运行回归测试（[10](10-ops-test.md)）。
 
 ## 4.11 custom 零扣费分支（2026-07-11）
 

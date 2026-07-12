@@ -26,16 +26,16 @@ app/
     _app._index.tsx     # 主对话 /
     _app.c.$id.tsx      # 会话 /c/:id
     ...
-  lib/db.server.ts      # server-only：Pool/neon 句柄（见 00-overview §1.3）
+  lib/db.server.ts      # server-only：getSql/getPool 连接工厂（见 00-overview）
   lib/auth.server.ts    # server-only：Better Auth 实例（见 05-auth §6.1）
   queries/              # TanStack Query keys + fetch 封装（client）
 ```
 
-**server-only 边界（密钥红线 · [00-overview.md §1.4](00-overview.md)）**：
+**server-only 边界（密钥红线 · [00-overview.md](00-overview.md)）**：
 
 - 文件名带 `.server.ts` 的模块被 RR8/Vite 从客户端 bundle 整体剔除；`loader`/`action` 函数体也只在服务端跑。DB、Better Auth、`RELAY_*`/`DATABASE_URL*`/`STORAGE_*`/`BETTER_AUTH_SECRET` 只从 server-only 模块引用。
 - 误把 server 模块拖进客户端图会被 RR8 编译期报错；再叠 `assert-no-secrets-in-bundle.ts` 扫 `build/client/` 兜底。
-- `loader`/`action` 内直连 DB 走 [00-overview.md §1.3](00-overview.md) 的两种模式：列表/余额只读走 HTTP `neon()`；若 loader 内需事务（少见，写操作尽量交给同步 fn）才用 Pool。
+- `loader`/`action` 内直连 DB 走 [00-overview.md](00-overview.md) 的连接工厂：列表/余额使用 `getSql()`；需要事务或行锁时使用 `getPool()`。自托管由 `DATABASE_DRIVER=pg` 选择标准 PostgreSQL pool。
 
 **loader 鉴权 guard 与重定向**：受保护路由统一挂在 `_app.tsx` 父布局下，父 loader 做一次硬校验（查 DB 会话、读封禁态，不吃 cookieCache，见 [05-auth.md §6.3](05-auth.md)），失败即 `throw redirect("/login?next=...")`。
 
