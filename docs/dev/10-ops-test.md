@@ -1,6 +1,6 @@
 # 运维与验证
 
-状态：部署脚本契约、Docker 镜像构建和空数据 Compose 持久化 smoke 已进入 CI。真实 Relay Key 的生图验收必须在目标服务器执行。
+状态：部署脚本契约、Docker 镜像构建和空数据 Compose 持久化 smoke 已进入 CI。真实 Relay Key 的生图验收必须在目标服务器执行。默认自托管发布只开放 system；custom 代码测试不代表生产开关已开放。
 
 ## Scheduler
 
@@ -51,7 +51,6 @@ npm run test:deploy:smoke
 | 管理员 | `/admin/login` 可登录，业务 `users` 与 Better Auth `user` 都为 admin |
 | 真实 Relay | system 生成恰好一个终态、一张图片、最多一次 debit；日志无 Key |
 | 本地媒体 | `/media/*` 可读，重建 web/worker/scheduler 后仍可读 |
-| custom | 零本站扣费，终态删除临时凭据，不回退 system |
 | 备份恢复演练 | 备份校验通过；恢复到新空卷后 DB、图片和 `/healthz` 正常 |
 | 端口隔离 | 宿主机 `3000` 已占用仍可安装，宿主机不发布 `5432` |
 

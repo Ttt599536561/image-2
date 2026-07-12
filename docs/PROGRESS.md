@@ -9,7 +9,7 @@
 | One-command Debian install | Complete | Three visible inputs; generated internal secrets |
 | Backup and restore | Complete | Checked local DB/media archives; seven-copy retention |
 | Deployment CI | Complete | Script contracts and empty-stack persistence smoke |
-| Key modes | Complete | system/custom unified API, encrypted job credentials, zero-debit custom path |
+| Key modes | Code complete; rollout disabled | custom path is tested, but self-host install keeps the production kill switch off |
 
 ## 可部署结论
 

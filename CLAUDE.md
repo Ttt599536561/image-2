@@ -9,7 +9,7 @@
 - 媒体默认存 `media_data:/app/data/media`，数据库保存相对地址 `/media/<key>`。
 - 容器内 Web 使用 `3000`；宿主机已有 `3000` 不冲突。现有代理模式只绑定空闲的 `127.0.0.1` 端口。
 - 安装从空数据开始，不迁移 Neon/Supabase/Netlify 数据。Neon 与 S3 仅是可选驱动。
-- 安装器只收集 Relay Key、管理员邮箱、可见管理员密码；内部密钥自动生成。管理员入口 `/admin/login`。
+- 安装器只收集 Relay Key、管理员邮箱、可见管理员密码；内部密钥自动生成。管理员入口 `/admin/login`。默认发布只开放 system，custom 代码完成但生产开关保持关闭。
 - 安装、resume、升级、备份、恢复及空栈持久化 smoke 已实现并验证；真实 Relay 生图须在目标服务器验收。
 
 ## 不可破坏

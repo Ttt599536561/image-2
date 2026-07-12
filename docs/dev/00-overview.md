@@ -34,6 +34,8 @@ docker compose --env-file deploy/.env.production ps
 
 系统 Key、数据库连接串、认证密钥和存储凭据都只能在服务端使用，不得使用 `VITE_` 前缀。custom Key 是受控例外：浏览器按用户保存明文，经 HTTPS 提交，服务端只保留任务级 AES-GCM 密文并在终态删除。
 
+当前一键自托管安装固定 `CUSTOM_KEY_MODES_ENABLED=false`，因此上述 custom 路径是已完成但尚未开放的代码能力；不要绕过安装器手工启用。
+
 ## 核心验证
 
 ```bash
