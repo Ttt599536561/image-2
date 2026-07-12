@@ -122,6 +122,15 @@ describe("system update state I/O", () => {
     await expect(readSystemUpdateStatus(path)).rejects.toBeDefined();
   });
 
+  it("rejects a dangling final-component status symlink", async () => {
+    const root = await makeTempDir();
+    const target = join(root, "missing-target.json");
+    const path = join(root, "status.json");
+    await symlink(target, path, "file");
+
+    await expect(readSystemUpdateStatus(path)).rejects.toBeDefined();
+  });
+
   it("rejects non-regular and declared-oversize status files", async () => {
     const root = await makeTempDir();
     await expect(readSystemUpdateStatus(root)).rejects.toThrow(/regular file/i);
@@ -151,6 +160,37 @@ describe("system update state I/O", () => {
     });
 
     await expect(readSystemUpdateStatus("C:\\protected\\status.json")).rejects.toBe(failure);
+  });
+
+  it("fails closed without reopening when open ENOENT but the final path exists", async () => {
+    const path = "C:\\updater\\status.json";
+    const open = vi.fn(async () => {
+      throw errno("ENOENT", "open reported missing");
+    });
+    const lstat = vi.fn(async () => ({ isSymbolicLink: () => false }));
+    fsControl.open = open;
+    fsControl.lstat = lstat;
+
+    await expect(readSystemUpdateStatus(path)).rejects.toThrow(
+      "System update status path is unavailable",
+    );
+    expect(open).toHaveBeenCalledOnce();
+    expect(lstat).toHaveBeenCalledWith(path);
+  });
+
+  it("sanitizes lstat failures while classifying an open ENOENT", async () => {
+    const path = "C:\\private\\status.json";
+    const lstatFailure = errno("EACCES", `permission denied: ${path}`);
+    fsControl.open = vi.fn(async () => {
+      throw errno("ENOENT");
+    });
+    fsControl.lstat = vi.fn(async () => {
+      throw lstatFailure;
+    });
+
+    const result = readSystemUpdateStatus(path);
+    await expect(result).rejects.toThrow("System update status path is unavailable");
+    await expect(result).rejects.not.toBe(lstatFailure);
   });
 
   it("uses O_NOFOLLOW, bounds bytes read after fstat, and always closes", async () => {

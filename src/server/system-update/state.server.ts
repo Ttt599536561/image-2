@@ -26,6 +26,20 @@ function sizeError(): Error {
   return new Error("System update JSON exceeds the 64 KiB limit");
 }
 
+function statusPathUnavailableError(): Error {
+  return new Error("System update status path is unavailable");
+}
+
+async function confirmStatusPathMissing(path: string): Promise<null> {
+  try {
+    await lstat(path);
+  } catch (error) {
+    if (hasCode(error, "ENOENT")) return null;
+    throw statusPathUnavailableError();
+  }
+  throw statusPathUnavailableError();
+}
+
 export async function readSystemUpdateStatus(
   path = UPDATE_STATUS_PATH,
 ): Promise<SystemUpdateStatusValue | null> {
@@ -33,7 +47,7 @@ export async function readSystemUpdateStatus(
   try {
     handle = await open(path, STATUS_OPEN_FLAGS);
   } catch (error) {
-    if (hasCode(error, "ENOENT")) return null;
+    if (hasCode(error, "ENOENT")) return confirmStatusPathMissing(path);
     throw error;
   }
 
