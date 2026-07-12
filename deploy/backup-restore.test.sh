@@ -487,6 +487,10 @@ test_restore_checksum_and_path_guards_precede_docker() {
   make_fixture restore-checksum
   local directory input outside
   directory="$(make_restore_fixture)"
+  printf 'STATE_VERSION="1"\nPHASE="migrating"\nSTATUS="76"\n' >"$CASE_ROOT/deploy/upgrade.state"
+  chmod 0600 "$CASE_ROOT/deploy/upgrade.state"
+  local upgrade_state_before
+  upgrade_state_before="$(<"$CASE_ROOT/deploy/upgrade.state")"
   printf 'corrupt\n' >>"$directory/database.dump"
   input="$CASE_ROOT/confirm.in"
   printf 'RESTORE ai-image-workshop\n' >"$input"
@@ -522,6 +526,8 @@ test_restore_checksum_and_path_guards_precede_docker() {
   [[ ! -e "$CASE_ROOT/deploy/restore.state" ]] || fail_assertion 'archive validation failure must not initialize restore.state'
   assert_not_contains "$(<"$RUN_OUTPUT")" 'empty both target volumes' \
     'archive validation failure must not instruct the operator to clear volumes'
+  assert_equal "$upgrade_state_before" "$(<"$CASE_ROOT/deploy/upgrade.state")" \
+    'failed restore validation must preserve the blocking upgrade state'
 }
 
 test_restore_running_confirmation_and_empty_volume_guards() {
@@ -579,6 +585,8 @@ test_restore_successful_order_and_secret_isolation() {
   directory="$(make_restore_fixture)"
   input="$CASE_ROOT/confirm.in"
   printf 'RESTORE ai-image-workshop\n' >"$input"
+  printf 'STATE_VERSION="1"\nPHASE="migrating"\nSTATUS="76"\n' >"$CASE_ROOT/deploy/upgrade.state"
+  chmod 0600 "$CASE_ROOT/deploy/upgrade.state"
   run_restore "$input" "$directory"
   assert_equal 0 "$RUN_STATUS" 'valid restore should succeed'
   docker_log="$(<"$FAKE_STATE/docker.log")"
@@ -596,6 +604,10 @@ test_restore_successful_order_and_secret_isolation() {
     'curl'
   [[ -e "$FAKE_STATE/media-written" && -e "$FAKE_STATE/media-chowned" && -e "$FAKE_STATE/database-written" ]] \
     || fail_assertion 'restore must write and chown media, then restore the database'
+  assert_equal $'STATE_VERSION="1"\nPHASE="restored"\nSTATUS="0"' "$(<"$CASE_ROOT/deploy/upgrade.state")" \
+    'successful restore must atomically mark the blocked upgrade as restored'
+  assert_equal 600 "$(stat -c '%a' "$CASE_ROOT/deploy/upgrade.state")" \
+    'restored upgrade state must remain private'
   assert_no_secret_leak
 }
 

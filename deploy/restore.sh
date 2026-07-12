@@ -10,6 +10,7 @@ ENV_PATH="$DEPLOY_DIR/.env.production"
 ENV_ARGUMENT='deploy/.env.production'
 BACKUPS_ROOT="$DEPLOY_DIR/backups"
 RESTORE_STATE_PATH="$DEPLOY_DIR/restore.state"
+UPGRADE_STATE_PATH="$DEPLOY_DIR/upgrade.state"
 
 # shellcheck source=deploy/install-lib.sh
 source "$DEPLOY_DIR/install-lib.sh"
@@ -333,6 +334,21 @@ write_restore_state() {
   mv -fT -- "$temp" "$RESTORE_STATE_PATH" || { rm -f -- "$temp"; return 1; }
 }
 
+write_restored_upgrade_state() {
+  local temp
+  temp="$(mktemp "${UPGRADE_STATE_PATH}.tmp.XXXXXX" 2>/dev/null)" || return 1
+  if ! {
+    printf 'STATE_VERSION="1"\n'
+    printf 'PHASE="restored"\n'
+    printf 'STATUS="0"\n'
+  } >"$temp"; then
+    rm -f -- "$temp"
+    return 1
+  fi
+  chmod 0600 "$temp" || { rm -f -- "$temp"; return 1; }
+  mv -fT -- "$temp" "$UPGRADE_STATE_PATH" || { rm -f -- "$temp"; return 1; }
+}
+
 cleanup_new_empty_volumes() {
   [[ "$MEDIA_WRITE_STARTED" == false ]] || return 0
   local index volume
@@ -450,6 +466,7 @@ main() {
   wait_for_web_health
   RESTORE_PHASE='complete'
   write_restore_state 0 || die 'cannot record completion state'
+  write_restored_upgrade_state || die 'cannot record restored upgrade state'
   printf 'Restored backup %s\n' "$(basename -- "$BACKUP_DIR")"
 }
 

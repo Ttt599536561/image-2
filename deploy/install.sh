@@ -41,6 +41,10 @@ INSTALL_LOCK_FD=''
 UPGRADE_PHASE='not_started'
 UPGRADE_MAINTENANCE_STARTED=false
 UPGRADE_MIGRATION_STARTED=false
+UPGRADE_WRITERS_CAPTURED=false
+UPGRADE_WRITER_RECOVERY_SUCCEEDED=false
+UPGRADE_WRITER_RECOVERY_FAILED=false
+UPGRADE_ORIGINAL_WRITERS=()
 
 usage() {
   printf '%s\n' \
@@ -151,8 +155,14 @@ print_failure_diagnostics() {
   if [[ "$UPGRADE" == true ]]; then
     if [[ "$UPGRADE_MIGRATION_STARTED" == true ]]; then
       printf '%s\n' '升级迁移已开始；请按 deploy/backups 中的最新备份执行 deploy/restore.sh。' >&2
-    else
+    elif [[ "$UPGRADE_WRITER_RECOVERY_FAILED" == true ]]; then
+      printf '%s\n' '升级尚未开始迁移，但旧服务自动恢复失败；请检查 Docker 状态并运行 sudo bash deploy/install.sh --resume，确认服务恢复后再重试 --upgrade。' >&2
+    elif [[ "$UPGRADE_WRITER_RECOVERY_SUCCEEDED" == true ]]; then
       printf '%s\n' '升级尚未开始迁移；旧服务已恢复，可重试：sudo bash deploy/install.sh --upgrade' >&2
+    elif [[ "$UPGRADE_MAINTENANCE_STARTED" == true && "$UPGRADE_WRITERS_CAPTURED" == true && ${#UPGRADE_ORIGINAL_WRITERS[@]} -eq 0 ]]; then
+      printf '%s\n' '升级尚未开始迁移；原先没有运行中的 writers，可重试：sudo bash deploy/install.sh --upgrade' >&2
+    else
+      printf '%s\n' '升级尚未开始迁移；请检查原服务状态后重试：sudo bash deploy/install.sh --upgrade' >&2
     fi
   else
     printf '%s\n' '修复问题后继续执行：sudo bash deploy/install.sh --resume' >&2
@@ -168,7 +178,13 @@ on_exit() {
       compose stop web worker scheduler >/dev/null 2>&1 || true
       write_upgrade_state "$status" >/dev/null 2>&1 || true
     else
-      compose start web worker scheduler >/dev/null 2>&1 || true
+      if ((${#UPGRADE_ORIGINAL_WRITERS[@]} > 0)); then
+        if compose start "${UPGRADE_ORIGINAL_WRITERS[@]}" >/dev/null 2>&1; then
+          UPGRADE_WRITER_RECOVERY_SUCCEEDED=true
+        else
+          UPGRADE_WRITER_RECOVERY_FAILED=true
+        fi
+      fi
       UPGRADE_PHASE='retryable'
       write_upgrade_state "$status" >/dev/null 2>&1 || true
     fi
@@ -840,7 +856,7 @@ validate_previous_upgrade_state() {
     return 1
   }
   case "$phase" in
-    complete)
+    complete | restored)
       [[ "$status" == 0 ]] || {
         die 'previous upgrade changed the database; restore the latest backup before another upgrade'
         return 1
@@ -1072,10 +1088,39 @@ write_upgrade_state() {
   mv -fT -- "$temp_path" "$UPGRADE_STATE_PATH" || { rm -f -- "$temp_path"; return 1; }
 }
 
+capture_upgrade_writers() {
+  local output service
+  if output="$(compose ps --status running --status restarting --services web worker scheduler)"; then
+    :
+  else
+    die 'cannot determine the original upgrade writer set'
+    return 1
+  fi
+
+  UPGRADE_ORIGINAL_WRITERS=()
+  local -A seen=()
+  while IFS= read -r service; do
+    [[ -n "$service" ]] || continue
+    case "$service" in
+      web | worker | scheduler) ;;
+      *)
+        die "unexpected writer service returned by Compose: $service"
+        return 1
+        ;;
+    esac
+    if [[ ! ${seen[$service]+present} ]]; then
+      seen["$service"]=1
+      UPGRADE_ORIGINAL_WRITERS+=("$service")
+    fi
+  done <<<"$output"
+  UPGRADE_WRITERS_CAPTURED=true
+}
+
 run_upgrade() {
   DIAGNOSTICS_ENABLED=true
   DIAGNOSTIC_SERVICES=(web worker scheduler)
   compose config --quiet
+  capture_upgrade_writers
   UPGRADE_PHASE='backup_starting'
   write_upgrade_state 0 || die 'cannot initialize upgrade.state'
 

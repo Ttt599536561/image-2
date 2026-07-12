@@ -125,6 +125,14 @@ if [[ " $* " == *' logs '* ]]; then
   [[ ! -f "$FAKE_STATE/service-logs" ]] || cat "$FAKE_STATE/service-logs"
   exit 0
 fi
+if [[ " $* " == *' ps --status running --status restarting --services web worker scheduler '* ]]; then
+  if [[ -f "$FAKE_STATE/upgrade-active-writers" ]]; then
+    cat "$FAKE_STATE/upgrade-active-writers"
+  else
+    printf 'web\nworker\nscheduler\n'
+  fi
+  exit 0
+fi
 if [[ " $* " == *' ps '* ]]; then
   printf 'NAME STATUS\nweb failed\n'
   exit 0
@@ -141,6 +149,11 @@ fail_match=''
 [[ ! -f "$FAKE_STATE/fail-match" ]] || fail_match="$(<"$FAKE_STATE/fail-match")"
 if [[ -n "$fail_match" && " $* " == *"$fail_match"* ]]; then
   exit 91
+fi
+
+if [[ " $* " == *' start '* ]]; then
+  [[ ! -e "$FAKE_STATE/start-fails" ]] || exit 96
+  exit 0
 fi
 
 if [[ " $* " == *' up -d postgres '* ]]; then
@@ -1185,6 +1198,63 @@ test_upgrade_migration_failure_blocks_retry_and_requires_restore() {
   docker_log="$(<"$FAKE_STATE/docker.log")"
   assert_not_contains "$docker_log" 'backup' 'blocked retry must not create another backup'
   assert_not_contains "$docker_log" 'build web' 'blocked retry must not rebuild'
+
+  printf 'STATE_VERSION="1"\nPHASE="restored"\nSTATUS="0"\n' >"$CASE_ROOT/deploy/upgrade.state"
+  chmod 0600 "$CASE_ROOT/deploy/upgrade.state"
+  : >"$FAKE_STATE/docker.log"
+  run_without_input --upgrade
+  assert_equal 0 "$RUN_STATUS" 'successful restore state must allow the next upgrade'
+  docker_log="$(<"$FAKE_STATE/docker.log")"
+  assert_contains "$docker_log" 'backup' 'post-restore upgrade must create a new backup'
+  assert_contains "$docker_log" 'db:migrate:production' 'post-restore upgrade must reach migration'
+}
+
+test_upgrade_pre_migration_failure_restores_exact_original_writers() {
+  make_fixture upgrade-exact-web
+  run_success_proxy_install
+  write_fake_upgrade_backup
+  printf 'web\n' >"$FAKE_STATE/upgrade-active-writers"
+  printf 'build web' >"$FAKE_STATE/fail-match"
+  : >"$FAKE_STATE/docker.log"
+  run_without_input --upgrade
+  assert_equal 91 "$RUN_STATUS" 'exact-writer build failure must preserve the build status'
+  local docker_log output
+  docker_log="$(<"$FAKE_STATE/docker.log")"
+  output="$(<"$RUN_OUTPUT")"
+  assert_ordered "$docker_log" \
+    'ps --status running --status restarting --services web worker scheduler' \
+    'backup' \
+    'build web' \
+    'start web'
+  assert_not_contains "$docker_log" 'start web worker' 'pre-migration recovery must not start writers that were originally stopped'
+  assert_contains "$output" '旧服务已恢复' 'successful exact-writer recovery should be reported'
+
+  make_fixture upgrade-empty-writers
+  run_success_proxy_install
+  write_fake_upgrade_backup
+  : >"$FAKE_STATE/upgrade-active-writers"
+  printf 'build web' >"$FAKE_STATE/fail-match"
+  : >"$FAKE_STATE/docker.log"
+  run_without_input --upgrade
+  assert_equal 91 "$RUN_STATUS" 'empty-writer build failure must preserve the build status'
+  docker_log="$(<"$FAKE_STATE/docker.log")"
+  output="$(<"$RUN_OUTPUT")"
+  assert_not_contains "$docker_log" ' start ' 'an empty original writer set must not start any service'
+  assert_contains "$output" '原先没有运行中的 writers' 'empty-writer recovery output must describe the original state'
+
+  make_fixture upgrade-writer-start-failure
+  run_success_proxy_install
+  write_fake_upgrade_backup
+  printf 'web\n' >"$FAKE_STATE/upgrade-active-writers"
+  printf 'build web' >"$FAKE_STATE/fail-match"
+  : >"$FAKE_STATE/start-fails"
+  : >"$FAKE_STATE/docker.log"
+  run_without_input --upgrade
+  assert_equal 91 "$RUN_STATUS" 'writer restart failure must preserve the original build status'
+  output="$(<"$RUN_OUTPUT")"
+  assert_contains "$output" '自动恢复失败' 'writer restart failure must be explicit'
+  assert_contains "$output" 'install.sh --resume' 'writer restart failure must provide a manual recovery command'
+  assert_not_contains "$output" '旧服务已恢复' 'writer restart failure must not claim services were restored'
 }
 
 run_test 'CLI validation before preflight and prompts' test_cli_validation_stops_before_preflight_and_prompts
@@ -1213,6 +1283,7 @@ run_test 'cleanup removes database URLs' test_cleanup_unsets_database_urls
 run_test 'upgrade backup retry and no install fallthrough' test_upgrade_backup_failure_is_retryable_and_success_does_not_fall_through
 run_test 'upgrade build failure retry' test_upgrade_build_failure_restarts_old_writers_and_is_retryable
 run_test 'upgrade migration failure restore boundary' test_upgrade_migration_failure_blocks_retry_and_requires_restore
+run_test 'upgrade exact original writer recovery' test_upgrade_pre_migration_failure_restores_exact_original_writers
 
 if ((FAIL_COUNT > 0)); then
   printf '%d installer test(s) failed\n' "$FAIL_COUNT" >&2
