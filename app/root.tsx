@@ -13,9 +13,12 @@ import {
 import { LightboxProvider } from "../src/components/Lightbox/LightboxProvider";
 import { ToastProvider } from "../src/components/Toast/ToastProvider";
 import { parseThemeCookie, type Theme, ThemeProvider } from "../src/lib/theme";
+import { rejectHttpWriteDuringMaintenance as maintenanceMiddleware } from "../src/server/system-update/maintenance-guard.server";
 import type { Route } from "./+types/root";
 // 全局设计令牌（side-effect import；RR 收集进 <Links/> 注入，SSR 无 FOUC）
 import "../src/styles/tokens.css";
+
+export const middleware: Route.MiddlewareFunction[] = [maintenanceMiddleware];
 
 export function loader({ request }: Route.LoaderArgs) {
   return { theme: parseThemeCookie(request.headers.get("Cookie")) };
