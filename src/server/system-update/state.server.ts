@@ -2,20 +2,53 @@ import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
 import { link, lstat, open, unlink } from "node:fs/promises";
 import { join } from "node:path";
+import { z } from "zod";
 import {
   SystemUpdateStatus,
   type SystemUpdateStatus as SystemUpdateStatusValue,
+  UPDATE_PROTOCOL_VERSION,
   UpdateRequest,
   type UpdateRequest as UpdateRequestValue,
 } from "../../contracts/system-update";
 
 export const UPDATE_INBOX_PATH = "/run/ai-image-workshop-updater/inbox";
+export const UPDATE_START_RESERVATION_PATH =
+  "/run/ai-image-workshop-updater/inbox/.start-reservation.json";
+export const UPDATE_START_RESERVATION_TTL_MS = 15 * 60 * 1_000;
 export const UPDATE_STATUS_PATH = "/run/ai-image-workshop-updater/state/status.json";
 export const MAX_UPDATE_JSON_BYTES = 64 * 1024;
 
 const TEMP_FILE_ATTEMPTS = 10;
+const START_RESERVATION_FILENAME = ".start-reservation.json";
 const REQUEST_TEMP_OPEN_FLAGS =
   constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW;
+
+const SystemUpdateReservation = z
+  .object({
+    protocolVersion: z.literal(UPDATE_PROTOCOL_VERSION),
+    requestId: z.uuid(),
+    requestedAt: z.iso.datetime(),
+    expiresAt: z.iso.datetime(),
+  })
+  .strict()
+  .superRefine((reservation, ctx) => {
+    if (
+      Date.parse(reservation.expiresAt) - Date.parse(reservation.requestedAt) !==
+      UPDATE_START_RESERVATION_TTL_MS
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["expiresAt"],
+        message: "invalid reservation expiry",
+      });
+    }
+  });
+export type SystemUpdateReservation = z.infer<typeof SystemUpdateReservation>;
+
+// Task 7 host contract: before claiming request.json, read this marker. A valid
+// matching requestId may proceed. A different valid requestId must leave/reject
+// the request without starting writers; stale or invalid markers remain busy
+// until expiry handling or operator repair.
 
 function hasCode(error: unknown, code: string): error is NodeJS.ErrnoException {
   return error instanceof Error && (error as NodeJS.ErrnoException).code === code;
@@ -100,6 +133,13 @@ export class UpdateRequestConflictError extends Error {
   }
 }
 
+export class UpdateStartReservationConflictError extends Error {
+  constructor() {
+    super("A system update start is already reserved");
+    this.name = "UpdateStartReservationConflictError";
+  }
+}
+
 export class UpdateRequestPublicationUncertainError extends Error {
   readonly requestId: string;
 
@@ -174,6 +214,47 @@ async function bestEffortUnlink(path: string): Promise<void> {
   } catch {
     // Cleanup cannot replace publication or pre-publication outcomes.
   }
+}
+
+function startReservationPath(inbox: string): string {
+  return inbox === UPDATE_INBOX_PATH
+    ? UPDATE_START_RESERVATION_PATH
+    : join(inbox, START_RESERVATION_FILENAME);
+}
+
+export async function createSystemUpdateReservation(
+  reservation: SystemUpdateReservation,
+  inbox = UPDATE_INBOX_PATH,
+): Promise<void> {
+  const parsed = SystemUpdateReservation.parse(reservation);
+  const bytes = Buffer.from(JSON.stringify(parsed), "utf8");
+  const path = startReservationPath(inbox);
+
+  let handle;
+  try {
+    handle = await open(path, REQUEST_TEMP_OPEN_FLAGS, 0o600);
+  } catch (error) {
+    if (hasCode(error, "EEXIST")) throw new UpdateStartReservationConflictError();
+    throw error;
+  }
+
+  try {
+    await runAndClosePreservingPrimary(handle, async () => {
+      await writeComplete(handle, bytes);
+      await handle.sync();
+    });
+  } catch (error) {
+    await bestEffortUnlink(path);
+    throw error;
+  }
+}
+
+export async function releaseSystemUpdateReservation(
+  inbox = UPDATE_INBOX_PATH,
+): Promise<void> {
+  // Only the route that successfully created the marker releases it. The host
+  // never replaces it; failed cleanup leaves a conservative busy marker.
+  await bestEffortUnlink(startReservationPath(inbox));
 }
 
 async function syncInbox(inbox: string): Promise<boolean> {

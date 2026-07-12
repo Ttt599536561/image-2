@@ -56,11 +56,16 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 });
 
 import {
+  createSystemUpdateReservation,
   createSystemUpdateRequest,
   MAX_UPDATE_JSON_BYTES,
   readSystemUpdateStatus,
+  releaseSystemUpdateReservation,
   UPDATE_INBOX_PATH,
+  UPDATE_START_RESERVATION_PATH,
+  UPDATE_START_RESERVATION_TTL_MS,
   UPDATE_STATUS_PATH,
+  UpdateStartReservationConflictError,
   UpdateRequestConflictError,
   UpdateRequestPublicationUncertainError,
 } from "./state.server";
@@ -86,6 +91,15 @@ const request: UpdateRequestValue = {
   requestId: "00000000-0000-4000-8000-000000000001",
   requestedAt: "2026-07-12T10:00:00.000Z",
   requestedBy: "00000000-0000-4000-8000-000000000002",
+};
+
+const reservation = {
+  protocolVersion: 1 as const,
+  requestId: request.requestId,
+  requestedAt: request.requestedAt,
+  expiresAt: new Date(
+    Date.parse(request.requestedAt) + UPDATE_START_RESERVATION_TTL_MS,
+  ).toISOString(),
 };
 
 const tempRoots: string[] = [];
@@ -173,6 +187,10 @@ afterEach(async () => {
 describe("system update state I/O", () => {
   it("exports the fixed updater paths and JSON limit", () => {
     expect(UPDATE_INBOX_PATH).toBe("/run/ai-image-workshop-updater/inbox");
+    expect(UPDATE_START_RESERVATION_PATH).toBe(
+      "/run/ai-image-workshop-updater/inbox/.start-reservation.json",
+    );
+    expect(UPDATE_START_RESERVATION_TTL_MS).toBeGreaterThanOrEqual(10 * 60 * 1_000);
     expect(UPDATE_STATUS_PATH).toBe("/run/ai-image-workshop-updater/state/status.json");
     expect(MAX_UPDATE_JSON_BYTES).toBe(64 * 1024);
   });
@@ -338,6 +356,140 @@ describe("system update state I/O", () => {
 
     await expect(readSystemUpdateStatus("C:\\status.json")).rejects.toBe(failure);
     expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("atomically creates canonical reservation bytes and preserves an existing marker", async () => {
+    const inbox = await makeTempDir();
+    const markerPath = join(inbox, ".start-reservation.json");
+
+    await createSystemUpdateReservation(reservation, inbox);
+    const original = await readFile(markerPath);
+
+    expect(original).toEqual(Buffer.from(JSON.stringify(reservation)));
+    await expect(
+      createSystemUpdateReservation(
+        { ...reservation, requestId: "00000000-0000-4000-8000-000000000003" },
+        inbox,
+      ),
+    ).rejects.toBeInstanceOf(UpdateStartReservationConflictError);
+    expect(await readFile(markerPath)).toEqual(original);
+    expect(await readdir(inbox)).toEqual([".start-reservation.json"]);
+  });
+
+  it("treats a partial or invalid existing reservation as a preserved conflict", async () => {
+    const inbox = await makeTempDir();
+    const markerPath = join(inbox, ".start-reservation.json");
+    await writeFile(markerPath, "{partial");
+
+    await expect(createSystemUpdateReservation(reservation, inbox)).rejects.toBeInstanceOf(
+      UpdateStartReservationConflictError,
+    );
+    expect(await readFile(markerPath, "utf8")).toBe("{partial");
+  });
+
+  it("rejects unknown reservation keys and a non-fixed expiry before filesystem I/O", async () => {
+    const open = vi.fn(async () => {
+      throw new Error("filesystem touched");
+    });
+    fsControl.open = open;
+
+    await expect(
+      createSystemUpdateReservation(
+        { ...reservation, repository: "evil/repo" } as typeof reservation,
+        "C:\\updater\\inbox",
+      ),
+    ).rejects.toBeDefined();
+    await expect(
+      createSystemUpdateReservation(
+        {
+          ...reservation,
+          expiresAt: new Date(
+            Date.parse(reservation.requestedAt) + UPDATE_START_RESERVATION_TTL_MS + 1,
+          ).toISOString(),
+        },
+        "C:\\updater\\inbox",
+      ),
+    ).rejects.toBeDefined();
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it("fully writes, fsyncs, and closes the reservation before returning", async () => {
+    const inbox = "C:\\updater\\inbox";
+    const canonical = Buffer.from(JSON.stringify(reservation));
+    const chunks: Buffer[] = [];
+    const events: string[] = [];
+    const handle = {
+      write: vi.fn(
+        async (buffer: Uint8Array, offset = 0, length = buffer.byteLength - offset) => {
+          const bytesWritten = Math.min(5, length);
+          chunks.push(Buffer.from(buffer.subarray(offset, offset + bytesWritten)));
+          events.push("write");
+          return { buffer, bytesWritten };
+        },
+      ),
+      sync: vi.fn(async () => {
+        events.push("sync");
+      }),
+      close: vi.fn(async () => {
+        events.push("close");
+      }),
+    };
+
+    fsControl.open = vi.fn(async (path: string, flags: number, mode?: number) => {
+      expect(path).toBe(join(inbox, ".start-reservation.json"));
+      expect(flags).toBe(
+        constants.O_WRONLY |
+          constants.O_CREAT |
+          constants.O_EXCL |
+          constants.O_NOFOLLOW,
+      );
+      expect(mode).toBe(0o600);
+      return handle;
+    });
+
+    await createSystemUpdateReservation(reservation, inbox);
+
+    expect(Buffer.concat(chunks)).toEqual(canonical);
+    expect(events.indexOf("sync")).toBeGreaterThan(events.lastIndexOf("write"));
+    expect(events.indexOf("close")).toBeGreaterThan(events.indexOf("sync"));
+    expect(events.at(-1)).toBe("close");
+  });
+
+  it("preserves a reservation write failure when cleanup also fails", async () => {
+    const inbox = "C:\\updater\\inbox";
+    const primary = new Error("reservation write failed");
+    const handle = makeRequestTempHandle();
+    handle.write.mockRejectedValue(primary);
+    fsControl.open = vi.fn(async () => handle);
+    fsControl.unlink = vi.fn(async () => {
+      throw errno("EACCES", "reservation cleanup failed");
+    });
+
+    await expect(createSystemUpdateReservation(reservation, inbox)).rejects.toBe(primary);
+    expect(fsControl.unlink).toHaveBeenCalledWith(join(inbox, ".start-reservation.json"));
+  });
+
+  it("releases the route-owned reservation and tolerates a missing marker", async () => {
+    const inbox = await makeTempDir();
+    const markerPath = join(inbox, ".start-reservation.json");
+    await createSystemUpdateReservation(reservation, inbox);
+
+    await expect(releaseSystemUpdateReservation(inbox)).resolves.toBeUndefined();
+    await expect(readFile(markerPath)).rejects.toMatchObject({ code: "ENOENT" });
+    await expect(releaseSystemUpdateReservation(inbox)).resolves.toBeUndefined();
+  });
+
+  it("keeps reservation release best-effort when unlink fails", async () => {
+    fsControl.unlink = vi.fn(async () => {
+      throw errno("EACCES", "reservation cleanup failed");
+    });
+
+    await expect(
+      releaseSystemUpdateReservation("C:\\updater\\inbox"),
+    ).resolves.toBeUndefined();
+    expect(fsControl.unlink).toHaveBeenCalledWith(
+      join("C:\\updater\\inbox", ".start-reservation.json"),
+    );
   });
 
   it("publishes canonical request bytes and preserves an existing request", async () => {
