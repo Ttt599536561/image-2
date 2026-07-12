@@ -31,6 +31,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <meta charSet="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>AI 图像工坊</title>
+        <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=1" />
         <Meta />
         <Links />
       </head>
