@@ -56,8 +56,10 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 });
 
 import {
+  assertSystemUpdateReservationOwned,
   createSystemUpdateReservation,
   createSystemUpdateRequest,
+  handoffSystemUpdateReservation,
   MAX_UPDATE_JSON_BYTES,
   readSystemUpdateStatus,
   releaseSystemUpdateReservation,
@@ -66,6 +68,7 @@ import {
   UPDATE_START_RESERVATION_TTL_MS,
   UPDATE_STATUS_PATH,
   UpdateStartReservationConflictError,
+  UpdateStartReservationLostError,
   UpdateRequestConflictError,
   UpdateRequestPublicationUncertainError,
 } from "./state.server";
@@ -96,9 +99,9 @@ const request: UpdateRequestValue = {
 const reservation = {
   protocolVersion: 1 as const,
   requestId: request.requestId,
-  requestedAt: request.requestedAt,
+  requestedAt: "2099-07-12T10:00:00.000Z",
   expiresAt: new Date(
-    Date.parse(request.requestedAt) + UPDATE_START_RESERVATION_TTL_MS,
+    Date.parse("2099-07-12T10:00:00.000Z") + UPDATE_START_RESERVATION_TTL_MS,
   ).toISOString(),
 };
 
@@ -109,6 +112,15 @@ function errno(code: string, message = code): NodeJS.ErrnoException {
   return Object.assign(new Error(message), { code });
 }
 
+function fileStat(dev: bigint, ino: bigint, nlink = 1n) {
+  return {
+    dev,
+    ino,
+    nlink,
+    isFile: () => true,
+  };
+}
+
 function makeRequestTempHandle() {
   return {
     write: vi.fn(async (buffer: Uint8Array, offset = 0, length = buffer.byteLength - offset) => ({
@@ -116,6 +128,7 @@ function makeRequestTempHandle() {
       bytesWritten: length,
     })),
     sync: vi.fn(async () => {}),
+    stat: vi.fn(async () => fileStat(1n, 2n)),
     close: vi.fn(async () => {}),
   };
 }
@@ -362,10 +375,16 @@ describe("system update state I/O", () => {
     const inbox = await makeTempDir();
     const markerPath = join(inbox, ".start-reservation.json");
 
-    await createSystemUpdateReservation(reservation, inbox);
+    const lease = await createSystemUpdateReservation(reservation, inbox);
     const original = await readFile(markerPath);
 
     expect(original).toEqual(Buffer.from(JSON.stringify(reservation)));
+    expect(lease).toMatchObject({
+      requestId: reservation.requestId,
+      markerPath,
+      expiresAt: Date.parse(reservation.expiresAt),
+    });
+    await expect(assertSystemUpdateReservationOwned(lease)).resolves.toBeUndefined();
     await expect(
       createSystemUpdateReservation(
         { ...reservation, requestId: "00000000-0000-4000-8000-000000000003" },
@@ -374,6 +393,7 @@ describe("system update state I/O", () => {
     ).rejects.toBeInstanceOf(UpdateStartReservationConflictError);
     expect(await readFile(markerPath)).toEqual(original);
     expect(await readdir(inbox)).toEqual([".start-reservation.json"]);
+    await releaseSystemUpdateReservation(lease);
   });
 
   it("treats a partial or invalid existing reservation as a preserved conflict", async () => {
@@ -418,7 +438,8 @@ describe("system update state I/O", () => {
     const canonical = Buffer.from(JSON.stringify(reservation));
     const chunks: Buffer[] = [];
     const events: string[] = [];
-    const handle = {
+    const identity = fileStat(11n, 22n);
+    const writeHandle = {
       write: vi.fn(
         async (buffer: Uint8Array, offset = 0, length = buffer.byteLength - offset) => {
           const bytesWritten = Math.min(5, length);
@@ -430,29 +451,43 @@ describe("system update state I/O", () => {
       sync: vi.fn(async () => {
         events.push("sync");
       }),
+      stat: vi.fn(async () => identity),
       close: vi.fn(async () => {
-        events.push("close");
+        events.push("write-close");
+      }),
+    };
+    const ownerHandle = {
+      stat: vi.fn(async () => identity),
+      close: vi.fn(async () => {
+        events.push("owner-close");
       }),
     };
 
     fsControl.open = vi.fn(async (path: string, flags: number, mode?: number) => {
       expect(path).toBe(join(inbox, ".start-reservation.json"));
-      expect(flags).toBe(
-        constants.O_WRONLY |
-          constants.O_CREAT |
-          constants.O_EXCL |
-          constants.O_NOFOLLOW,
-      );
-      expect(mode).toBe(0o600);
-      return handle;
+      if (mode === 0o600) {
+        expect(flags).toBe(
+          constants.O_WRONLY |
+            constants.O_CREAT |
+            constants.O_EXCL |
+            constants.O_NOFOLLOW,
+        );
+        return writeHandle;
+      }
+      expect(flags).toBe(constants.O_RDONLY | constants.O_NOFOLLOW);
+      expect(events.at(-1)).toBe("write-close");
+      return ownerHandle;
     });
+    fsControl.lstat = vi.fn(async () => identity);
 
-    await createSystemUpdateReservation(reservation, inbox);
+    const lease = await createSystemUpdateReservation(reservation, inbox);
 
     expect(Buffer.concat(chunks)).toEqual(canonical);
     expect(events.indexOf("sync")).toBeGreaterThan(events.lastIndexOf("write"));
-    expect(events.indexOf("close")).toBeGreaterThan(events.indexOf("sync"));
-    expect(events.at(-1)).toBe("close");
+    expect(events.indexOf("write-close")).toBeGreaterThan(events.indexOf("sync"));
+    expect(ownerHandle.close).not.toHaveBeenCalled();
+    await handoffSystemUpdateReservation(lease);
+    expect(events.at(-1)).toBe("owner-close");
   });
 
   it("preserves a reservation write failure when cleanup also fails", async () => {
@@ -461,6 +496,7 @@ describe("system update state I/O", () => {
     const handle = makeRequestTempHandle();
     handle.write.mockRejectedValue(primary);
     fsControl.open = vi.fn(async () => handle);
+    fsControl.lstat = vi.fn(async () => fileStat(1n, 2n));
     fsControl.unlink = vi.fn(async () => {
       throw errno("EACCES", "reservation cleanup failed");
     });
@@ -472,23 +508,111 @@ describe("system update state I/O", () => {
   it("releases the route-owned reservation and tolerates a missing marker", async () => {
     const inbox = await makeTempDir();
     const markerPath = join(inbox, ".start-reservation.json");
-    await createSystemUpdateReservation(reservation, inbox);
+    const lease = await createSystemUpdateReservation(reservation, inbox);
 
-    await expect(releaseSystemUpdateReservation(inbox)).resolves.toBeUndefined();
+    await expect(releaseSystemUpdateReservation(lease)).resolves.toBeUndefined();
     await expect(readFile(markerPath)).rejects.toMatchObject({ code: "ENOENT" });
-    await expect(releaseSystemUpdateReservation(inbox)).resolves.toBeUndefined();
+    await expect(releaseSystemUpdateReservation(lease)).resolves.toBeUndefined();
   });
 
   it("keeps reservation release best-effort when unlink fails", async () => {
+    const inbox = await makeTempDir();
+    const lease = await createSystemUpdateReservation(reservation, inbox);
     fsControl.unlink = vi.fn(async () => {
       throw errno("EACCES", "reservation cleanup failed");
     });
 
-    await expect(
-      releaseSystemUpdateReservation("C:\\updater\\inbox"),
-    ).resolves.toBeUndefined();
+    await expect(releaseSystemUpdateReservation(lease)).resolves.toBeUndefined();
     expect(fsControl.unlink).toHaveBeenCalledWith(
-      join("C:\\updater\\inbox", ".start-reservation.json"),
+      join(inbox, ".start-reservation.json"),
+    );
+  });
+
+  it("does not unlink a replacement marker when an old lease releases", async () => {
+    const inbox = "C:\\updater\\inbox";
+    const oldIdentity = fileStat(31n, 41n);
+    const replacementIdentity = fileStat(31n, 42n);
+    const writeHandle = makeRequestTempHandle();
+    writeHandle.stat.mockResolvedValue(oldIdentity);
+    let ownerLinked = true;
+    const ownerHandle = {
+      stat: vi.fn(async () => ({ ...oldIdentity, nlink: ownerLinked ? 1n : 0n })),
+      close: vi.fn(async () => {}),
+    };
+    let openCount = 0;
+    fsControl.open = vi.fn(async () => {
+      openCount += 1;
+      return openCount === 1 ? writeHandle : ownerHandle;
+    });
+    fsControl.lstat = vi.fn()
+      .mockResolvedValueOnce(oldIdentity)
+      .mockResolvedValue(replacementIdentity);
+    fsControl.unlink = vi.fn(async () => {});
+    const lease = await createSystemUpdateReservation(reservation, inbox);
+    ownerLinked = false;
+
+    await releaseSystemUpdateReservation(lease);
+
+    expect(ownerHandle.close).toHaveBeenCalledOnce();
+    expect(fsControl.unlink).not.toHaveBeenCalled();
+  });
+
+  it("rejects a lease whose marker inode was removed or replaced", async () => {
+    const inbox = "C:\\updater\\inbox";
+    const oldIdentity = fileStat(51n, 61n);
+    const replacementIdentity = fileStat(51n, 62n);
+    const writeHandle = makeRequestTempHandle();
+    writeHandle.stat.mockResolvedValue(oldIdentity);
+    const ownerHandle = {
+      stat: vi.fn(async () => oldIdentity),
+      close: vi.fn(async () => {}),
+    };
+    let openCount = 0;
+    fsControl.open = vi.fn(async () => {
+      openCount += 1;
+      return openCount === 1 ? writeHandle : ownerHandle;
+    });
+    fsControl.lstat = vi.fn()
+      .mockResolvedValueOnce(oldIdentity)
+      .mockResolvedValue(replacementIdentity);
+    const lease = await createSystemUpdateReservation(reservation, inbox);
+
+    await expect(assertSystemUpdateReservationOwned(lease)).rejects.toBeInstanceOf(
+      UpdateStartReservationLostError,
+    );
+    await releaseSystemUpdateReservation(lease);
+  });
+
+  it("rejects an expired lease and leaves its marker for stale-host cleanup", async () => {
+    const inbox = await makeTempDir();
+    const markerPath = join(inbox, ".start-reservation.json");
+    const requestedAt = "2020-01-01T00:00:00.000Z";
+    const expiredReservation = {
+      ...reservation,
+      requestedAt,
+      expiresAt: new Date(
+        Date.parse(requestedAt) + UPDATE_START_RESERVATION_TTL_MS,
+      ).toISOString(),
+    };
+    const lease = await createSystemUpdateReservation(expiredReservation, inbox);
+
+    await expect(assertSystemUpdateReservationOwned(lease)).rejects.toBeInstanceOf(
+      UpdateStartReservationLostError,
+    );
+    await releaseSystemUpdateReservation(lease);
+    expect(await readFile(markerPath)).toEqual(Buffer.from(JSON.stringify(expiredReservation)));
+  });
+
+  it("hands off by closing the lease while preserving the marker for the host", async () => {
+    const inbox = await makeTempDir();
+    const markerPath = join(inbox, ".start-reservation.json");
+    const lease = await createSystemUpdateReservation(reservation, inbox);
+
+    await handoffSystemUpdateReservation(lease);
+
+    expect(await readFile(markerPath)).toEqual(Buffer.from(JSON.stringify(reservation)));
+    await expect(assertSystemUpdateReservationOwned(lease)).rejects.toBeInstanceOf(
+      UpdateStartReservationLostError,
     );
   });
 

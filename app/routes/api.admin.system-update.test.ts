@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   UPDATE_START_RESERVATION_TTL_MS,
   UpdateStartReservationConflictError,
+  UpdateStartReservationLostError,
   UpdateRequestConflictError,
   UpdateRequestPublicationUncertainError,
 } from "../../src/server/system-update/state.server";
@@ -10,11 +11,13 @@ import { action, loader } from "./api.admin.system-update";
 
 const mocks = vi.hoisted(() => ({
   access: vi.fn(),
+  assertSystemUpdateReservationOwned: vi.fn(),
   checkLatestStableRelease: vi.fn(),
   clientIp: vi.fn(),
   createSystemUpdateReservation: vi.fn(),
   createSystemUpdateRequest: vi.fn(),
   getCurrentBuild: vi.fn(),
+  handoffSystemUpdateReservation: vi.fn(),
   randomUUID: vi.fn(),
   readSystemUpdateStatus: vi.fn(),
   releaseSystemUpdateReservation: vi.fn(),
@@ -47,9 +50,11 @@ vi.mock("../../src/server/system-update/github-release.server", () => ({
 }));
 vi.mock("../../src/server/system-update/state.server", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../src/server/system-update/state.server")>()),
+  assertSystemUpdateReservationOwned: mocks.assertSystemUpdateReservationOwned,
   createSystemUpdateReservation: mocks.createSystemUpdateReservation,
   createSystemUpdateRequest: mocks.createSystemUpdateRequest,
   readSystemUpdateStatus: mocks.readSystemUpdateStatus,
+  handoffSystemUpdateReservation: mocks.handoffSystemUpdateReservation,
   releaseSystemUpdateReservation: mocks.releaseSystemUpdateReservation,
 }));
 
@@ -84,6 +89,18 @@ const release = {
   publishedAt: "2026-07-12T10:00:00.000Z",
 };
 
+function leaseFor(reservationValue: {
+  requestId: string;
+  expiresAt: string;
+}) {
+  return {
+    requestId: reservationValue.requestId,
+    markerPath: "/run/ai-image-workshop-updater/inbox/.start-reservation.json",
+    expiresAt: Date.parse(reservationValue.expiresAt),
+    handle: {},
+  };
+}
+
 function startRequest(body: unknown = { action: "start" }, headers: Record<string, string> = {}) {
   return new Request("https://images.example.com/api/admin/system-update", {
     method: "POST",
@@ -115,8 +132,12 @@ describe("admin system update status/start route", () => {
     mocks.access.mockResolvedValue(undefined);
     mocks.checkLatestStableRelease.mockResolvedValue({ state: "available", release });
     mocks.writeAuditHttp.mockResolvedValue(undefined);
-    mocks.createSystemUpdateReservation.mockResolvedValue(undefined);
+    mocks.createSystemUpdateReservation.mockImplementation(
+      async (reservationValue) => leaseFor(reservationValue),
+    );
     mocks.createSystemUpdateRequest.mockResolvedValue(undefined);
+    mocks.assertSystemUpdateReservationOwned.mockResolvedValue(undefined);
+    mocks.handoffSystemUpdateReservation.mockResolvedValue(undefined);
     mocks.releaseSystemUpdateReservation.mockResolvedValue(undefined);
     mocks.clientIp.mockReturnValue("203.0.113.9");
     mocks.randomUUID.mockReturnValue(REQUEST_ID);
@@ -261,9 +282,10 @@ describe("admin system update status/start route", () => {
     mocks.randomUUID
       .mockReturnValueOnce(REQUEST_ID)
       .mockReturnValueOnce(secondRequestId);
-    mocks.createSystemUpdateReservation.mockImplementation(async () => {
+    mocks.createSystemUpdateReservation.mockImplementation(async (reservationValue) => {
       if (reservationHeld) throw new UpdateStartReservationConflictError();
       reservationHeld = true;
+      return leaseFor(reservationValue);
     });
     mocks.releaseSystemUpdateReservation.mockImplementation(async () => {
       reservationHeld = false;
@@ -291,7 +313,14 @@ describe("admin system update status/start route", () => {
     expect((await first).status).toBe(202);
     expect(mocks.writeAuditHttp).toHaveBeenCalledOnce();
     expect(mocks.createSystemUpdateRequest).toHaveBeenCalledOnce();
-    expect(mocks.releaseSystemUpdateReservation).toHaveBeenCalledOnce();
+    expect(mocks.handoffSystemUpdateReservation).toHaveBeenCalledOnce();
+    expect(mocks.releaseSystemUpdateReservation).not.toHaveBeenCalled();
+
+    const pendingMarker = await action({ request: startRequest() } as never);
+    await expectError(pendingMarker, 409, "UPDATE_CONFLICT");
+    expect(mocks.createSystemUpdateReservation).toHaveBeenCalledTimes(3);
+    expect(mocks.checkLatestStableRelease).toHaveBeenCalledOnce();
+    expect(mocks.createSystemUpdateRequest).toHaveBeenCalledOnce();
   });
 
   it.each([
@@ -407,7 +436,15 @@ describe("admin system update status/start route", () => {
       },
       ip: "203.0.113.9",
     });
-    expect(mocks.releaseSystemUpdateReservation).toHaveBeenCalledOnce();
+    expect(mocks.assertSystemUpdateReservationOwned).toHaveBeenCalledOnce();
+    expect(mocks.assertSystemUpdateReservationOwned.mock.calls[0][0]).toMatchObject({
+      requestId: REQUEST_ID,
+    });
+    expect(mocks.assertSystemUpdateReservationOwned.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.createSystemUpdateRequest.mock.invocationCallOrder[0],
+    );
+    expect(mocks.handoffSystemUpdateReservation).toHaveBeenCalledOnce();
+    expect(mocks.releaseSystemUpdateReservation).not.toHaveBeenCalled();
   });
 
   it("waits for audit completion before publishing", async () => {
@@ -433,6 +470,18 @@ describe("admin system update status/start route", () => {
     expect(mocks.releaseSystemUpdateReservation).toHaveBeenCalledOnce();
   });
 
+  it("rejects a lost reservation immediately before publication", async () => {
+    mocks.assertSystemUpdateReservationOwned.mockRejectedValue(
+      new UpdateStartReservationLostError(),
+    );
+
+    await expectError(await action({ request: startRequest() } as never), 409, "UPDATE_CONFLICT");
+    expect(mocks.writeAuditHttp).toHaveBeenCalledOnce();
+    expect(mocks.createSystemUpdateRequest).not.toHaveBeenCalled();
+    expect(mocks.handoffSystemUpdateReservation).not.toHaveBeenCalled();
+    expect(mocks.releaseSystemUpdateReservation).toHaveBeenCalledOnce();
+  });
+
   it("maps a duplicate request publication to conflict", async () => {
     mocks.createSystemUpdateRequest.mockRejectedValue(new UpdateRequestConflictError());
 
@@ -443,16 +492,15 @@ describe("admin system update status/start route", () => {
     mocks.createSystemUpdateRequest.mockImplementation(async (requestValue) => {
       throw new UpdateRequestPublicationUncertainError(requestValue.requestId);
     });
-    mocks.releaseSystemUpdateReservation.mockRejectedValue(
-      new Error("reservation unlink failed"),
-    );
+    mocks.handoffSystemUpdateReservation.mockRejectedValue(new Error("lease close failed"));
 
     const response = await action({ request: startRequest() } as never);
 
     expect(response.status).toBe(202);
     expect(await response.json()).toEqual({ requestId: REQUEST_ID, targetVersion: "0.3.0" });
     expect(mocks.createSystemUpdateRequest).toHaveBeenCalledOnce();
-    expect(mocks.releaseSystemUpdateReservation).toHaveBeenCalledOnce();
+    expect(mocks.handoffSystemUpdateReservation).toHaveBeenCalledOnce();
+    expect(mocks.releaseSystemUpdateReservation).not.toHaveBeenCalled();
   });
 
   it("fails closed for mismatched publication uncertainty and generic filesystem errors", async () => {

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { link, lstat, open, unlink } from "node:fs/promises";
+import { link, lstat, open, unlink, type FileHandle } from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import {
@@ -22,6 +22,7 @@ const TEMP_FILE_ATTEMPTS = 10;
 const START_RESERVATION_FILENAME = ".start-reservation.json";
 const REQUEST_TEMP_OPEN_FLAGS =
   constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW;
+const RESERVATION_READ_FLAGS = constants.O_RDONLY | constants.O_NOFOLLOW;
 
 const SystemUpdateReservation = z
   .object({
@@ -45,10 +46,35 @@ const SystemUpdateReservation = z
   });
 export type SystemUpdateReservation = z.infer<typeof SystemUpdateReservation>;
 
-// Task 7 host contract: before claiming request.json, read this marker. A valid
-// matching requestId may proceed. A different valid requestId must leave/reject
-// the request without starting writers; stale or invalid markers remain busy
-// until expiry handling or operator repair.
+type ReservationFileStat = {
+  dev: bigint | number;
+  ino: bigint | number;
+  nlink: bigint | number;
+  isFile(): boolean;
+};
+
+type ReservationIdentity = {
+  dev: bigint;
+  ino: bigint;
+};
+
+export type SystemUpdateReservationLease = {
+  requestId: string;
+  markerPath: string;
+  expiresAt: number;
+  handle: FileHandle;
+  identity: ReservationIdentity;
+};
+
+const closedReservationLeases = new WeakSet<SystemUpdateReservationLease>();
+
+// Task 7 host contract: under the global updater lock, read this marker and
+// request.json before claiming. A valid marker whose requestId matches the
+// request is the only normal claim. A different valid requestId must be left or
+// rejected without starting writers. If request.json exists but this marker is
+// missing, leave, reject, or repair the state; never claim from status alone.
+// A marker without its request may expire or be cleaned up only when stale; a
+// live route keeps its marker through publication handoff for the host to claim.
 
 function hasCode(error: unknown, code: string): error is NodeJS.ErrnoException {
   return error instanceof Error && (error as NodeJS.ErrnoException).code === code;
@@ -140,6 +166,13 @@ export class UpdateStartReservationConflictError extends Error {
   }
 }
 
+export class UpdateStartReservationLostError extends Error {
+  constructor() {
+    super("The system update start reservation is no longer owned");
+    this.name = "UpdateStartReservationLostError";
+  }
+}
+
 export class UpdateRequestPublicationUncertainError extends Error {
   readonly requestId: string;
 
@@ -222,39 +255,177 @@ function startReservationPath(inbox: string): string {
     : join(inbox, START_RESERVATION_FILENAME);
 }
 
+function asBigInt(value: bigint | number): bigint {
+  return typeof value === "bigint" ? value : BigInt(value);
+}
+
+function reservationIdentity(stat: ReservationFileStat): ReservationIdentity {
+  return { dev: asBigInt(stat.dev), ino: asBigInt(stat.ino) };
+}
+
+function sameReservationIdentity(
+  left: ReservationIdentity,
+  right: ReservationIdentity,
+): boolean {
+  return left.dev === right.dev && left.ino === right.ino;
+}
+
+function isLinkedRegularFile(stat: ReservationFileStat): boolean {
+  return stat.isFile() && asBigInt(stat.nlink) > 0n;
+}
+
+async function reservationStat(handle: FileHandle): Promise<ReservationFileStat> {
+  return (await handle.stat({ bigint: true })) as ReservationFileStat;
+}
+
+async function reservationPathStat(path: string): Promise<ReservationFileStat> {
+  return (await lstat(path, { bigint: true })) as ReservationFileStat;
+}
+
+async function closeReservationHandle(handle: FileHandle | undefined): Promise<void> {
+  if (!handle) return;
+  try {
+    await handle.close();
+  } catch {
+    // A close failure cannot make cleanup unsafe or replace the primary outcome.
+  }
+}
+
+async function unlinkReservationIfOwned(
+  path: string,
+  identity: ReservationIdentity,
+): Promise<void> {
+  try {
+    const stat = await reservationPathStat(path);
+    if (isLinkedRegularFile(stat) && sameReservationIdentity(identity, reservationIdentity(stat))) {
+      await bestEffortUnlink(path);
+    }
+  } catch {
+    // A missing or changed marker belongs to another lifecycle and is left alone.
+  }
+}
+
 export async function createSystemUpdateReservation(
   reservation: SystemUpdateReservation,
   inbox = UPDATE_INBOX_PATH,
-): Promise<void> {
+): Promise<SystemUpdateReservationLease> {
   const parsed = SystemUpdateReservation.parse(reservation);
   const bytes = Buffer.from(JSON.stringify(parsed), "utf8");
   const path = startReservationPath(inbox);
 
-  let handle;
+  let writeHandle: FileHandle;
   try {
-    handle = await open(path, REQUEST_TEMP_OPEN_FLAGS, 0o600);
+    writeHandle = await open(path, REQUEST_TEMP_OPEN_FLAGS, 0o600);
   } catch (error) {
     if (hasCode(error, "EEXIST")) throw new UpdateStartReservationConflictError();
     throw error;
   }
 
+  let writeClosed = false;
+  let identity: ReservationIdentity | undefined;
   try {
-    await runAndClosePreservingPrimary(handle, async () => {
-      await writeComplete(handle, bytes);
-      await handle.sync();
-    });
+    const initialStat = await reservationStat(writeHandle);
+    if (!isLinkedRegularFile(initialStat)) throw new UpdateStartReservationLostError();
+    identity = reservationIdentity(initialStat);
+
+    try {
+      await runAndClosePreservingPrimary(writeHandle, async () => {
+        await writeComplete(writeHandle, bytes);
+        await writeHandle.sync();
+      });
+    } finally {
+      writeClosed = true;
+    }
+
+    let ownerHandle: FileHandle | undefined;
+    try {
+      ownerHandle = await open(path, RESERVATION_READ_FLAGS);
+      const ownerStat = await reservationStat(ownerHandle);
+      const pathStat = await reservationPathStat(path);
+      if (
+        !identity ||
+        !isLinkedRegularFile(ownerStat) ||
+        !isLinkedRegularFile(pathStat) ||
+        !sameReservationIdentity(identity, reservationIdentity(ownerStat)) ||
+        !sameReservationIdentity(identity, reservationIdentity(pathStat))
+      ) {
+        throw new UpdateStartReservationLostError();
+      }
+
+      return {
+        requestId: parsed.requestId,
+        markerPath: path,
+        expiresAt: Date.parse(parsed.expiresAt),
+        handle: ownerHandle,
+        identity,
+      };
+    } catch (error) {
+      await closeReservationHandle(ownerHandle);
+      if (error instanceof UpdateStartReservationLostError) throw error;
+      throw new UpdateStartReservationLostError();
+    }
   } catch (error) {
-    await bestEffortUnlink(path);
+    if (!writeClosed) await closeReservationHandle(writeHandle);
+    if (identity) await unlinkReservationIfOwned(path, identity);
     throw error;
   }
 }
 
-export async function releaseSystemUpdateReservation(
-  inbox = UPDATE_INBOX_PATH,
+export async function assertSystemUpdateReservationOwned(
+  lease: SystemUpdateReservationLease,
 ): Promise<void> {
-  // Only the route that successfully created the marker releases it. The host
-  // never replaces it; failed cleanup leaves a conservative busy marker.
-  await bestEffortUnlink(startReservationPath(inbox));
+  if (closedReservationLeases.has(lease) || Date.now() >= lease.expiresAt) {
+    throw new UpdateStartReservationLostError();
+  }
+
+  try {
+    const ownerStat = await reservationStat(lease.handle);
+    const pathStat = await reservationPathStat(lease.markerPath);
+    if (
+      !isLinkedRegularFile(ownerStat) ||
+      !isLinkedRegularFile(pathStat) ||
+      !sameReservationIdentity(lease.identity, reservationIdentity(ownerStat)) ||
+      !sameReservationIdentity(lease.identity, reservationIdentity(pathStat))
+    ) {
+      throw new UpdateStartReservationLostError();
+    }
+  } catch (error) {
+    if (error instanceof UpdateStartReservationLostError) throw error;
+    throw new UpdateStartReservationLostError();
+  }
+}
+
+export async function releaseSystemUpdateReservation(
+  lease: SystemUpdateReservationLease,
+): Promise<void> {
+  if (closedReservationLeases.has(lease)) return;
+
+  let mayUnlink = false;
+  if (Date.now() < lease.expiresAt) {
+    try {
+      const ownerStat = await reservationStat(lease.handle);
+      const pathStat = await reservationPathStat(lease.markerPath);
+      mayUnlink =
+        isLinkedRegularFile(ownerStat) &&
+        isLinkedRegularFile(pathStat) &&
+        sameReservationIdentity(lease.identity, reservationIdentity(ownerStat)) &&
+        sameReservationIdentity(lease.identity, reservationIdentity(pathStat));
+    } catch {
+      mayUnlink = false;
+    }
+  }
+
+  await closeReservationHandle(lease.handle);
+  closedReservationLeases.add(lease);
+  if (mayUnlink) await unlinkReservationIfOwned(lease.markerPath, lease.identity);
+}
+
+export async function handoffSystemUpdateReservation(
+  lease: SystemUpdateReservationLease,
+): Promise<void> {
+  if (closedReservationLeases.has(lease)) return;
+  await closeReservationHandle(lease.handle);
+  closedReservationLeases.add(lease);
 }
 
 async function syncInbox(inbox: string): Promise<boolean> {

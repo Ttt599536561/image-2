@@ -17,13 +17,16 @@ import { clientIp } from "../../src/server/rateLimit";
 import { checkLatestStableRelease } from "../../src/server/system-update/github-release.server";
 import { requireSystemUpdatePost } from "../../src/server/system-update/request-security.server";
 import {
+  assertSystemUpdateReservationOwned,
   createSystemUpdateReservation,
   createSystemUpdateRequest,
+  handoffSystemUpdateReservation,
   readSystemUpdateStatus,
   releaseSystemUpdateReservation,
   UPDATE_INBOX_PATH,
   UPDATE_START_RESERVATION_TTL_MS,
   UpdateStartReservationConflictError,
+  UpdateStartReservationLostError,
   UpdateRequestConflictError,
   UpdateRequestPublicationUncertainError,
 } from "../../src/server/system-update/state.server";
@@ -128,8 +131,9 @@ export async function action({ request }: Route.ActionArgs): Promise<Response> {
 
     const requestId = randomUUID();
     const requestedAt = new Date().toISOString();
+    let reservation;
     try {
-      await createSystemUpdateReservation({
+      reservation = await createSystemUpdateReservation({
         protocolVersion: UPDATE_PROTOCOL_VERSION,
         requestId,
         requestedAt,
@@ -143,6 +147,7 @@ export async function action({ request }: Route.ActionArgs): Promise<Response> {
       return unavailable();
     }
 
+    let handedOff = false;
     try {
       const build = getCurrentBuild();
       const status = await readActionStatus(build);
@@ -187,6 +192,14 @@ export async function action({ request }: Route.ActionArgs): Promise<Response> {
       }
 
       try {
+        await assertSystemUpdateReservationOwned(reservation);
+      } catch (error) {
+        if (error instanceof Response) return error;
+        if (error instanceof UpdateStartReservationLostError) return conflict();
+        return conflict();
+      }
+
+      try {
         await createSystemUpdateRequest(updateRequest);
       } catch (error) {
         if (error instanceof Response) return error;
@@ -195,17 +208,31 @@ export async function action({ request }: Route.ActionArgs): Promise<Response> {
           error instanceof UpdateRequestPublicationUncertainError &&
           error.requestId === requestId
         ) {
+          try {
+            await handoffSystemUpdateReservation(reservation);
+          } catch {
+            // Publication may already have reached the host; keep the marker for reconciliation.
+          }
+          handedOff = true;
           return accepted(requestId, targetVersion);
         }
         return unavailable();
       }
 
+      try {
+        await handoffSystemUpdateReservation(reservation);
+      } catch {
+        // The host can reconcile a published request while the marker remains present.
+      }
+      handedOff = true;
       return accepted(requestId, targetVersion);
     } finally {
-      try {
-        await releaseSystemUpdateReservation();
-      } catch {
-        // Cleanup must not turn a completed or uncertain publication into a retry.
+      if (!handedOff) {
+        try {
+          await releaseSystemUpdateReservation(reservation);
+        } catch {
+          // Cleanup must not turn a completed or uncertain publication into a retry.
+        }
       }
     }
   } catch (error) {
