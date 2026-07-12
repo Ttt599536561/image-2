@@ -27,6 +27,13 @@ describe("generation-scoped custom credential AES-GCM", () => {
     expect(decryptCustomApiKey(generationId, encrypted)).toBe(plaintext);
   });
 
+  it("accepts the installer's canonical unpadded base64url master key", () => {
+    process.env.CUSTOM_KEY_JOB_ENCRYPTION_KEY = Buffer.alloc(32, 251).toString("base64url");
+    const generationId = randomUUID();
+    const encrypted = encryptCustomApiKey(generationId, "installer-generated-key-format");
+    expect(decryptCustomApiKey(generationId, encrypted)).toBe("installer-generated-key-format");
+  });
+
   it("uses a random 96-bit IV", () => {
     const generationId = randomUUID();
     const first = encryptCustomApiKey(generationId, "same-fictional-value");

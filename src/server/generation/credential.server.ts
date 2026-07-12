@@ -21,11 +21,12 @@ export interface EncryptedCustomApiKey {
 function masterKey(): Buffer {
   const raw = process.env.CUSTOM_KEY_JOB_ENCRYPTION_KEY;
   if (!raw) throw new CredentialConfigurationError();
-  const key = Buffer.from(raw, "base64");
-  if (key.length !== 32 || key.toString("base64") !== raw) {
-    throw new CredentialConfigurationError();
+
+  for (const encoding of ["base64", "base64url"] as const) {
+    const key: Buffer = Buffer.from(raw, encoding);
+    if (key.length === 32 && key.toString(encoding) === raw) return key;
   }
-  return key;
+  throw new CredentialConfigurationError();
 }
 
 function authenticatedGenerationId(generationId: string): Buffer {

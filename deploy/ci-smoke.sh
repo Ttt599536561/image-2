@@ -171,7 +171,7 @@ write_smoke_environment() {
     RELAY_API_KEY 'ci-dummy-relay-key-no-external-call'
     RELAY_BASE_URL 'http://127.0.0.1:9/v1'
     CUSTOM_KEY_JOB_ENCRYPTION_KEY "$ENCRYPTION_KEY_VALUE"
-    CUSTOM_KEY_MODES_ENABLED 'false'
+    CUSTOM_KEY_MODES_ENABLED 'true'
     WORKER_CONCURRENCY '1'
     TRUST_PROXY 'true'
   )
@@ -311,6 +311,12 @@ assert_exact_running_services() {
   }
 }
 
+assert_custom_mode_enabled() {
+  timeout --signal=KILL 30 "${COMPOSE_COMMAND[@]}" exec -T web \
+    node --import tsx --input-type=module -e \
+    "const f=await import('./src/server/generation/feature.server.ts'); const c=await import('./src/server/generation/credential.server.ts'); if(!f.isCustomKeyModesEnabled()) process.exit(1); const id='00000000-0000-4000-8000-000000000001'; const value=c.encryptCustomApiKey(id,'ci-custom-key'); if(c.decryptCustomApiKey(id,value)!=='ci-custom-key') process.exit(1);"
+}
+
 main() {
   (($# == 0)) || die 'ci-smoke.sh does not accept arguments'
   trap cleanup EXIT
@@ -385,6 +391,7 @@ main() {
   timeout --signal=KILL 240 "${COMPOSE_COMMAND[@]}" up -d web worker scheduler
   wait_for_web
   assert_admin_roles
+  assert_custom_mode_enabled
 
   timeout --signal=KILL 30 "${COMPOSE_COMMAND[@]}" exec -T web \
     node --import tsx --input-type=module -e \

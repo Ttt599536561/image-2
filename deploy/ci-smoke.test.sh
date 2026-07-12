@@ -103,6 +103,12 @@ assert_contains "$smoke" 'createServer' 'Node net selects a free loopback port'
 assert_contains "$smoke" 'listen(0' 'free-port selection asks the kernel for port zero'
 assert_contains "$smoke" 'MIGRATE_CONFIRM=APPLY_PRODUCTION_MIGRATIONS' 'production migrations run in the smoke'
 assert_contains "$smoke" 'SEED_ADMIN_EMAIL' 'the deterministic CI administrator is seeded'
+assert_contains "$smoke" "CUSTOM_KEY_MODES_ENABLED 'true'" \
+  'the real stack smoke enables the fresh-install custom key mode'
+assert_contains "$smoke" 'assert_custom_mode_enabled' \
+  'the real stack smoke verifies custom mode inside the running web service'
+assert_contains "$smoke" 'encryptCustomApiKey' \
+  'the real stack smoke verifies its generated encryption key with AES-GCM'
 assert_contains "$smoke" 'FROM users' 'the business administrator role is verified'
 assert_contains "$smoke" 'FROM \"user\"' 'the Better Auth administrator role is verified'
 assert_contains "$smoke" 'new Uint8Array([1,2,3])' 'the smoke writes the three-byte media fixture'

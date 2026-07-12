@@ -9,7 +9,7 @@
 | One-command Debian install | Complete | Three visible inputs; generated internal secrets |
 | Backup and restore | Complete | Checked local DB/media archives; seven-copy retention |
 | Deployment CI | Complete | Script contracts and empty-stack persistence smoke |
-| Key modes | Code complete; rollout disabled | custom path is tested, but self-host install keeps the production kill switch off |
+| Key modes | Complete | Fresh install enables system/custom; custom credentials are encrypted per job with zero site debit |
 
 ## 可部署结论
 
@@ -23,6 +23,7 @@
 
 - 执行一种安装命令并确认 `/healthz=204`。
 - 通过 `/admin/login` 登录，完成一次真实 system Relay 生图。
+- 普通用户选择 custom，使用自己的 Key 生图并确认本站余额不变。
 - 确认 `/media/*` 可读取，并在重建应用容器后仍可读取。
 - 运行一次备份，并把它恢复到新的空卷完成演练。
 - 配置域名/TLS、主机防火墙、监控与告警。

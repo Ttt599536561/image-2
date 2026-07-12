@@ -1,6 +1,6 @@
 # 运维与验证
 
-状态：部署脚本契约、Docker 镜像构建和空数据 Compose 持久化 smoke 已进入 CI。真实 Relay Key 的生图验收必须在目标服务器执行。默认自托管发布只开放 system；custom 代码测试不代表生产开关已开放。
+状态：部署脚本契约、Docker 镜像构建和空数据 Compose 持久化 smoke 已进入 CI。真实 system/custom Relay 生图验收必须在目标服务器执行。
 
 ## Scheduler
 
@@ -39,7 +39,7 @@ npm run test:deploy
 npm run test:deploy:smoke
 ```
 
-`test:deploy` 覆盖安装输入、resume、升级、备份和恢复命令契约。`test:deploy:smoke` 会真正启动空 PostgreSQL 栈，执行 `0000` 至 `0006` 迁移、创建管理员、占用宿主机 `3000` 验证无冲突、写入媒体、重建应用容器并确认图片仍可读取，最后清理测试容器、卷和临时配置。
+`test:deploy` 覆盖安装输入、resume、升级、备份和恢复命令契约。`test:deploy:smoke` 会真正启动空 PostgreSQL 栈，执行 `0000` 至 `0006` 迁移、创建管理员、确认 custom 已开放且自动生成的密钥可完成 AES-GCM 往返、占用宿主机 `3000` 验证无冲突、写入媒体、重建应用容器并确认图片仍可读取，最后清理测试资源。
 
 金额/锁测试另在一次性 PostgreSQL 中运行 `npm run test:money`，必须保留 `FOR UPDATE`、回滚、幂等和并发语义。
 
@@ -50,6 +50,7 @@ npm run test:deploy:smoke
 | 空数据安装 | 只输入 Relay Key、管理员邮箱和可见密码；迁移和 seed 自动完成 |
 | 管理员 | `/admin/login` 可登录，业务 `users` 与 Better Auth `user` 都为 admin |
 | 真实 Relay | system 生成恰好一个终态、一张图片、最多一次 debit；日志无 Key |
+| 用户 custom | 普通用户可保存自己的 Key，零本站余额也能生图；无 debit、终态删除临时凭据 |
 | 本地媒体 | `/media/*` 可读，重建 web/worker/scheduler 后仍可读 |
 | 备份恢复演练 | 备份校验通过；恢复到新空卷后 DB、图片和 `/healthz` 正常 |
 | 端口隔离 | 宿主机 `3000` 已占用仍可安装，宿主机不发布 `5432` |
@@ -62,6 +63,8 @@ npm run test:deploy:smoke
 4. 验证管理员、关键表行数、历史图片和 `/healthz=204`。
 
 不要把“备份命令成功”当作恢复可用；至少定期完成一次实际恢复演练。本地备份不能抵御整机或磁盘损坏，异地副本是后续运维项。
+
+紧急关闭 custom 时，缺失/`false` 会让新提交返回 `503` 且零写入。关闭入口后应等待 worker 收口在途任务，或使用受审计的 `fail-custom-generations` 流程；`generation_credentials` 清零前不得轮换加密主密钥。
 
 ## 容量与秘密
 

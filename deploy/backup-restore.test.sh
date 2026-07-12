@@ -85,7 +85,7 @@ BETTER_AUTH_URL="https://images.example.com"
 RELAY_API_KEY="relay-secret"
 RELAY_BASE_URL="https://relay.example.com"
 CUSTOM_KEY_JOB_ENCRYPTION_KEY="encryption-secret"
-CUSTOM_KEY_MODES_ENABLED="false"
+CUSTOM_KEY_MODES_ENABLED="true"
 WORKER_CONCURRENCY="2"
 TRUST_PROXY="true"
 ENV
@@ -611,6 +611,30 @@ test_restore_successful_order_and_secret_isolation() {
   assert_no_secret_leak
 }
 
+test_restore_accepts_disabled_custom_kill_switch_and_rejects_invalid_values() {
+  make_fixture restore-custom-disabled
+  sed -i 's/^CUSTOM_KEY_MODES_ENABLED=.*/CUSTOM_KEY_MODES_ENABLED="false"/' \
+    "$CASE_ROOT/deploy/.env.production"
+  local directory input
+  directory="$(make_restore_fixture)"
+  input="$CASE_ROOT/confirm.in"
+  printf 'RESTORE ai-image-workshop\n' >"$input"
+  run_restore "$input" "$directory"
+  assert_equal 0 "$RUN_STATUS" 'restore should accept an explicitly disabled custom kill switch'
+
+  make_fixture restore-custom-invalid
+  sed -i 's/^CUSTOM_KEY_MODES_ENABLED=.*/CUSTOM_KEY_MODES_ENABLED="TRUE"/' \
+    "$CASE_ROOT/deploy/.env.production"
+  directory="$(make_restore_fixture)"
+  input="$CASE_ROOT/confirm.in"
+  printf 'RESTORE ai-image-workshop\n' >"$input"
+  : >"$FAKE_STATE/docker.log"
+  run_restore "$input" "$directory"
+  [[ "$RUN_STATUS" -ne 0 ]] || fail_assertion 'restore must reject a non-canonical custom mode value'
+  assert_not_contains "$(<"$FAKE_STATE/docker.log")" ' up ' \
+    'invalid custom mode must be rejected before starting services'
+}
+
 run_test 'backup artifacts, exact quiescing, retention, and secrets' test_backup_artifacts_quiescing_and_retention
 run_test 'backup failure and signal restore exact services' test_backup_failure_and_signal_restore_exact_services
 run_test 'backup probe failure has no mutation' test_backup_probe_failure_has_no_mutation
@@ -619,6 +643,7 @@ run_test 'volume ownership before backup and restore writes' test_volume_ownersh
 run_test 'restore checksum and path guards precede Docker' test_restore_checksum_and_path_guards_precede_docker
 run_test 'restore running, confirmation, and empty-volume guards' test_restore_running_confirmation_and_empty_volume_guards
 run_test 'restore success order and secret isolation' test_restore_successful_order_and_secret_isolation
+run_test 'restore custom kill switch validation' test_restore_accepts_disabled_custom_kill_switch_and_rejects_invalid_values
 
 if ((FAIL_COUNT > 0)); then
   printf '%d backup/restore test(s) failed\n' "$FAIL_COUNT" >&2

@@ -626,6 +626,7 @@ test_proxy_install_runs_exact_order_and_writes_private_files() {
   assert_contains "$env_contents" 'POSTGRES_PASSWORD="aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"' 'generated database password should be rendered'
   assert_contains "$env_contents" 'BETTER_AUTH_SECRET="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"' 'generated auth secret should be rendered'
   assert_contains "$env_contents" 'RELAY_API_KEY="relay-key-$$-#-visible"' 'relay key should be Compose-escaped in env'
+  assert_contains "$env_contents" 'CUSTOM_KEY_MODES_ENABLED="true"' 'fresh install should expose custom key mode immediately'
   assert_not_contains "$env_contents" 'ADMIN_EMAIL' 'admin email must not be persisted in env'
   assert_not_contains "$env_contents" 'ADMIN_PASSWORD' 'admin password must not be persisted in env'
   assert_contains "$state_contents" 'STAGE="complete"' 'state should reach complete'
@@ -637,6 +638,7 @@ test_proxy_install_runs_exact_order_and_writes_private_files() {
   [[ -f "$FAKE_STATE/seed-env-cleared" ]] || fail_assertion 'admin seed variables should be absent for role verification'
   assert_not_contains "$docker_log" '--profile caddy' 'proxy mode must not start Caddy'
   assert_contains "$output" 'https://images.example.com/admin/login' 'success output should show admin login'
+  assert_contains "$output" 'system + custom' 'success output should confirm both user key modes are available'
   assert_contains "$output" 'http://127.0.0.1:18081' 'proxy success output should show loopback upstream'
   assert_not_contains "$success_tail" 'relay-key' 'success summary must not show the relay key'
   assert_not_contains "$success_tail" 'visible-admin-password' 'success summary must not show the admin password'
@@ -658,6 +660,7 @@ test_domain_install_starts_caddy_and_reports_public_url() {
   assert_contains "$env_contents" 'DOMAIN="images.example.com"' 'domain should be persisted'
   assert_contains "$env_contents" 'BETTER_AUTH_URL="https://images.example.com"' 'domain should determine public URL'
   assert_contains "$output" 'https://images.example.com/admin/login' 'domain output should show admin login'
+  assert_contains "$output" 'system + custom' 'domain output should confirm both user key modes are available'
   assert_not_contains "$output" '上游地址' 'domain output should not show proxy upstream guidance'
 }
 
@@ -747,6 +750,35 @@ test_completed_resume_preserves_env_and_skips_all_secret_prompts() {
     'docker compose --env-file deploy/.env.production up -d web worker scheduler'
   assert_contains "$docker_log" 'docker compose --env-file deploy/.env.production exec -T postgres psql' 'resume should verify both admin roles'
   assert_contains "$output" 'https://images.example.com/admin/login' 'completed resume should print success output'
+}
+
+test_resume_preserves_custom_kill_switch_and_rejects_invalid_values() {
+  make_fixture resume-custom-disabled
+  run_success_proxy_install
+  sed -i 's/^CUSTOM_KEY_MODES_ENABLED=.*/CUSTOM_KEY_MODES_ENABLED="false"/' \
+    "$CASE_ROOT/deploy/.env.production"
+  local disabled_hash
+  disabled_hash="$(sha256sum "$CASE_ROOT/deploy/.env.production" | awk '{print $1}')"
+  run_without_input --resume
+  assert_equal 0 "$RUN_STATUS" 'resume should accept an explicitly disabled custom kill switch'
+  assert_equal "$disabled_hash" "$(sha256sum "$CASE_ROOT/deploy/.env.production" | awk '{print $1}')" \
+    'resume must preserve the disabled custom kill switch without rewriting env'
+  assert_contains "$(<"$RUN_OUTPUT")" 'custom 已暂停' \
+    'resume output should report the disabled custom kill switch'
+  assert_not_contains "$(<"$RUN_OUTPUT")" 'system + custom' \
+    'resume output must not claim custom is available while disabled'
+
+  make_fixture resume-custom-invalid
+  run_success_proxy_install
+  sed -i 's/^CUSTOM_KEY_MODES_ENABLED=.*/CUSTOM_KEY_MODES_ENABLED="1"/' \
+    "$CASE_ROOT/deploy/.env.production"
+  : >"$FAKE_STATE/docker.log"
+  run_without_input --resume
+  [[ "$RUN_STATUS" -ne 0 ]] || fail_assertion 'resume must reject a non-boolean custom mode value'
+  assert_contains "$(<"$RUN_OUTPUT")" 'CUSTOM_KEY_MODES_ENABLED' \
+    'invalid custom mode failure should identify the bad setting'
+  assert_not_contains "$(<"$FAKE_STATE/docker.log")" ' up ' \
+    'invalid custom mode must be rejected before starting services'
 }
 
 test_completed_domain_resume_restarts_caddy_without_rebuilding() {
@@ -1269,6 +1301,7 @@ run_test 'strict HTTP 204 health contract' test_health_requires_exact_http_204
 run_test 'failure diagnostics secret redaction' test_failure_diagnostics_redact_all_secrets
 run_test 'seed failure output redaction and status propagation' test_seed_failure_redacts_password_and_preserves_exit_status
 run_test 'completed resume without secret prompts or rotation' test_completed_resume_preserves_env_and_skips_all_secret_prompts
+run_test 'custom kill switch preservation and validation' test_resume_preserves_custom_kill_switch_and_rejects_invalid_values
 run_test 'completed domain resume recreates runtime containers' test_completed_domain_resume_restarts_caddy_without_rebuilding
 run_test 'incomplete admin resume prompts and continuation' test_incomplete_admin_resume_prompts_only_admin_and_preserves_env
 run_test 'unsafe resume files and unknown state rejection' test_resume_rejects_unsafe_env_state_and_unknown_stage

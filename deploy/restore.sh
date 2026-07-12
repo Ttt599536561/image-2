@@ -119,7 +119,8 @@ validate_loaded_environment() {
   [[ "$DATABASE_DRIVER" == 'pg' && "$DATABASE_URL" == "$expected_url" && "$DATABASE_URL_UNPOOLED" == "$expected_url" ]] || die 'invalid database URL'
   [[ "$STORAGE_DRIVER" == 'local' && "$LOCAL_STORAGE_ROOT" == '/app/data/media' ]] || die 'invalid storage configuration'
   [[ -n "$BETTER_AUTH_SECRET" && -n "$RELAY_API_KEY" && -n "$CUSTOM_KEY_JOB_ENCRYPTION_KEY" ]] || die 'required secret is empty'
-  [[ "$CUSTOM_KEY_MODES_ENABLED" == 'false' && "$TRUST_PROXY" == 'true' ]] || die 'invalid application security settings'
+  [[ "$CUSTOM_KEY_MODES_ENABLED" == 'true' || "$CUSTOM_KEY_MODES_ENABLED" == 'false' ]] || die 'invalid custom key mode setting'
+  [[ "$TRUST_PROXY" == 'true' ]] || die 'invalid application security settings'
   [[ "$WORKER_CONCURRENCY" =~ ^[1-9][0-9]*$ ]] || die 'invalid worker concurrency'
   if [[ "$COMPOSE_PROFILES" == 'caddy' ]]; then
     [[ "$DOMAIN" =~ ^[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ && "$BETTER_AUTH_URL" == "https://$DOMAIN" ]] || die 'invalid Caddy domain'

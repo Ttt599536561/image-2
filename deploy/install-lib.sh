@@ -471,7 +471,7 @@ render_production_env() {
       RELAY_API_KEY "$relay_key"
       RELAY_BASE_URL "$relay_base_url"
       CUSTOM_KEY_JOB_ENCRYPTION_KEY "$encryption_key"
-      CUSTOM_KEY_MODES_ENABLED 'false'
+      CUSTOM_KEY_MODES_ENABLED 'true'
       WORKER_CONCURRENCY '1'
       TRUST_PROXY 'true'
     )

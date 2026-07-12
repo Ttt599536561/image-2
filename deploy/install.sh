@@ -619,7 +619,11 @@ validate_loaded_environment() {
     die '部署环境文件包含空的必需密钥'
     return 1
   }
-  [[ "$CUSTOM_KEY_MODES_ENABLED" == 'false' && "$TRUST_PROXY" == 'true' ]] || {
+  [[ "$CUSTOM_KEY_MODES_ENABLED" == 'true' || "$CUSTOM_KEY_MODES_ENABLED" == 'false' ]] || {
+    die 'CUSTOM_KEY_MODES_ENABLED 必须是 true 或 false'
+    return 1
+  }
+  [[ "$TRUST_PROXY" == 'true' ]] || {
     die '应用安全配置无效'
     return 1
   }
@@ -1174,6 +1178,11 @@ print_success() {
     '部署完成。' \
     "访问地址：$PUBLIC_URL" \
     "管理员登录：$PUBLIC_URL/admin/login"
+  if [[ "$CUSTOM_KEY_MODES_ENABLED" == 'true' ]]; then
+    printf '%s\n' '用户生图模式：system + custom（可使用自己的 Key）'
+  else
+    printf '%s\n' '用户生图模式：system（custom 已暂停）'
+  fi
   if [[ "$MODE" == 'proxy' ]]; then
     printf '反向代理上游地址：http://127.0.0.1:%s\n' "$WEB_HOST_PORT"
   fi

@@ -404,7 +404,7 @@ PostgreSQL。**金额一律用整数**（定死）：积分列用**毫积分 BIG
 - 入队成功统一返回 `202 {generationId,conversationId,status,credentialMode,deadlineAt}`，客户端用服务端 deadline 校正乐观值。
 - 自定义凭据与 generation 必须原子创建或具有等价补偿；任何兼容任务载荷只含 `generationId`。临时凭据终态立即删除；数据库时钟计算孤儿 10 分钟到期、scheduler 每 5 分钟清理，正常调度下最迟 15 分钟物理删除。
 - Key 明文不得进入 generation 普通字段、图片、events、audit、Sentry、日志、错误字符串、用户/管理员响应；relay 边界脱敏器须覆盖本次真实 system（含 app_config 值）/custom Key。成功路径只返回解析图片，不带出原始 response body。
-- custom 有服务端缺省关闭的运维开关。关闭时返回 `503 CUSTOM_KEY_MODES_DISABLED` 且零写入；UI 保留已存 Key但禁用 custom 提交，不能静默切 system；已打开页面首次收到 503 后立即刷新开关并进入暂停态。回滚先关入口，再以受审计脚本收口在途 custom 和删除凭据，清零前不得删除或轮换主密钥。
+- custom 有服务端 fail-closed 运维开关：缺失或 `false` 时关闭，Debian 安装器为新部署显式写入 `true`。关闭时返回 `503 CUSTOM_KEY_MODES_DISABLED` 且零写入；UI 保留已存 Key但禁用 custom 提交，不能静默切 system；已打开页面首次收到 503 后立即刷新开关并进入暂停态。回滚先关入口，再以受审计脚本收口在途 custom 和删除凭据，清零前不得删除或轮换主密钥。
 
 ### 25.3 多任务、超时与错误
 
