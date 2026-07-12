@@ -81,9 +81,11 @@ type CachedReleaseResult = {
 };
 
 const releaseCache = new Map<string, CachedReleaseResult>();
+const inFlightReleaseChecks = new Map<string, Promise<LatestStableReleaseResult>>();
 
 export function resetReleaseCacheForTests(): void {
   releaseCache.clear();
+  inFlightReleaseChecks.clear();
 }
 
 function error(code: GitHubReleaseErrorCode): GitHubReleaseError {
@@ -128,14 +130,26 @@ function selectGitHubPayload(value: unknown): GitHubReleasePayload {
   });
 }
 
+async function cancelResponseBody(response: Response): Promise<void> {
+  try {
+    await response.body?.cancel();
+  } catch {
+    // Cancellation is best-effort; the release result or public error takes precedence.
+  }
+}
+
 async function readBoundedBody(response: Response): Promise<string> {
   const declaredLength = response.headers.get("content-length");
   if (declaredLength !== null) {
     const normalizedLength = declaredLength.trim();
-    if (!/^\d+$/.test(normalizedLength)) throw error("malformed_response");
+    if (!/^\d+$/.test(normalizedLength)) {
+      await cancelResponseBody(response);
+      throw error("malformed_response");
+    }
 
     const byteLength = Number(normalizedLength);
     if (!Number.isSafeInteger(byteLength) || byteLength > MAX_RESPONSE_BYTES) {
+      await cancelResponseBody(response);
       throw error("malformed_response");
     }
   }
@@ -191,6 +205,14 @@ function cacheResult(
   return value;
 }
 
+function truncateSummary(summary: string): string {
+  const truncated = summary.slice(0, MAX_SUMMARY_CHARACTERS);
+  const finalCodeUnit = truncated.charCodeAt(truncated.length - 1);
+  return finalCodeUnit >= 0xd800 && finalCodeUnit <= 0xdbff
+    ? truncated.slice(0, -1)
+    : truncated;
+}
+
 function parseStableRelease(
   payload: GitHubReleasePayload,
   currentVersion: string,
@@ -203,7 +225,7 @@ function parseStableRelease(
     tag: payload.tag_name,
     version,
     name: payload.name ?? payload.tag_name,
-    summary: (payload.body ?? "").slice(0, MAX_SUMMARY_CHARACTERS),
+    summary: truncateSummary(payload.body ?? ""),
     htmlUrl: payload.html_url,
     publishedAt: payload.published_at,
   });
@@ -214,20 +236,12 @@ function parseStableRelease(
   };
 }
 
-export async function checkLatestStableRelease({
-  currentVersion: rawCurrentVersion,
-  force = false,
-  fetchImpl = fetch,
-  now = Date.now,
-}: CheckLatestStableReleaseOptions): Promise<LatestStableReleaseResult> {
-  const currentVersion = validateCurrentVersion(rawCurrentVersion);
-  const checkedAt = now();
-  const cached = releaseCache.get(currentVersion);
-
-  if (!force && cached && checkedAt - cached.checkedAt < CACHE_TTL_MS) {
-    return cached.value;
-  }
-
+async function requestLatestStableRelease(
+  currentVersion: string,
+  cached: CachedReleaseResult | undefined,
+  checkedAt: number,
+  fetchImpl: typeof fetch,
+): Promise<LatestStableReleaseResult> {
   const headers: Record<string, string> = {
     Accept: GITHUB_ACCEPT_HEADER,
     "X-GitHub-Api-Version": GITHUB_API_VERSION,
@@ -250,6 +264,7 @@ export async function checkLatestStableRelease({
 
   try {
     if (response.status === 304) {
+      await cancelResponseBody(response);
       if (!cached?.etag) throw error("malformed_response");
       cached.checkedAt = checkedAt;
       cached.etag = response.headers.get("etag") ?? cached.etag;
@@ -257,14 +272,23 @@ export async function checkLatestStableRelease({
     }
 
     if (response.status === 404) {
+      await cancelResponseBody(response);
       return cacheResult(currentVersion, { state: "none", release: null }, response, checkedAt);
     }
 
     const rateLimitExhausted =
       response.status === 429 ||
-      (response.status === 403 && response.headers.get("x-ratelimit-remaining") === "0");
-    if (rateLimitExhausted) throw error("rate_limit");
-    if (!response.ok) throw error("http_failure");
+      (response.status === 403 &&
+        (response.headers.get("x-ratelimit-remaining") === "0" ||
+          response.headers.has("retry-after")));
+    if (rateLimitExhausted) {
+      await cancelResponseBody(response);
+      throw error("rate_limit");
+    }
+    if (!response.ok) {
+      await cancelResponseBody(response);
+      throw error("http_failure");
+    }
 
     const body = await readBoundedBody(response);
     const payload = selectGitHubPayload(JSON.parse(body) as unknown);
@@ -279,4 +303,31 @@ export async function checkLatestStableRelease({
     if (isTimeoutOrAbortError(cause)) throw error("timeout");
     throw error("malformed_response");
   }
+}
+
+export async function checkLatestStableRelease({
+  currentVersion: rawCurrentVersion,
+  force = false,
+  fetchImpl = fetch,
+  now = Date.now,
+}: CheckLatestStableReleaseOptions): Promise<LatestStableReleaseResult> {
+  const currentVersion = validateCurrentVersion(rawCurrentVersion);
+  const checkedAt = now();
+  const cached = releaseCache.get(currentVersion);
+
+  if (!force && cached && checkedAt - cached.checkedAt < CACHE_TTL_MS) {
+    return cached.value;
+  }
+
+  const existing = inFlightReleaseChecks.get(currentVersion);
+  if (existing) return existing;
+
+  let inFlight!: Promise<LatestStableReleaseResult>;
+  inFlight = requestLatestStableRelease(currentVersion, cached, checkedAt, fetchImpl).finally(() => {
+    if (inFlightReleaseChecks.get(currentVersion) === inFlight) {
+      inFlightReleaseChecks.delete(currentVersion);
+    }
+  });
+  inFlightReleaseChecks.set(currentVersion, inFlight);
+  return inFlight;
 }

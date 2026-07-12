@@ -34,6 +34,44 @@ function jsonResponse(
   });
 }
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function cancelableResponse(
+  status: number,
+  headers: Record<string, string> = {},
+  cancelImpl: () => void | Promise<void> = () => undefined,
+) {
+  const cancel = vi.fn(() => cancelImpl());
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode("{}"));
+    },
+    cancel,
+  });
+  return { response: new Response(body, { status, headers }), cancel };
+}
+
+function trackSettlement(promise: Promise<unknown>) {
+  let settled = false;
+  void promise.then(
+    () => {
+      settled = true;
+    },
+    () => {
+      settled = true;
+    },
+  );
+  return () => settled;
+}
+
 async function expectReleaseError(
   promise: Promise<unknown>,
   code: GitHubReleaseErrorCode,
@@ -102,6 +140,29 @@ describe("checkLatestStableRelease", () => {
     await expect(
       checkLatestStableRelease({ currentVersion: "1.2.2", fetchImpl }),
     ).resolves.toEqual({ state: "none", release: null });
+  });
+
+  it("waits for best-effort body cancellation before caching a 404", async () => {
+    const order: string[] = [];
+    const { response, cancel } = cancelableResponse(
+      404,
+      {},
+      () =>
+        new Promise<void>((resolve) => {
+          setTimeout(() => {
+            order.push("cancelled");
+            resolve();
+          }, 0);
+        }),
+    );
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response);
+
+    const result = await checkLatestStableRelease({ currentVersion: "1.2.2", fetchImpl });
+    order.push("returned");
+
+    expect(result).toEqual({ state: "none", release: null });
+    expect(cancel).toHaveBeenCalledTimes(1);
+    expect(order).toEqual(["cancelled", "returned"]);
   });
 
   it.each([
@@ -219,6 +280,7 @@ describe("checkLatestStableRelease", () => {
   it.each([
     [429, {}],
     [403, { "x-ratelimit-remaining": "0" }],
+    [403, { "retry-after": "60" }],
   ])("classifies HTTP %i rate-limit responses", async (status, headers) => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
       new Response("remote secret and quota details", { status, headers }),
@@ -231,6 +293,17 @@ describe("checkLatestStableRelease", () => {
     expect(error.message).not.toContain("remote secret");
   });
 
+  it("keeps an unrelated HTTP 403 classified as an HTTP failure", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response("forbidden detail", { status: 403 }));
+
+    await expectReleaseError(
+      checkLatestStableRelease({ currentVersion: "1.2.2", fetchImpl }),
+      "http_failure",
+    );
+  });
+
   it("classifies other non-success HTTP responses without exposing their body", async () => {
     const fetchImpl = vi
       .fn<typeof fetch>()
@@ -241,6 +314,30 @@ describe("checkLatestStableRelease", () => {
       "http_failure",
     );
     expect(error.message).not.toContain("private upstream detail");
+  });
+
+  it("cancels a rate-limit response body while preserving the rate-limit error", async () => {
+    const { response, cancel } = cancelableResponse(429, {}, () =>
+      Promise.reject(new Error("cancel failure")),
+    );
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response);
+
+    await expectReleaseError(
+      checkLatestStableRelease({ currentVersion: "1.2.2", fetchImpl }),
+      "rate_limit",
+    );
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels another non-success response body before returning the HTTP error", async () => {
+    const { response, cancel } = cancelableResponse(500);
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response);
+
+    await expectReleaseError(
+      checkLatestStableRelease({ currentVersion: "1.2.2", fetchImpl }),
+      "http_failure",
+    );
+    expect(cancel).toHaveBeenCalledTimes(1);
   });
 
   it("sanitizes non-abort fetch failures", async () => {
@@ -323,6 +420,128 @@ describe("checkLatestStableRelease", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it("coalesces concurrent cold checks for the same currentVersion", async () => {
+    const response = deferred<Response>();
+    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(() => response.promise);
+
+    const first = checkLatestStableRelease({ currentVersion: "1.2.2", fetchImpl });
+    const second = checkLatestStableRelease({ currentVersion: "1.2.2", fetchImpl });
+
+    const firstSettled = trackSettlement(first);
+    const secondSettled = trackSettlement(second);
+    await Promise.resolve();
+    const bothPending = !firstSettled() && !secondSettled();
+    const fetchCalls = fetchImpl.mock.calls.length;
+    response.resolve(jsonResponse(githubRelease()));
+    const settled = await Promise.allSettled([first, second]);
+
+    expect(bothPending).toBe(true);
+    expect(fetchCalls).toBe(1);
+    expect(settled.every((result) => result.status === "fulfilled")).toBe(true);
+    if (settled[0]?.status === "fulfilled" && settled[1]?.status === "fulfilled") {
+      expect(settled[0].value).toEqual(settled[1].value);
+      expect(settled[0].value.state).toBe("available");
+    }
+  });
+
+  it("coalesces concurrent stale and force revalidations for the same currentVersion", async () => {
+    let time = 1_000;
+    const now = () => time;
+    const response = deferred<Response>();
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(jsonResponse(githubRelease(), { headers: { etag: '"release-1"' } }))
+      .mockImplementationOnce(() => response.promise);
+
+    await checkLatestStableRelease({ currentVersion: "1.2.2", fetchImpl, now });
+    time += 5 * 60 * 1_000 + 1;
+    const stale = checkLatestStableRelease({ currentVersion: "1.2.2", fetchImpl, now });
+    const forced = checkLatestStableRelease({
+      currentVersion: "1.2.2",
+      force: true,
+      fetchImpl,
+      now,
+    });
+    const forcedAgain = checkLatestStableRelease({
+      currentVersion: "1.2.2",
+      force: true,
+      fetchImpl,
+      now,
+    });
+
+    const staleSettled = trackSettlement(stale);
+    const forcedSettled = trackSettlement(forced);
+    const forcedAgainSettled = trackSettlement(forcedAgain);
+    await Promise.resolve();
+    const allPending = !staleSettled() && !forcedSettled() && !forcedAgainSettled();
+    const fetchCalls = fetchImpl.mock.calls.length;
+    response.resolve(new Response(null, { status: 304 }));
+    const settled = await Promise.allSettled([stale, forced, forcedAgain]);
+
+    expect(allPending).toBe(true);
+    expect(fetchCalls).toBe(2);
+    expect(settled.every((result) => result.status === "fulfilled")).toBe(true);
+    if (
+      settled[0]?.status === "fulfilled" &&
+      settled[1]?.status === "fulfilled" &&
+      settled[2]?.status === "fulfilled"
+    ) {
+      expect(settled[1].value).toEqual(settled[0].value);
+      expect(settled[2].value).toEqual(settled[0].value);
+    }
+  });
+
+  it("runs concurrent checks for different currentVersion keys independently", async () => {
+    const firstResponse = deferred<Response>();
+    const secondResponse = deferred<Response>();
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(() => firstResponse.promise)
+      .mockImplementationOnce(() => secondResponse.promise);
+
+    const first = checkLatestStableRelease({ currentVersion: "1.2.1", fetchImpl });
+    const second = checkLatestStableRelease({ currentVersion: "1.2.2", fetchImpl });
+
+    const firstSettled = trackSettlement(first);
+    const secondSettled = trackSettlement(second);
+    await Promise.resolve();
+    const bothPending = !firstSettled() && !secondSettled();
+    const fetchCalls = fetchImpl.mock.calls.length;
+    firstResponse.resolve(jsonResponse(githubRelease()));
+    secondResponse.resolve(jsonResponse(githubRelease()));
+    const settled = await Promise.allSettled([first, second]);
+
+    expect(bothPending).toBe(true);
+    expect(fetchCalls).toBe(2);
+    expect(settled.every((result) => result.status === "fulfilled")).toBe(true);
+  });
+
+  it("removes a failed in-flight check so a later call retries", async () => {
+    const failedResponse = deferred<Response>();
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockImplementationOnce(() => failedResponse.promise)
+      .mockImplementation(() => Promise.resolve(jsonResponse(githubRelease())));
+
+    const first = checkLatestStableRelease({ currentVersion: "1.2.2", fetchImpl });
+    const second = checkLatestStableRelease({ currentVersion: "1.2.2", fetchImpl });
+    const firstSettled = trackSettlement(first);
+    const secondSettled = trackSettlement(second);
+    await Promise.resolve();
+    const bothPending = !firstSettled() && !secondSettled();
+    const fetchCallsBeforeFailure = fetchImpl.mock.calls.length;
+    failedResponse.reject(new TypeError("network failure"));
+    const settled = await Promise.allSettled([first, second]);
+
+    await expect(
+      checkLatestStableRelease({ currentVersion: "1.2.2", fetchImpl }),
+    ).resolves.toMatchObject({ state: "available" });
+    expect(bothPending).toBe(true);
+    expect(fetchCallsBeforeFailure).toBe(1);
+    expect(settled.every((result) => result.status === "rejected")).toBe(true);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   it("force bypasses freshness and conditionally revalidates with the cached ETag", async () => {
     const fetchImpl = vi
       .fn<typeof fetch>()
@@ -390,6 +609,19 @@ describe("checkLatestStableRelease", () => {
     );
   });
 
+  it("cancels the response body before rejecting an oversized declared Content-Length", async () => {
+    const { response, cancel } = cancelableResponse(200, {
+      "content-length": String(maxResponseBytes + 1),
+    });
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(response);
+
+    await expectReleaseError(
+      checkLatestStableRelease({ currentVersion: "1.2.2", fetchImpl }),
+      "malformed_response",
+    );
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     ["missing", undefined],
     ["lying", "16"],
@@ -420,6 +652,21 @@ describe("checkLatestStableRelease", () => {
     expect(result.release?.summary).toBe(body.slice(0, 1_000));
     expect(result.release?.summary).toContain("<script>");
     expect(result.release?.summary).toContain("**markdown**");
+  });
+
+  it("does not leave a dangling high surrogate when truncation splits an emoji", async () => {
+    const body = "x".repeat(999) + "\u{1F600}" + "tail";
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(jsonResponse(githubRelease({ body })));
+
+    const result = await checkLatestStableRelease({ currentVersion: "1.2.2", fetchImpl });
+    const summary = result.release?.summary ?? "";
+    const finalCodeUnit = summary.charCodeAt(summary.length - 1);
+
+    expect(summary).toBe("x".repeat(999));
+    expect(summary.length).toBeLessThanOrEqual(1_000);
+    expect(finalCodeUnit >= 0xd800 && finalCodeUnit <= 0xdbff).toBe(false);
   });
 
   it("falls back to the tag and empty text for nullable name and body", async () => {
