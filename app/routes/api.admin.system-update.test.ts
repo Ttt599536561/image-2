@@ -35,7 +35,9 @@ vi.mock("node:fs/promises", () => ({
   access: mocks.access,
   link: vi.fn(),
   lstat: vi.fn(),
+  mkdir: vi.fn(),
   open: vi.fn(),
+  rmdir: vi.fn(),
   unlink: vi.fn(),
 }));
 
@@ -95,7 +97,8 @@ function leaseFor(reservationValue: {
 }) {
   return {
     requestId: reservationValue.requestId,
-    markerPath: "/run/ai-image-workshop-updater/inbox/.start-reservation.json",
+    directoryPath: "/run/ai-image-workshop-updater/inbox/.start-reservation",
+    tokenPath: `/run/ai-image-workshop-updater/inbox/.start-reservation/${reservationValue.requestId}.json`,
     expiresAt: Date.parse(reservationValue.expiresAt),
     handle: {},
   };

@@ -1,6 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { constants } from "node:fs";
-import { link, lstat, open, unlink, type FileHandle } from "node:fs/promises";
+import {
+  link,
+  lstat,
+  mkdir,
+  open,
+  rmdir,
+  unlink,
+  type FileHandle,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { z } from "zod";
 import {
@@ -13,13 +21,13 @@ import {
 
 export const UPDATE_INBOX_PATH = "/run/ai-image-workshop-updater/inbox";
 export const UPDATE_START_RESERVATION_PATH =
-  "/run/ai-image-workshop-updater/inbox/.start-reservation.json";
+  "/run/ai-image-workshop-updater/inbox/.start-reservation";
 export const UPDATE_START_RESERVATION_TTL_MS = 15 * 60 * 1_000;
 export const UPDATE_STATUS_PATH = "/run/ai-image-workshop-updater/state/status.json";
 export const MAX_UPDATE_JSON_BYTES = 64 * 1024;
 
 const TEMP_FILE_ATTEMPTS = 10;
-const START_RESERVATION_FILENAME = ".start-reservation.json";
+const START_RESERVATION_DIRECTORY = ".start-reservation";
 const REQUEST_TEMP_OPEN_FLAGS =
   constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW;
 const RESERVATION_READ_FLAGS = constants.O_RDONLY | constants.O_NOFOLLOW;
@@ -51,6 +59,8 @@ type ReservationFileStat = {
   ino: bigint | number;
   nlink: bigint | number;
   isFile(): boolean;
+  isDirectory(): boolean;
+  isSymbolicLink(): boolean;
 };
 
 type ReservationIdentity = {
@@ -60,21 +70,24 @@ type ReservationIdentity = {
 
 export type SystemUpdateReservationLease = {
   requestId: string;
-  markerPath: string;
+  directoryPath: string;
+  tokenPath: string;
   expiresAt: number;
   handle: FileHandle;
-  identity: ReservationIdentity;
+  directoryIdentity: ReservationIdentity;
+  tokenIdentity: ReservationIdentity;
 };
 
 const closedReservationLeases = new WeakSet<SystemUpdateReservationLease>();
 
-// Task 7 host contract: under the global updater lock, read this marker and
-// request.json before claiming. A valid marker whose requestId matches the
-// request is the only normal claim. A different valid requestId must be left or
-// rejected without starting writers. If request.json exists but this marker is
-// missing, leave, reject, or repair the state; never claim from status alone.
-// A marker without its request may expire or be cleaned up only when stale; a
-// live route keeps its marker through publication handoff for the host to claim.
+// Task 7 host contract: under the global updater lock, request.json is claimable
+// only when this directory contains exactly one strict regular non-symlink token
+// whose filename and content requestId match request.json. A missing directory
+// or token, multiple or invalid tokens, or a different requestId must not claim
+// the request or start writers. After active status is durable and the request
+// is moved to root work, unlink the matching token and rmdir this directory.
+// Stale cleanup without a request removes only the stale owner token, then the
+// empty directory; it never replaces a live nonempty reservation directory.
 
 function hasCode(error: unknown, code: string): error is NodeJS.ErrnoException {
   return error instanceof Error && (error as NodeJS.ErrnoException).code === code;
@@ -249,10 +262,14 @@ async function bestEffortUnlink(path: string): Promise<void> {
   }
 }
 
-function startReservationPath(inbox: string): string {
+function startReservationDirectoryPath(inbox: string): string {
   return inbox === UPDATE_INBOX_PATH
     ? UPDATE_START_RESERVATION_PATH
-    : join(inbox, START_RESERVATION_FILENAME);
+    : join(inbox, START_RESERVATION_DIRECTORY);
+}
+
+function startReservationTokenPath(directoryPath: string, requestId: string): string {
+  return join(directoryPath, `${requestId}.json`);
 }
 
 function asBigInt(value: bigint | number): bigint {
@@ -271,7 +288,11 @@ function sameReservationIdentity(
 }
 
 function isLinkedRegularFile(stat: ReservationFileStat): boolean {
-  return stat.isFile() && asBigInt(stat.nlink) > 0n;
+  return stat.isFile() && !stat.isSymbolicLink() && asBigInt(stat.nlink) > 0n;
+}
+
+function isLinkedDirectory(stat: ReservationFileStat): boolean {
+  return stat.isDirectory() && !stat.isSymbolicLink() && asBigInt(stat.nlink) > 0n;
 }
 
 async function reservationStat(handle: FileHandle): Promise<ReservationFileStat> {
@@ -291,7 +312,15 @@ async function closeReservationHandle(handle: FileHandle | undefined): Promise<v
   }
 }
 
-async function unlinkReservationIfOwned(
+async function bestEffortRmdir(path: string): Promise<void> {
+  try {
+    await rmdir(path);
+  } catch {
+    // A nonempty or replaced reservation directory belongs to another lifecycle.
+  }
+}
+
+async function unlinkReservationTokenIfOwned(
   path: string,
   identity: ReservationIdentity,
 ): Promise<void> {
@@ -301,7 +330,7 @@ async function unlinkReservationIfOwned(
       await bestEffortUnlink(path);
     }
   } catch {
-    // A missing or changed marker belongs to another lifecycle and is left alone.
+    // A missing or changed token belongs to another lifecycle and is left alone.
   }
 }
 
@@ -311,27 +340,35 @@ export async function createSystemUpdateReservation(
 ): Promise<SystemUpdateReservationLease> {
   const parsed = SystemUpdateReservation.parse(reservation);
   const bytes = Buffer.from(JSON.stringify(parsed), "utf8");
-  const path = startReservationPath(inbox);
+  const directoryPath = startReservationDirectoryPath(inbox);
+  const tokenPath = startReservationTokenPath(directoryPath, parsed.requestId);
 
-  let writeHandle: FileHandle;
   try {
-    writeHandle = await open(path, REQUEST_TEMP_OPEN_FLAGS, 0o600);
+    await mkdir(directoryPath, { recursive: false, mode: 0o700 });
   } catch (error) {
     if (hasCode(error, "EEXIST")) throw new UpdateStartReservationConflictError();
     throw error;
   }
 
+  let writeHandle: FileHandle | undefined;
   let writeClosed = false;
-  let identity: ReservationIdentity | undefined;
+  let directoryIdentity: ReservationIdentity | undefined;
+  let tokenIdentity: ReservationIdentity | undefined;
   try {
-    const initialStat = await reservationStat(writeHandle);
+    const directoryStat = await reservationPathStat(directoryPath);
+    if (!isLinkedDirectory(directoryStat)) throw new UpdateStartReservationLostError();
+    directoryIdentity = reservationIdentity(directoryStat);
+
+    const tokenWriteHandle = await open(tokenPath, REQUEST_TEMP_OPEN_FLAGS, 0o600);
+    writeHandle = tokenWriteHandle;
+    const initialStat = await reservationStat(tokenWriteHandle);
     if (!isLinkedRegularFile(initialStat)) throw new UpdateStartReservationLostError();
-    identity = reservationIdentity(initialStat);
+    tokenIdentity = reservationIdentity(initialStat);
 
     try {
-      await runAndClosePreservingPrimary(writeHandle, async () => {
-        await writeComplete(writeHandle, bytes);
-        await writeHandle.sync();
+      await runAndClosePreservingPrimary(tokenWriteHandle, async () => {
+        await writeComplete(tokenWriteHandle, bytes);
+        await tokenWriteHandle.sync();
       });
     } finally {
       writeClosed = true;
@@ -339,25 +376,34 @@ export async function createSystemUpdateReservation(
 
     let ownerHandle: FileHandle | undefined;
     try {
-      ownerHandle = await open(path, RESERVATION_READ_FLAGS);
+      ownerHandle = await open(tokenPath, RESERVATION_READ_FLAGS);
       const ownerStat = await reservationStat(ownerHandle);
-      const pathStat = await reservationPathStat(path);
+      const tokenStat = await reservationPathStat(tokenPath);
+      const currentDirectoryStat = await reservationPathStat(directoryPath);
       if (
-        !identity ||
+        !directoryIdentity ||
+        !tokenIdentity ||
         !isLinkedRegularFile(ownerStat) ||
-        !isLinkedRegularFile(pathStat) ||
-        !sameReservationIdentity(identity, reservationIdentity(ownerStat)) ||
-        !sameReservationIdentity(identity, reservationIdentity(pathStat))
+        !isLinkedRegularFile(tokenStat) ||
+        !isLinkedDirectory(currentDirectoryStat) ||
+        !sameReservationIdentity(tokenIdentity, reservationIdentity(ownerStat)) ||
+        !sameReservationIdentity(tokenIdentity, reservationIdentity(tokenStat)) ||
+        !sameReservationIdentity(
+          directoryIdentity,
+          reservationIdentity(currentDirectoryStat),
+        )
       ) {
         throw new UpdateStartReservationLostError();
       }
 
       return {
         requestId: parsed.requestId,
-        markerPath: path,
+        directoryPath,
+        tokenPath,
         expiresAt: Date.parse(parsed.expiresAt),
         handle: ownerHandle,
-        identity,
+        directoryIdentity,
+        tokenIdentity,
       };
     } catch (error) {
       await closeReservationHandle(ownerHandle);
@@ -366,9 +412,31 @@ export async function createSystemUpdateReservation(
     }
   } catch (error) {
     if (!writeClosed) await closeReservationHandle(writeHandle);
-    if (identity) await unlinkReservationIfOwned(path, identity);
+    if (tokenIdentity) {
+      await unlinkReservationTokenIfOwned(tokenPath, tokenIdentity);
+    }
+    await bestEffortRmdir(directoryPath);
     throw error;
   }
+}
+
+async function reservationLeaseOwned(
+  lease: SystemUpdateReservationLease,
+): Promise<boolean> {
+  const ownerStat = await reservationStat(lease.handle);
+  const tokenStat = await reservationPathStat(lease.tokenPath);
+  const directoryStat = await reservationPathStat(lease.directoryPath);
+  return (
+    isLinkedRegularFile(ownerStat) &&
+    isLinkedRegularFile(tokenStat) &&
+    isLinkedDirectory(directoryStat) &&
+    sameReservationIdentity(lease.tokenIdentity, reservationIdentity(ownerStat)) &&
+    sameReservationIdentity(lease.tokenIdentity, reservationIdentity(tokenStat)) &&
+    sameReservationIdentity(
+      lease.directoryIdentity,
+      reservationIdentity(directoryStat),
+    )
+  );
 }
 
 export async function assertSystemUpdateReservationOwned(
@@ -379,14 +447,7 @@ export async function assertSystemUpdateReservationOwned(
   }
 
   try {
-    const ownerStat = await reservationStat(lease.handle);
-    const pathStat = await reservationPathStat(lease.markerPath);
-    if (
-      !isLinkedRegularFile(ownerStat) ||
-      !isLinkedRegularFile(pathStat) ||
-      !sameReservationIdentity(lease.identity, reservationIdentity(ownerStat)) ||
-      !sameReservationIdentity(lease.identity, reservationIdentity(pathStat))
-    ) {
+    if (!(await reservationLeaseOwned(lease))) {
       throw new UpdateStartReservationLostError();
     }
   } catch (error) {
@@ -400,24 +461,21 @@ export async function releaseSystemUpdateReservation(
 ): Promise<void> {
   if (closedReservationLeases.has(lease)) return;
 
-  let mayUnlink = false;
+  let mayUnlinkToken = false;
   if (Date.now() < lease.expiresAt) {
     try {
-      const ownerStat = await reservationStat(lease.handle);
-      const pathStat = await reservationPathStat(lease.markerPath);
-      mayUnlink =
-        isLinkedRegularFile(ownerStat) &&
-        isLinkedRegularFile(pathStat) &&
-        sameReservationIdentity(lease.identity, reservationIdentity(ownerStat)) &&
-        sameReservationIdentity(lease.identity, reservationIdentity(pathStat));
+      mayUnlinkToken = await reservationLeaseOwned(lease);
     } catch {
-      mayUnlink = false;
+      mayUnlinkToken = false;
     }
   }
 
   await closeReservationHandle(lease.handle);
   closedReservationLeases.add(lease);
-  if (mayUnlink) await unlinkReservationIfOwned(lease.markerPath, lease.identity);
+  if (mayUnlinkToken) {
+    await unlinkReservationTokenIfOwned(lease.tokenPath, lease.tokenIdentity);
+  }
+  await bestEffortRmdir(lease.directoryPath);
 }
 
 export async function handoffSystemUpdateReservation(
