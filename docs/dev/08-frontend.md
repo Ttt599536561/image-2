@@ -321,6 +321,16 @@ export function clearUserApiConfig(userId: string): void;
 - 页面刷新/切回会话从 loader 数据重建 pending 集合；路由离开或标签关闭不取消服务端任务。到 `deadlineAt` 后做最后一次刷新，UI 只接受服务端返回的终态。
 - 已打开页面若 custom POST 收到 `503 CUSTOM_KEY_MODES_DISABLED`，立即把 me cache 标为 false 并 invalidate，撤销本次乐观项、打开暂停态弹窗且保留 Key；不得自动重试为 system。
 
+## 9.9 对话结果图编辑（2026-07-14）
+
+- `ConversationView` 只在成功且含 image 的当前对话卡显示“编辑图片”。编辑状态是独立草稿，不覆盖普通 Composer 的文字或临时上传 File；取消会原样返回普通草稿。
+- 编辑 Composer 的 prompt 初始为空，size/quality/background 从来源 generation 复制并保持受控可改；来源缩略图和 image ID 只来自会话响应。编辑态隐藏临时参考图入口和单张价格文案，只显示当前 system/custom Key 模式。
+- `useGeneration.submit` 使用 `{file, source, onAccepted}` 本地 options。Query cache 的乐观 turn 保存 `sourceImageId` 和安全摘要，wire 只发送 UUID；提交时仍读取当前用户 Key 模式。
+- 非 `202` 错误不会清空编辑草稿。收到 `202` 后关闭编辑态，并按 accepted generation ID 定位新卡；新卡在 queued/failed/succeeded 阶段均展示来源关系。
+- 编辑草稿绑定其 conversation ID；路由切换会立即停用并清理旧草稿，不能把上一对话的来源提交到新对话。入队返回 `SOURCE_IMAGE_UNAVAILABLE` 时，乐观失败卡映射为 `source_image_unavailable` 并显示明确文案。
+- 失败卡“重试”沿用 `sourceImageId`、编辑描述和参数。即使来源摘要已因清理变成 `null`，仍提交保留的 ID，让服务端明确拒绝，绝不静默退化为文生图。成功 child image 可继续发起下一层编辑。
+- 右侧 `ThisConversationPanel` 保持现有成功图片列表/抽屉行为，不承担编辑输入。
+
 ## 前端不变量
 
 - DB、system Key 和任务加密主密钥仅从 server-only 模块引用；custom Key 不进入日志或 Query cache。

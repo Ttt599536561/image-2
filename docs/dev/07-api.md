@@ -48,14 +48,14 @@ Key、credential ID、密文、IV 或 auth tag。
 ### 当前生成请求
 
 `POST /api/generate` 使用唯一 `GenerateRequest`：prompt 最长 4000，`inputImageKey`
-最长 300；客户端可提供 conversation/generation UUID 以支持乐观导航。请求不能携带
-Base URL、model、n 或 moderation。
+最长 300；客户端可提供 conversation/generation UUID 以支持乐观导航，也可为当前对话结果编辑提供 `sourceImageId` UUID。请求不能携带 Base URL、model、n、moderation、storage key、文件路径或外部来源 URL。
 
 - 缺 `credentialMode` 且无 Key 兼容为 system。
 - system 携带 `customApiKey` 返回 `400 SYSTEM_MODE_FORBIDS_CUSTOM_KEY`。
 - custom 必须携带 trim 后非空、最长 500 的 Key；功能关闭返回
   `503 CUSTOM_KEY_MODES_DISABLED`，且不创建 generation/credential。
 - system 入队前执行余额、system 并发和预算闸；custom 跳过这些本站闸并始终零扣费。
+- `sourceImageId` 与 `inputImageKey` 互斥；来源必须是当前 user 在当前 conversation 中的成功图片。伪造、越权、非成功或已删除来源统一返回 `404 SOURCE_IMAGE_UNAVAILABLE`，且不创建任务。
 - 成功返回 `202 { generationId, conversationId, status, credentialMode, deadlineAt }`。
 
 `POST /api/uploads` 接收单个 PNG/JPEG/WEBP，服务端按魔数判断，应用上限 4MB；非法或
@@ -63,7 +63,7 @@ Base URL、model、n 或 moderation。
 
 `GET /api/generate-status` 支持 `?id=` 单项和 `?ids=` 批量，两者互斥；批量去重后最多
 50 个。服务端始终按当前 user 过滤；批量结果用 `missingIds` 合并“不存在/非 owner”。
-成功只返回稳定对象存储 `publicUrl`，失败返回脱敏错误与 `creditsChargedMp:0`。
+成功只返回稳定对象存储 `publicUrl`，失败返回脱敏错误与 `creditsChargedMp:0`。状态和会话详情还返回 `sourceImageId` 与 owner-scoped `sourceImage` 公共摘要；来源已清理时 ID 保留、摘要为 `null`。
 
 ## 8.4 兑换
 

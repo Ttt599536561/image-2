@@ -1,8 +1,8 @@
 # AI 图像工坊 · 产品需求规格（v2 重构）
 
-> 状态：本文及批准版 PRD 的现有需求均已在 `0.2.0` 实现，并于 2026-07-13 部署到腾讯云生产环境；证据见 [PROGRESS.md](PROGRESS.md)。本文件是当前 v2 的**完整产品规格**，后续只在出现新增需求时继续修订。
+> 状态：本文 §1-§25 的 `0.2.0` 基线已于 2026-07-13 部署到腾讯云生产环境；§26 对话结果图编辑已在 `codex/admin-system-updater` 实现并完成本地验证，但尚未部署。证据见 [PROGRESS.md](PROGRESS.md)。本文件是当前 v2 的**完整产品规格**，后续只在出现新增需求时继续修订。
 > 关联：[requirements.md](requirements.md)（v1 现状）、[development.md](development.md)（现有架构）、[test-cases.md](test-cases.md)（v1 用例）。
-> 更新：2026-07-13。产品规则以本文件 §25 和批准版 PRD 为准；实施、部署与 Release 状态只看 [PROGRESS.md](PROGRESS.md)。
+> 更新：2026-07-14。产品规则以本文件及批准设计为准；实施、部署与 Release 状态只看 [PROGRESS.md](PROGRESS.md)。
 
 ## 1. 背景与目标
 
@@ -324,7 +324,7 @@ PostgreSQL。**金额一律用整数**（定死）：积分列用**毫积分 BIG
 - [x] 阶段二：账号、PostgreSQL、媒体存储、积分/兑换、后台、历史与资产库。
 - [x] 阶段三已选范围：搜索、资产增强、灵感运营与图生图。
 
-未选择的客服/RBAC、一次多图、单图编辑和应用层合规能力不属于当前待发布清单。
+未选择的客服/RBAC、一次多图、画笔/蒙版/扩图式专业编辑器和应用层合规能力不属于当前待发布清单。当前对话内的文字描述二次编辑见 §26。
 
 ## 21. 内容审核与合规（本期不做，站长决定）
 
@@ -413,3 +413,14 @@ PostgreSQL。**金额一律用整数**（定死）：积分列用**毫积分 BIG
 - custom 允许用户在第一张未完成时继续提交；system 保持同会话单项锁定。一个轮询控制器把全部非终态任务按每批 ≤50 IDs 自动分片、合并并按 ID 更新卡片；`missingIds` 必须显式收口，单项终态不停止其他项。
 - 两种模式的权威 deadline 均为 generation 创建后 5 分钟；上游请求预留 30 秒做解析/落图/终态事务。状态接口可主动收口过期任务，cron 继续兜底。
 - 超时统一 `provider_timeout`，文案“请求超时，本站未扣积分，请重试”。custom 使用 `custom_key_invalid`、`custom_key_quota`、`relay_rate_limited`、`relay_unreachable`、`invalid_request`、`content_rejected`、`invalid_response`、`storage_failed`、`unknown`；system 保留现有 `insufficient_quota` / `relay_5xx` 等语义，任何失败都不得自动改模式。
+
+## 26. 对话结果图文字二次编辑（2026-07-14 批准增补）
+
+> 完整交互、安全和验收规则见 [批准设计](superpowers/specs/2026-07-14-conversation-image-edit-design.md)。本节记录当前产品契约，不扩展为资产库/灵感库入口或专业图片编辑器。
+
+- 入口只出现在当前对话的成功且有图结果卡。点击后复用底部 Composer 进入编辑态，右侧“本次图片”保持不变。
+- 编辑描述默认为空；尺寸、质量和背景继承来源 generation 且可修改。编辑态显示来源缩略图/ID和提交时当前 system/custom 模式，不重复显示单张价格文案。
+- 提交继续使用 `POST /api/generate`，只新增 `sourceImageId`；它与临时上传的 `inputImageKey` 互斥，客户端不能提交 storage key、路径或外部 URL。
+- 原 generation/image 永不修改。编辑创建同一对话的新 generation/image，新卡显示“基于此图编辑”和来源缩略图，并可继续编辑；重试复用来源 ID、描述和本轮参数。
+- system 沿用余额、并发、预算和成功后一次 debit；custom 沿用任务级凭据和本站零扣费。失败、超时、来源不存在或不可读均不产生 system debit。
+- 只有收到 `202` 后编辑态才关闭并定位到新卡；校验、权限和网络错误保留编辑描述与参数。来源不可用统一显示“这张图片已不可编辑”。

@@ -55,6 +55,8 @@
 
 新任务创建时写 `deadline_at=created_at+5min`。状态读取和 scheduler 共用原子超时收口；只有命中在途状态的一方能写 `provider_timeout`。`generation_credentials` 只允许 custom 密文，数据库时钟决定过期，正常终态立即删除，scheduler 负责兜底清理。
 
+对话结果图编辑使用 `generations.source_image_id` 保存来源 `images.id`。该列可空且只有普通索引，不加外键：来源图片清理后历史 generation 仍保留 ID，公开摘要变为 `null`。入队事务和 worker 都按当前 user、来源成功状态重新校验；客户端不接触 `images.storage_key`。
+
 ## 3.5 迁移
 
 迁移顺序由文件名固定：
@@ -65,6 +67,7 @@
 | `0001` - `0004` | 灵感、尺寸、图生图 key 和投稿 |
 | `0005_user_generation_credentials.sql` | system/custom mode、deadline 和临时凭据 |
 | `0006_better_auth.sql` | Better Auth 四表及 admin 字段 |
+| `0007_generation_source_image.sql` | generation 可空来源图片 ID 与查询索引 |
 
 安装和升级只通过 `deploy/install.sh` 应用受控迁移。修改 schema 时先生成/手写迁移，再审查 SQL；金额部分唯一索引、外键和状态谓词必须人工核对。生产改金额结构前先运行备份和余额对账。
 

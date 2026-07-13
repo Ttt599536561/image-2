@@ -22,7 +22,7 @@
 - Create: `drizzle/0007_generation_source_image.sql`
 - Modify: `app/routes/healthz.ts`
 
-- [ ] **Step 1: Write failing request and response contract tests**
+- [x] **Step 1: Write failing request and response contract tests**
 
 Add request cases that accept a UUID source, reject a non-UUID source, reject a request containing both source forms, and keep ordinary requests compatible:
 
@@ -44,7 +44,7 @@ it("rejects malformed or conflicting source images", () => {
 
 Extend the public-media contract fixtures with explicit `sourceImageId` and `sourceImage`; cover both a populated summary and `null` for an ordinary generation.
 
-- [ ] **Step 2: Run the contract tests and verify the new cases fail for missing fields**
+- [x] **Step 2: Run the contract tests and verify the new cases fail for missing fields**
 
 Run:
 
@@ -54,7 +54,7 @@ npm run test:run -- src/contracts/generate.test.ts src/contracts/public-media-ur
 
 Expected: FAIL because `sourceImageId` is stripped/rejected and source response fields are not defined.
 
-- [ ] **Step 3: Add the source schemas and stable errors**
+- [x] **Step 3: Add the source schemas and stable errors**
 
 Define the shared response shape in `generate.ts`, retain a separate source ID so a deleted summary cannot turn a retry into text-to-image, and keep dimensions nullable for legacy images:
 
@@ -83,7 +83,7 @@ export const GenerateRequest = GenerateParamsSchema.extend({
 
 Add `source_image_unavailable` to the generation failure-code schemas and `SOURCE_IMAGE_UNAVAILABLE` to API error codes. Add `sourceImageId: z.uuid().nullable()` and `sourceImage: SourceImageSummary.nullable()` to both status identity and `ConversationGeneration`; server responses and optimistic turns must always return explicit `null` for ordinary generations.
 
-- [ ] **Step 4: Add the nullable database field, non-FK index, migration, and health check**
+- [x] **Step 4: Add the nullable database field, non-FK index, migration, and health check**
 
 Add this Drizzle field/index without a foreign key:
 
@@ -101,13 +101,13 @@ CREATE INDEX IF NOT EXISTS "ix_gen_source_image" ON "generations" ("source_image
 
 Include `g.source_image_id` in the zero-row health query so Web does not report healthy before migration `0007` is applied.
 
-- [ ] **Step 5: Run the focused contract tests and verify they pass**
+- [x] **Step 5: Run the focused contract tests and verify they pass**
 
 Run the same command from Step 2.
 
 Expected: PASS with ordinary requests unchanged and the source conflict rejected.
 
-- [ ] **Step 6: Commit the contract and migration slice**
+- [x] **Step 6: Commit the contract and migration slice**
 
 ```powershell
 git add src/contracts/generate.test.ts src/contracts/public-media-url.test.ts src/contracts/generate.ts src/contracts/conversation.ts src/contracts/error.ts src/db/schema.ts drizzle/0007_generation_source_image.sql app/routes/healthz.ts
@@ -122,7 +122,7 @@ git commit -m "feat: add conversation edit source contracts"
 - Modify: `tests/money/enqueue-custom.test.ts`
 - Modify: `src/server/generation/enqueue.ts`
 
-- [ ] **Step 1: Write failing handler and transaction tests**
+- [x] **Step 1: Write failing handler and transaction tests**
 
 Add a handler case proving the route forwards only the UUID field and does not enqueue malformed/conflicting input. In the disposable-database suite, create a succeeded source generation plus image and assert a same-user, same-conversation edit stores `source_image_id` while leaving the source row intact:
 
@@ -143,7 +143,7 @@ expect(await ctx.sql`SELECT id FROM images WHERE id=${sourceImageId}`).toHaveLen
 
 Use a table-driven negative test for a foreign image, fabricated UUID, non-succeeded source generation, source from another conversation, and `sourceImageId + inputImageKey`. Assert the response is uniform, and no conversation, generation, credential, balance, lot, or ledger mutation occurs. Add one custom valid-source case to prove the same permission check runs while custom still bypasses system money gates.
 
-- [ ] **Step 2: Apply the test migration, then run the enqueue tests and verify they fail**
+- [x] **Step 2: Apply the test migration, then run the enqueue tests and verify they fail**
 
 Run:
 
@@ -155,7 +155,7 @@ npm run test:money -- tests/money/enqueue.test.ts tests/money/enqueue-custom.tes
 
 Expected: contract handler tests reach the mock, but database tests FAIL because enqueue does not query or persist `source_image_id`.
 
-- [ ] **Step 3: Validate the source before all task creation and money gates**
+- [x] **Step 3: Validate the source before all task creation and money gates**
 
 Extend `EnqueueRequest`/`PersistableEnqueueRequest` with `sourceImageId`. At the start of `run`, fail closed on the two input mechanisms, then perform one transaction-scoped query:
 
@@ -184,13 +184,13 @@ if (sourceImageId) {
 
 Keep the source check before account locking/concurrency/budget checks so invalid, foreign, or unavailable sources create no task and mutate no system state. Add `source_image_id` to the generation INSERT. Never derive `credentialMode` from the source generation.
 
-- [ ] **Step 4: Re-run the handler and enqueue tests and verify they pass**
+- [x] **Step 4: Re-run the handler and enqueue tests and verify they pass**
 
 Run the commands from Step 2 without re-running migration.
 
 Expected: PASS; all invalid source variants use the same public error and create zero task rows.
 
-- [ ] **Step 5: Commit the enqueue permission slice**
+- [x] **Step 5: Commit the enqueue permission slice**
 
 ```powershell
 git add tests/unit/generate-handler.test.ts tests/money/enqueue.test.ts tests/money/enqueue-custom.test.ts src/server/generation/enqueue.ts
@@ -209,7 +209,7 @@ git commit -m "feat: validate conversation edit sources"
 - Modify: `src/server/money/preempt.server.ts`
 - Modify: `src/server/generation/process.ts`
 
-- [ ] **Step 1: Write failing source-worker, unreadable-source, system, and custom billing tests**
+- [x] **Step 1: Write failing source-worker, unreadable-source, system, and custom billing tests**
 
 For a system edit, insert a succeeded source image, queue a child with `source_image_id`, and inject `getStoredImageObject`/relay/storage fakes. Assert the worker re-queries the source storage key, sends bytes to the edit path, creates a distinct child image, preserves the source image, writes one debit, subtracts exactly the configured price from account/lots, and records `credits_charged_mp=PRICE`.
 
@@ -224,7 +224,7 @@ expect(normalizeFailure(
 )).toMatchObject({ code: "source_image_unavailable" });
 ```
 
-- [ ] **Step 2: Run the focused failure/storage/pipeline tests and verify the source cases fail**
+- [x] **Step 2: Run the focused failure/storage/pipeline tests and verify the source cases fail**
 
 Run:
 
@@ -235,11 +235,11 @@ npm run test:money -- tests/money/pipeline.test.ts tests/money/pipeline-custom.t
 
 Expected: FAIL because claimed generations do not expose a source ID and the worker only understands temporary upload keys.
 
-- [ ] **Step 3: Add a generic server-side storage read without changing browser inputs**
+- [x] **Step 3: Add a generic server-side storage read without changing browser inputs**
 
 Extract the current S3/local read body into `getStoredImageObject(storageKey)` and keep `getUploadObject(storageKey)` as a compatibility wrapper. The generic adapter must return only `{bytes, contentType, filename}` and retain local path/symlink defenses.
 
-- [ ] **Step 4: Re-query the source in the worker and feed the existing edit relay**
+- [x] **Step 4: Re-query the source in the worker and feed the existing edit relay**
 
 Return `source_image_id` from `claim()` as `sourceImageId`. Before calling the system budget counter, resolve source edits with an owner/status-scoped server query and read the resulting storage key through the adapter:
 
@@ -263,13 +263,13 @@ if (g.sourceImageId) {
 
 Use `source_image_unavailable` for this local failure, do not attach a storage key or URL to its message/event/log, and keep the existing `callRelay({ inputImage })` path. The current `chargeOnSuccess` and `finalizeCustomSuccess` functions remain unchanged. Update timing labels to `edit`, `i2i`, or `t2i` without logging a key.
 
-- [ ] **Step 5: Re-run the focused failure/storage/pipeline tests and verify they pass**
+- [x] **Step 5: Re-run the focused failure/storage/pipeline tests and verify they pass**
 
 Run the commands from Step 2.
 
 Expected: PASS; source failures never reach relay/finalization, system succeeds with one debit, and custom succeeds with zero debit.
 
-- [ ] **Step 6: Commit the worker and billing slice**
+- [x] **Step 6: Commit the worker and billing slice**
 
 ```powershell
 git add tests/money/pipeline.test.ts tests/money/pipeline-custom.test.ts src/server/generation/failure.test.ts src/server/generation/failure.ts src/server/r2.server.local.test.ts src/server/r2.server.ts src/server/money/preempt.server.ts src/server/generation/process.ts
@@ -285,7 +285,7 @@ git commit -m "feat: process stored image edit sources"
 - Modify: `src/server/reads.server.ts`
 - Modify: `tests/money/enqueue.test.ts`
 
-- [ ] **Step 1: Write failing source-summary read tests**
+- [x] **Step 1: Write failing source-summary read tests**
 
 After the valid enqueue fixture, call `loadConversationDetail` and `loadGenerationStatuses` as the owner. Assert both return the source ID and only the safe summary:
 
@@ -299,7 +299,7 @@ expect(JSON.stringify(detail)).not.toContain("storage_key");
 
 Delete the source image row and assert the edit generation still returns `sourceImageId` with `sourceImage: null`. Add ordinary status fixtures with both source fields set to `null`.
 
-- [ ] **Step 2: Run the status/contract/enqueue read tests and verify the source summary fails**
+- [x] **Step 2: Run the status/contract/enqueue read tests and verify the source summary fails**
 
 Run:
 
@@ -310,7 +310,7 @@ npm run test:money -- tests/money/enqueue.test.ts
 
 Expected: FAIL because neither SQL read joins the source image.
 
-- [ ] **Step 3: Add owner-scoped source joins and response mapping**
+- [x] **Step 3: Add owner-scoped source joins and response mapping**
 
 In both queries select `g.source_image_id`, then use a second image alias guarded by owner:
 
@@ -322,13 +322,13 @@ LEFT JOIN images si
 
 Return `sourceImageId` independently of join success. Return `sourceImage` only when the safe public fields exist; never select or serialize its `storage_key`. Keep the outer generation query owner-scoped exactly as it is.
 
-- [ ] **Step 4: Re-run the status/contract/enqueue read tests and verify they pass**
+- [x] **Step 4: Re-run the status/contract/enqueue read tests and verify they pass**
 
 Run the commands from Step 2.
 
 Expected: PASS for populated, ordinary-null, and deleted-source responses.
 
-- [ ] **Step 5: Commit the read-model slice**
+- [x] **Step 5: Commit the read-model slice**
 
 ```powershell
 git add src/server/generation/status.server.test.ts src/lib/generationBatch.test.ts src/server/generation/status.server.ts src/server/reads.server.ts tests/money/enqueue.test.ts
@@ -341,7 +341,7 @@ git commit -m "feat: expose image edit source summaries"
 - Modify: `src/hooks/useGeneration.test.tsx`
 - Modify: `src/hooks/useGeneration.ts`
 
-- [ ] **Step 1: Write a failing hook test for the wire payload and optimistic turn**
+- [x] **Step 1: Write a failing hook test for the wire payload and optimistic turn**
 
 Seed an existing conversation whose succeeded image is the edit source, submit with a source context, and assert the POST body contains only the ID while the optimistic turn contains the safe summary:
 
@@ -358,7 +358,7 @@ expect(queryClient.getQueryData<ConversationDetail>(["conversation", conversatio
 
 Keep the deferred response assertion proving edit state may close only after the accepted promise resolves.
 
-- [ ] **Step 2: Run the hook tests and verify the source test fails**
+- [x] **Step 2: Run the hook tests and verify the source test fails**
 
 Run:
 
@@ -368,7 +368,7 @@ npm run test:run -- src/hooks/useGeneration.test.tsx
 
 Expected: FAIL because `submit` has no source context and optimistic turns lack source fields.
 
-- [ ] **Step 3: Replace positional optional arguments with a submission options object**
+- [x] **Step 3: Replace positional optional arguments with a submission options object**
 
 Use this local-only shape:
 
@@ -382,13 +382,13 @@ export interface GenerationSubmissionOptions {
 
 `submit(req, config, options)` uploads only `options.file`, sends only `options.source?.sourceImageId`, and puts explicit source fields into `makeOptimisticTurn`. Invoke `options.onAccepted(accepted)` only after response validation. Preserve the existing synchronous double-submit lock, current mode snapshot, 503 rollback, and active-enqueue tracking.
 
-- [ ] **Step 4: Re-run the hook tests and verify they pass**
+- [x] **Step 4: Re-run the hook tests and verify they pass**
 
 Run the command from Step 2.
 
 Expected: PASS; no source URL, storage key, or path appears in the wire request.
 
-- [ ] **Step 5: Commit the optimistic submission slice**
+- [x] **Step 5: Commit the optimistic submission slice**
 
 ```powershell
 git add src/hooks/useGeneration.test.tsx src/hooks/useGeneration.ts
@@ -405,13 +405,13 @@ git commit -m "feat: preserve edit sources in optimistic turns"
 - Modify: `src/components/composer/Composer.module.css`
 - Modify: `src/components/conversation/ConversationView.keyModes.test.tsx`
 
-- [ ] **Step 1: Write failing interaction tests for entry, inheritance, retention, retry, and chaining**
+- [x] **Step 1: Write failing interaction tests for entry, inheritance, retention, retry, and chaining**
 
 Build one focused route fixture containing succeeded, failed, and pending turns. Assert only the succeeded image has “编辑图片”; clicking it shows an empty edit textarea, source thumbnail/ID, inherited size/quality/background controls, current Key label, and no upload-source control or billing copy. Assert cancel restores the untouched ordinary Composer draft.
 
 Use a deferred `apiPost` to prove typed edit text and changed parameters remain while the request rejects. Resolve a second submit with 202 and assert edit mode closes, the accepted child card has “基于此图编辑”, and the scroll target is invoked. Click the child card’s edit action to prove another layer can start. Click retry on an edit failure and assert the next request reuses its prompt, parameters, and `sourceImageId`.
 
-- [ ] **Step 2: Run the focused conversation tests and verify they fail**
+- [x] **Step 2: Run the focused conversation tests and verify they fail**
 
 Run:
 
@@ -421,7 +421,7 @@ npm run test:run -- src/components/conversation/ConversationView.imageEdit.test.
 
 Expected: FAIL because no edit action/state/source relationship exists.
 
-- [ ] **Step 3: Add a separate edit draft and submit it through the current mode**
+- [x] **Step 3: Add a separate edit draft and submit it through the current mode**
 
 Use a state independent from the ordinary request/file:
 
@@ -439,7 +439,7 @@ const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
 
 Submit edit options with `sourceImageId` and source summary while reading `userApiConfig.config` at that moment. On non-202 error leave `editDraft` unchanged. On 202 clear it and call `scrollIntoView` for the new `data-generation-id` element. `regenerate(turn)` must pass `turn.sourceImageId` even when `turn.sourceImage` is null, so unavailable sources fail clearly instead of becoming text-to-image.
 
-- [ ] **Step 4: Render the edit-specific Composer without changing the right panel**
+- [x] **Step 4: Render the edit-specific Composer without changing the right panel**
 
 Add Composer props for `editSource`, `onCancelEdit`, and an edit submit label. In edit mode:
 
@@ -451,17 +451,17 @@ Add Composer props for `editSource`, `onCancelEdit`, and an edit submit label. I
 
 Outside edit mode preserve all existing Composer behavior. Do not touch `ThisConversationPanel`.
 
-- [ ] **Step 5: Render source ancestry on every edit turn and expose the success-only action**
+- [x] **Step 5: Render source ancestry on every edit turn and expose the success-only action**
 
 Before `renderResult(turn)`, render a compact source row whenever `sourceImageId` is present. If the summary exists, show its thumbnail and “基于此图编辑” and open the existing lightbox on click. If only the ID remains, show “基于的图片已不可用”. Add the “编辑图片” action only inside the succeeded branch when `turn.image` exists. Map `source_image_unavailable` to “这张图片已不可编辑”.
 
-- [ ] **Step 6: Re-run the focused conversation tests and verify they pass**
+- [x] **Step 6: Re-run the focused conversation tests and verify they pass**
 
 Run the command from Step 2.
 
 Expected: PASS for entry visibility, empty draft, inherited controls, error retention, accepted close/scroll, retry source reuse, and continued editing.
 
-- [ ] **Step 7: Commit the frontend slice**
+- [x] **Step 7: Commit the frontend slice**
 
 ```powershell
 git add src/components/conversation/ConversationView.imageEdit.test.tsx src/components/conversation/ConversationView.tsx src/components/conversation/ConversationView.module.css src/components/composer/Composer.tsx src/components/composer/Composer.module.css src/components/conversation/ConversationView.keyModes.test.tsx
@@ -481,17 +481,17 @@ git commit -m "feat: edit conversation images from the composer"
 - Modify: `docs/PROGRESS.md`
 - Modify: `docs/superpowers/plans/2026-07-14-conversation-image-edit.md`
 
-- [ ] **Step 1: Update only the related requirement, development, acceptance, and status records**
+- [x] **Step 1: Update only the related requirement, development, acceptance, and status records**
 
 Mark the approved design and this plan implemented. Add one focused product section describing current-conversation success-card entry, text-only Composer edit mode, source ancestry, retry/chaining, and ordinary system/custom billing. Document migration `0007`, owner-scoped enqueue/worker revalidation, server storage reads, the existing relay edit path, and source-unavailable behavior. Record the exact focused commands and state explicitly that this task did not merge `main`, create a Release, deploy Tencent Cloud, or claim production evidence.
 
-- [ ] **Step 2: Run one fresh final verification pass**
+- [x] **Step 2: Run one fresh final verification pass**
 
 Use the disposable database only after its guard accepts `.env.test`. Run these commands once in this final gate:
 
 ```powershell
 npm run db:test:migrate
-npm run test:run -- src/contracts/generate.test.ts src/contracts/public-media-url.test.ts tests/unit/generate-handler.test.ts src/server/generation/failure.test.ts src/server/r2.server.local.test.ts src/server/generation/status.server.test.ts src/lib/generationBatch.test.ts src/hooks/useGeneration.test.tsx src/components/conversation/ConversationView.imageEdit.test.tsx src/components/conversation/ConversationView.keyModes.test.tsx
+npm run test:run -- src/contracts/generate.test.ts src/contracts/public-media-url.test.ts tests/unit/generate-handler.test.ts tests/unit/generate-status-handler.test.ts src/server/generation/failure.test.ts src/server/r2.server.local.test.ts src/server/generation/status.server.test.ts src/lib/generationBatch.test.ts src/hooks/useGeneration.test.tsx src/components/conversation/ConversationView.imageEdit.test.tsx src/components/conversation/ConversationView.keyModes.test.tsx
 npm run test:money -- tests/money/enqueue.test.ts tests/money/enqueue-custom.test.ts tests/money/pipeline.test.ts tests/money/pipeline-custom.test.ts tests/money/timeout.test.ts tests/money/deadline.test.ts
 npm run typecheck
 npm run build
@@ -500,7 +500,7 @@ npm run assert-no-secrets
 
 Expected: every command exits 0; Vitest reports zero failed tests; typecheck/build complete; the bundle scan reports no forbidden secret.
 
-- [ ] **Step 3: Review the implementation against all 22 approved rules and inspect the diff**
+- [x] **Step 3: Review the implementation against all 22 approved rules and inspect the diff**
 
 Run:
 
@@ -512,14 +512,14 @@ git diff --stat
 
 Confirm no asset/inspiration/public-image entry, second endpoint/queue/service, editor canvas, new pricing, Release, deployment, `main` merge, or unrelated document change exists. Confirm `.superpowers/` remains untouched and untracked.
 
-- [ ] **Step 4: Commit the verified implementation and documentation record**
+- [x] **Step 4: Commit the verified implementation and documentation record**
 
 ```powershell
 git add docs/superpowers/specs/2026-07-14-conversation-image-edit-design.md docs/redesign-requirements.md docs/dev/02-database.md docs/dev/04-generation-pipeline.md docs/dev/07-api.md docs/dev/08-frontend.md docs/dev/10-ops-test.md docs/PROGRESS.md docs/superpowers/plans/2026-07-14-conversation-image-edit.md
 git commit -m "docs: record conversation image editing delivery"
 ```
 
-- [ ] **Step 5: Push only the current feature branch and verify the remote tip**
+- [x] **Step 5: Push only the current feature branch and verify the remote tip**
 
 ```powershell
 git push github codex/admin-system-updater

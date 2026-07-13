@@ -43,9 +43,25 @@ npm run test:deploy
 npm run test:deploy:smoke
 ```
 
-`test:deploy` 覆盖安装输入、resume、升级、备份和恢复命令契约。`test:deploy:smoke` 会真正启动空 PostgreSQL 栈，执行 `0000` 至 `0006` 迁移、创建管理员、确认 custom 已开放且自动生成的密钥可完成 AES-GCM 往返、占用宿主机 `3000` 验证无冲突、写入媒体、重建应用容器并确认图片仍可读取，最后清理测试资源。
+`test:deploy` 覆盖安装输入、resume、升级、备份和恢复命令契约。`test:deploy:smoke` 会真正启动空 PostgreSQL 栈，执行 `0000` 至 `0007` 迁移、创建管理员、确认 custom 已开放且自动生成的密钥可完成 AES-GCM 往返、占用宿主机 `3000` 验证无冲突、写入媒体、重建应用容器并确认图片仍可读取，最后清理测试资源。
 
 金额/锁测试另在一次性 PostgreSQL 中运行 `npm run test:money`，必须保留 `FOR UPDATE`、回滚、幂等和并发语义。
+
+### 对话结果图编辑专项
+
+本需求的最终验证只覆盖相关契约、handler、storage/failure、状态读取、生成 hook、对话编辑 UI，以及 disposable PostgreSQL 中的 enqueue/system/custom pipeline/deadline：
+
+```bash
+npm run test:run -- src/contracts/generate.test.ts src/contracts/public-media-url.test.ts tests/unit/generate-handler.test.ts tests/unit/generate-status-handler.test.ts src/server/generation/failure.test.ts src/server/r2.server.local.test.ts src/server/generation/status.server.test.ts src/lib/generationBatch.test.ts src/hooks/useGeneration.test.tsx src/components/conversation/ConversationView.imageEdit.test.tsx src/components/conversation/ConversationView.keyModes.test.tsx
+npm run test:money -- tests/money/enqueue.test.ts tests/money/enqueue-custom.test.ts tests/money/pipeline.test.ts tests/money/pipeline-custom.test.ts tests/money/timeout.test.ts tests/money/deadline.test.ts
+npm run typecheck
+npm run build
+npm run assert-no-secrets
+```
+
+自动验收必须证明：来源 UUID 与临时上传互斥；伪造/越权/未成功/跨对话来源零写入；worker 只从服务端 storage key 读取；system 成功恰一条 debit，失败/超时/来源不可用零 debit；custom 成功余额/批次/账本不变；编辑态错误保留且 `202` 后才关闭；结果来源展示和重试/连续编辑保留关系。真实 Relay、腾讯云部署、GitHub Release 和 `main` 合并不属于本次本地验收。
+
+2026-07-14 本地结果：完整聚焦门禁中，单元/UI 为 11 个文件、77 个用例全通过，disposable PostgreSQL 为 6 个文件、41 个用例全通过，`typecheck`、生产 `build` 和 `assert-no-secrets` 均退出 0。最终审查修复后又定向运行前端/Hook 2 个文件 9 个用例、完整 enqueue 文件 13 个用例，均通过；随后 `typecheck` 再次退出 0。构建仅出现既有 Vite `envFile` 弃用与 plugin timing 警告，无错误。该结果不代表腾讯云已部署或真实 Relay 已验收。
 
 ## 服务器验收基线与周期性检查
 
