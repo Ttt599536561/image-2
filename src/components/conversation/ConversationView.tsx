@@ -340,7 +340,7 @@ export function ConversationView({
         toast.error("积分不足，去充值");
         return;
     }
-    submit(req, userApiConfig.config, file, onAccepted);
+    submit(req, userApiConfig.config, { file, onAccepted });
   };
 
   // ④b：参考图选取——父级权威校验类型/大小（与后端 contracts/upload 同值），不合法 toast 不入选。

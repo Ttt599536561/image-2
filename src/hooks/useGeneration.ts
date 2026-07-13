@@ -2,7 +2,12 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import type { ConversationDetail, ConversationListResponse } from "../contracts/conversation";
-import { GenerateAcceptedResponse, type GenerateParams } from "../contracts/generate";
+import {
+  GenerateAcceptedResponse,
+  type GenerateAccepted,
+  type GenerateParams,
+  type SourceImageSummary,
+} from "../contracts/generate";
 import type { MeResponse } from "../contracts/me";
 import { UploadResponse } from "../contracts/upload";
 import { ApiError, apiPost, apiPostForm } from "../lib/api-client";
@@ -17,6 +22,15 @@ import type { UserApiConfig } from "../lib/userApiConfig";
 //  - 并发/余额/预算闸仍由服务端权威（402/409/429）→ onError 回调（toast）。不可取消。
 export interface UseGenerationOptions {
   onError?: (error: ApiError) => void;
+}
+
+export interface GenerationSubmissionOptions {
+  file?: File | null;
+  source?: {
+    sourceImageId: string;
+    sourceImage: SourceImageSummary | null;
+  } | null;
+  onAccepted?: (accepted: GenerateAccepted) => void;
 }
 
 type Turn = ConversationDetail["generations"][number];
@@ -50,6 +64,7 @@ function makeOptimisticTurn(
   req: GenerateParams,
   createdAt: string,
   config: UserApiConfig,
+  source: GenerationSubmissionOptions["source"] = null,
 ): Turn {
   return {
     id: gid,
@@ -59,6 +74,8 @@ function makeOptimisticTurn(
     background: req.background ?? null,
     credentialMode: config.mode,
     deadlineAt: new Date(Date.parse(createdAt) + 5 * 60_000).toISOString(),
+    sourceImageId: source?.sourceImageId ?? null,
+    sourceImage: source?.sourceImage ?? null,
     status: "queued",
     errorCode: null,
     error: null,
@@ -81,12 +98,7 @@ export function useGeneration(conversationId: string | null, opts: UseGeneration
   onErrorRef.current = opts.onError;
 
   const submit = useCallback(
-    (
-      req: GenerateParams,
-      config: UserApiConfig,
-      file: File | null = null,
-      onAccepted?: () => void,
-    ) => {
+    (req: GenerateParams, config: UserApiConfig, options: GenerationSubmissionOptions = {}) => {
       if (submittingRef.current) return; // 双闸：同步 ref
       const customApiKey = config.apiKey.trim();
       if (config.mode === "custom" && !customApiKey) {
@@ -101,7 +113,7 @@ export function useGeneration(conversationId: string | null, opts: UseGeneration
       const gid = crypto.randomUUID();
       const now = new Date().toISOString();
       const title = req.prompt.slice(0, 20) || "新对话";
-      const turn = makeOptimisticTurn(gid, req, now, config);
+      const turn = makeOptimisticTurn(gid, req, now, config, options.source);
       beginEnqueue(qc, gid);
 
       // 乐观写会话详情缓存（新建=造一条；续聊=追加一轮）。
@@ -122,9 +134,9 @@ export function useGeneration(conversationId: string | null, opts: UseGeneration
       void (async () => {
         try {
           let inputImageKey: string | undefined;
-          if (file) {
+          if (options.file) {
             const fd = new FormData();
-            fd.append("file", file);
+            fd.append("file", options.file);
             const up = await apiPostForm("/api/uploads", fd, UploadResponse);
             inputImageKey = up.inputImageKey;
           }
@@ -137,6 +149,7 @@ export function useGeneration(conversationId: string | null, opts: UseGeneration
               conversationId: cid,
               generationId: gid,
               inputImageKey,
+              ...(options.source ? { sourceImageId: options.source.sourceImageId } : {}),
             },
             GenerateAcceptedResponse,
           );
@@ -156,7 +169,7 @@ export function useGeneration(conversationId: string | null, opts: UseGeneration
                 }
               : old,
           );
-          onAccepted?.();
+          options.onAccepted?.(accepted);
           // 服务端已建会话 + queued 行（同 cid/gid）→ 拉真数据校正缓存 + 刷新侧栏。
           qc.invalidateQueries({ queryKey: ["conversation", accepted.conversationId] });
           qc.invalidateQueries({ queryKey: ["conversations"] });

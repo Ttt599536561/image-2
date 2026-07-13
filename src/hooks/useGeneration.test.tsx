@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConversationDetail } from "../contracts/conversation";
-import type { GenerateAccepted } from "../contracts/generate";
+import type { GenerateAccepted, SourceImageSummary } from "../contracts/generate";
 import type { MeResponse } from "../contracts/me";
 import { ApiError } from "../lib/api-client";
 import { useGeneration } from "./useGeneration";
@@ -19,14 +19,14 @@ vi.mock("../lib/api-client", async () => ({
 
 const params = { prompt: "hook prompt", size: "auto" as const, quality: "auto" as const };
 
-function setup(onError?: (error: ApiError) => void) {
+function setup(onError?: (error: ApiError) => void, conversationId: string | null = null) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const wrapper = ({ children }: { children: ReactNode }) => (
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>{children}</MemoryRouter>
     </QueryClientProvider>
   );
-  return { queryClient, ...renderHook(() => useGeneration(null, { onError }), { wrapper }) };
+  return { queryClient, ...renderHook(() => useGeneration(conversationId, { onError }), { wrapper }) };
 }
 
 describe("useGeneration credential snapshot", () => {
@@ -49,8 +49,7 @@ describe("useGeneration credential snapshot", () => {
       result.current.submit(
         params,
         { mode: "custom", apiKey: "fictional-hook-value" },
-        null,
-        onAccepted,
+        { onAccepted },
       );
     });
     expect(onAccepted).not.toHaveBeenCalled();
@@ -70,7 +69,7 @@ describe("useGeneration credential snapshot", () => {
       deadlineAt: "2026-07-11T12:05:00.000Z",
     };
     resolveAccepted(accepted);
-    await waitFor(() => expect(onAccepted).toHaveBeenCalledOnce());
+    await waitFor(() => expect(onAccepted).toHaveBeenCalledWith(accepted));
     const cached = queryClient.getQueryData<ConversationDetail>([
       "conversation",
       accepted.conversationId,
@@ -95,6 +94,80 @@ describe("useGeneration credential snapshot", () => {
     const requestBody = mocks.apiPost.mock.calls.at(-1)?.[1] as Record<string, unknown>;
     expect(requestBody.credentialMode).toBe("system");
     expect(requestBody).not.toHaveProperty("customApiKey");
+  });
+
+  it("sends only the source id while preserving the safe summary in the optimistic turn", async () => {
+    const conversationId = "00000000-0000-4000-8000-000000000020";
+    const sourceImageId = "00000000-0000-4000-8000-000000000021";
+    const sourceImage: SourceImageSummary = {
+      id: sourceImageId,
+      publicUrl: "/media/user/source.png",
+      width: 1024,
+      height: 1024,
+    };
+    let resolveAccepted!: (value: GenerateAccepted) => void;
+    mocks.apiPost.mockReturnValueOnce(
+      new Promise<GenerateAccepted>((resolve) => {
+        resolveAccepted = resolve;
+      }),
+    );
+    const onAccepted = vi.fn();
+    const { result, queryClient } = setup(undefined, conversationId);
+    queryClient.setQueryData<ConversationDetail>(["conversation", conversationId], {
+      id: conversationId,
+      title: "existing",
+      createdAt: "2026-07-11T12:00:00.000Z",
+      updatedAt: "2026-07-11T12:00:00.000Z",
+      generations: [
+        {
+          id: "00000000-0000-4000-8000-000000000022",
+          prompt: "source",
+          size: "1024x1024",
+          quality: "auto",
+          background: "auto",
+          credentialMode: "system",
+          deadlineAt: "2026-07-11T12:05:00.000Z",
+          sourceImageId: null,
+          sourceImage: null,
+          status: "succeeded",
+          errorCode: null,
+          error: null,
+          httpStatus: null,
+          creditsChargedMp: 70,
+          durationMs: 1_000,
+          createdAt: "2026-07-11T12:00:00.000Z",
+          image: { ...sourceImage, savedToLibrary: false },
+        },
+      ],
+    });
+
+    act(() => {
+      result.current.submit(params, { mode: "system", apiKey: "unused" }, {
+        source: { sourceImageId, sourceImage },
+        onAccepted,
+      });
+    });
+
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledOnce());
+    const requestBody = mocks.apiPost.mock.calls[0][1] as Record<string, unknown>;
+    expect(requestBody).toMatchObject({ sourceImageId, credentialMode: "system" });
+    expect(requestBody).not.toHaveProperty("sourceImage");
+    expect(JSON.stringify(requestBody)).not.toContain(sourceImage.publicUrl);
+    expect(mocks.apiPostForm).not.toHaveBeenCalled();
+    expect(
+      queryClient.getQueryData<ConversationDetail>(["conversation", conversationId])?.generations.at(-1),
+    ).toMatchObject({ sourceImageId, sourceImage });
+    expect(onAccepted).not.toHaveBeenCalled();
+
+    const accepted: GenerateAccepted = {
+      generationId: String(requestBody.generationId),
+      conversationId,
+      status: "queued",
+      credentialMode: "system",
+      deadlineAt: "2026-07-11T12:05:00.000Z",
+    };
+    resolveAccepted(accepted);
+    await waitFor(() => expect(onAccepted).toHaveBeenCalledWith(accepted));
   });
 
   it("fully rolls back a new optimistic conversation when custom mode is disabled", async () => {
