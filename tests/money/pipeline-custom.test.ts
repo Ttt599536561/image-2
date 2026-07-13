@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PutResult } from "../../src/server/r2.server";
 import { deleteFromR2 } from "../../src/server/r2.server";
@@ -115,6 +116,44 @@ describe("custom generation pipeline", () => {
     expect(outcome).toBe("succeeded");
     expect(await ctx.balanceMp(userId)).toBe(0);
     expect(await ctx.ledger(userId, "debit")).toHaveLength(0);
+  });
+
+  it("uses a stored conversation source while leaving nonzero site funds unchanged", async () => {
+    const userId = await ctx.createUser({ balanceMp: 500 });
+    await ctx.addLot(userId, 500);
+    const source = await ctx.createGeneration(userId, { status: "succeeded" });
+    const sourceImageId = randomUUID();
+    const sourceStorageKey = `sources/${sourceImageId}.png`;
+    await ctx.sql`INSERT INTO images(id,generation_id,user_id,storage_key,public_url,width,height)
+                  VALUES(${sourceImageId},${source.generationId},${userId},${sourceStorageKey},${`/media/${sourceStorageKey}`},1,1)`;
+    const generationId = await createCustom(userId);
+    await ctx.sql`UPDATE generations SET source_image_id=${sourceImageId} WHERE id=${generationId}`;
+    const lotsBefore = await ctx.lots(userId);
+
+    const outcome = await runGenerationJob(generationId, {
+      getStoredImageObject: async (storageKey: string) => {
+        expect(storageKey).toBe(sourceStorageKey);
+        return {
+          bytes: new Uint8Array([1, 2, 3]),
+          contentType: "image/png",
+          filename: "source.png",
+        };
+      },
+      callRelay: async (request) => {
+        expect(request.inputImage).toBeTruthy();
+        expect(request.credential).toEqual({ mode: "custom", apiKey });
+        return { images: [{ b64_json: "aGVsbG8=" }] };
+      },
+      putToR2: storage,
+    });
+
+    expect(outcome).toBe("succeeded");
+    expect(Number((await ctx.gen(generationId))?.credits_charged_mp)).toBe(0);
+    expect(await ctx.balanceMp(userId)).toBe(500);
+    expect(await ctx.lots(userId)).toEqual(lotsBefore);
+    expect(await ctx.ledger(userId, "debit")).toHaveLength(0);
+    expect(await ctx.images(source.generationId)).toHaveLength(1);
+    expect(await ctx.images(generationId)).toHaveLength(1);
   });
 
   it.each([

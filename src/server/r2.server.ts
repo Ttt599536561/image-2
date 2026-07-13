@@ -248,21 +248,28 @@ export async function putUserUpload(args: {
   return { storageKey, publicUrl: publicUrl(storageKey) };
 }
 
-/** 回读上传对象字节（管线 callRelay 走 /images/edits 前取参考图字节，经 S3 GetObject、不依赖公链可达）。 */
-export async function getUploadObject(
+/** 服务端按已校验的 storage key 回读图片字节；不依赖公链，也不接受浏览器 URL。 */
+export async function getStoredImageObject(
   storageKey: string,
 ): Promise<{ bytes: Uint8Array; contentType: string; filename: string }> {
   if (isLocalStorageEnabled()) return readLocalStorageObject(storageKey);
   const res = await getR2Client().send(
     new GetObjectCommand({ Bucket: env("STORAGE_BUCKET"), Key: storageKey }),
   );
-  if (!res.Body) throw new Error(`[storage] 上传对象为空：${storageKey}`);
+  if (!res.Body) throw new Error(`[storage] 图片对象为空：${storageKey}`);
   const bytes = new Uint8Array(await res.Body.transformToByteArray());
   return {
     bytes,
     contentType: res.ContentType ?? "image/png",
     filename: storageKey.split("/").pop() || "input.png",
   };
+}
+
+/** 回读临时上传参考图，保留既有调用签名。 */
+export async function getUploadObject(
+  storageKey: string,
+): Promise<{ bytes: Uint8Array; contentType: string; filename: string }> {
+  return getStoredImageObject(storageKey);
 }
 
 /** 删单个对象（清理 cron 单 key 失败兜底，§7.5）。 */

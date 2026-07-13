@@ -9,7 +9,11 @@ import { alert } from "../alert.server";
 import { incCallIfUnderCap, incMs, markBudgetAlertedOnce } from "../budget.server";
 import { chargeOnSuccess } from "../money/debit.server";
 import { claim, markRunning } from "../money/preempt.server";
-import { getUploadObject as realGetUploadObject, putToR2 as realPutToR2 } from "../r2.server";
+import {
+  getStoredImageObject as realGetStoredImageObject,
+  getUploadObject as realGetUploadObject,
+  putToR2 as realPutToR2,
+} from "../r2.server";
 import { RelayError, callRelay as realCallRelay, type RelayCredential } from "../relay";
 import { deleteGenerationCredential, loadCustomApiKey } from "./credential.server";
 import { normalizeFailure } from "./failure";
@@ -19,9 +23,16 @@ export interface ProcessDeps {
   callRelay?: typeof realCallRelay;
   putToR2?: typeof realPutToR2;
   getUploadObject?: typeof realGetUploadObject; // ④b：回读参考图字节（测试可桩，免烧 Supabase）
+  getStoredImageObject?: typeof realGetStoredImageObject; // 对话编辑：只读 DB 中权威 storage key
 }
 
 export type ProcessOutcome = "lost" | "budget_exhausted" | "succeeded" | "failed";
+
+function sourceImageUnavailable(): Error & { failureCode: "source_image_unavailable" } {
+  return Object.assign(new Error("这张图片已不可编辑"), {
+    failureCode: "source_image_unavailable" as const,
+  });
+}
 
 /**
  * 消费单个 generation（幂等，可被 worker 重领或 scheduler 重扫多次安全调用）。
@@ -31,6 +42,7 @@ export async function runGenerationJob(generationId: string, deps: ProcessDeps =
   const callRelay = deps.callRelay ?? realCallRelay;
   const putToR2 = deps.putToR2 ?? realPutToR2;
   const getUploadObject = deps.getUploadObject ?? realGetUploadObject;
+  const getStoredImageObject = deps.getStoredImageObject ?? realGetStoredImageObject;
   const sql = getSql();
 
   // ① 抢占（铁律③）：queued→claimed。抢不到（重试/重扫/已终态）→ 立即退，不调中转、不扣费。
@@ -45,6 +57,26 @@ export async function runGenerationJob(generationId: string, deps: ProcessDeps =
   try {
     if (g.credentialMode === "custom") {
       credential = { mode: "custom", apiKey: await loadCustomApiKey(generationId) };
+    }
+
+    let inputImage: Awaited<ReturnType<typeof realGetUploadObject>> | null = null;
+    let fetchInputMs = 0;
+    if (g.inputImageKey && g.sourceImageId) throw sourceImageUnavailable();
+    if (g.sourceImageId) {
+      const tf = Date.now();
+      const [source] = await sql`
+        SELECT i.storage_key
+          FROM images i
+          JOIN generations sg ON sg.id=i.generation_id
+         WHERE i.id=${g.sourceImageId} AND i.user_id=${g.userId}
+           AND sg.user_id=${g.userId} AND sg.status='succeeded'`;
+      if (!source) throw sourceImageUnavailable();
+      try {
+        inputImage = await getStoredImageObject(String(source.storage_key));
+      } catch {
+        throw sourceImageUnavailable();
+      }
+      fetchInputMs = Date.now() - tf;
     }
 
     // 只有 system 消耗本站共享中转预算；custom 使用用户自己的凭据和固定目标。
@@ -66,8 +98,6 @@ export async function runGenerationJob(generationId: string, deps: ProcessDeps =
 
     // ④b 图生图：有参考图 key → 回读字节，传给 callRelay 走 /images/edits multipart（无则文生图）。
     // 回读失败（参考图已被孤儿清理/存储故障，罕见）→ 友好归一为 invalid_request、不扣费（在扣费事务前）。
-    let inputImage: Awaited<ReturnType<typeof realGetUploadObject>> | null = null;
-    let fetchInputMs = 0;
     if (g.inputImageKey) {
       const tf = Date.now();
       try {
@@ -107,7 +137,7 @@ export async function runGenerationJob(generationId: string, deps: ProcessDeps =
     const putMs = Date.now() - tPut;
     // 可观测：每张图的耗时拆分（定位瓶颈在中转响应还是落图上传；本机跨境会偏大，线上美西机房快）。
     console.log(
-      `[gen-timing] ${generationId} ${g.inputImageKey ? "i2i" : "t2i"} fetchInput=${fetchInputMs}ms relay=${relayMs}ms putToR2=${putMs}ms total=${Date.now() - t0}ms`,
+      `[gen-timing] ${generationId} ${g.sourceImageId ? "edit" : g.inputImageKey ? "i2i" : "t2i"} fetchInput=${fetchInputMs}ms relay=${relayMs}ms putToR2=${putMs}ms total=${Date.now() - t0}ms`,
     );
 
     const finalizeInput = {

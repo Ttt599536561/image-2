@@ -14,6 +14,7 @@ export interface ClaimedGeneration {
   quality: string | null;
   background: string | null;
   inputImageKey: string | null; // ④b 图生图：有值 → callRelay 走 /images/edits
+  sourceImageId: string | null; // 对话结果图编辑：worker 按 owner 重新查询来源 storage key
   credentialMode: "system" | "custom";
   deadlineAt: Date;
 }
@@ -32,7 +33,8 @@ export async function claim(generationId: string, tag: string = workerTag()): Pr
   const rows = await sql`
     UPDATE generations SET status='claimed', job_id=${tag}, updated_at=now()
     WHERE id=${generationId} AND status='queued' AND deadline_at>now()
-    RETURNING id, user_id, prompt, size, quality, background, input_image_key, credential_mode, deadline_at`;
+    RETURNING id, user_id, prompt, size, quality, background, input_image_key, source_image_id,
+              credential_mode, deadline_at`;
   if (rows.length === 0) return null;
   const r = rows[0];
   return {
@@ -43,6 +45,7 @@ export async function claim(generationId: string, tag: string = workerTag()): Pr
     quality: (r.quality as string | null) ?? null,
     background: (r.background as string | null) ?? null,
     inputImageKey: (r.input_image_key as string | null) ?? null,
+    sourceImageId: (r.source_image_id as string | null) ?? null,
     credentialMode: r.credential_mode as "system" | "custom",
     deadlineAt: new Date(r.deadline_at as string | Date),
   };

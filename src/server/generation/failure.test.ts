@@ -5,6 +5,17 @@ import { normalizeFailure } from "./failure";
 const error = (message: string, httpStatus?: number) => Object.assign(new Error(message), { httpStatus });
 
 describe("mode-aware failure mapping", () => {
+  it("preserves the stable source image unavailable failure", () => {
+    expect(
+      normalizeFailure(
+        Object.assign(new Error("这张图片已不可编辑"), {
+          failureCode: "source_image_unavailable" as const,
+        }),
+        { mode: "system", secrets: [] },
+      ),
+    ).toMatchObject({ code: "source_image_unavailable", message: "这张图片已不可编辑" });
+  });
+
   it.each([
     ["custom", error("bad credentials", 401), "custom_key_invalid"],
     ["custom", error("insufficient_quota", 402), "custom_key_quota"],

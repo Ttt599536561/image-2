@@ -1,5 +1,6 @@
 // 后台生图编排真库用例（04 §5.3 / §11.10）：抢占→预算硬闸→[桩 relay]→[桩 putToR2]→扣费→终态。
 // 注入 callRelay/putToR2 桩，免烧中转/Supabase（二者已各自冒烟验过）；只验 DB-as-queue 编排 + 成功才扣 + 幂等。
+import { randomUUID } from "node:crypto";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { PutResult } from "../../src/server/r2.server";
 import { budgetTodayKey } from "../../src/server/budget.server";
@@ -25,6 +26,25 @@ const stubDeps = (): ProcessDeps => ({
     sizeBytes: 70,
   }),
 });
+
+async function createStoredSource(userId: string): Promise<{
+  generationId: string;
+  imageId: string;
+  storageKey: string;
+}> {
+  const source = await ctx.createGeneration(userId, { status: "succeeded" });
+  const imageId = randomUUID();
+  const storageKey = `sources/${imageId}.png`;
+  await ctx.sql`INSERT INTO images(id,generation_id,user_id,storage_key,public_url,content_type,width,height,size_bytes)
+                VALUES(${imageId},${source.generationId},${userId},${storageKey},${`/media/${storageKey}`},'image/png',1,1,68)`;
+  return { generationId: source.generationId, imageId, storageKey };
+}
+
+async function createSourceEdit(userId: string, sourceImageId: string): Promise<string> {
+  const child = await ctx.createGeneration(userId, { status: "queued" });
+  await ctx.sql`UPDATE generations SET source_image_id=${sourceImageId} WHERE id=${child.generationId}`;
+  return child.generationId;
+}
 
 let ctx: TestCtx;
 let PRICE = 70; // 当前生效单图价（mp），beforeAll 读取，断言据此算
@@ -169,6 +189,100 @@ describe("后台生图编排（runGenerationJob）", () => {
     const g = await ctx.gen(generationId);
     expect(g?.error_code).toBe("invalid_request");
     expect(await ctx.balanceMp(uid)).toBe(140); // 未扣
+  });
+
+  it("对话结果编辑：服务端来源字节走 edits，原图保留且 system 只扣一次", async () => {
+    const uid = await ctx.createUser({ balanceMp: PRICE * 2 });
+    await ctx.addLot(uid, PRICE * 2, { source: "signup" });
+    const source = await createStoredSource(uid);
+    const generationId = await createSourceEdit(uid, source.imageId);
+    let readKey: string | null = null;
+    let sawInput = false;
+
+    const outcome = await runGenerationJob(generationId, {
+      getStoredImageObject: async (storageKey: string) => {
+        readKey = storageKey;
+        return {
+          bytes: new Uint8Array([1, 2, 3]),
+          contentType: "image/png",
+          filename: "source.png",
+        };
+      },
+      callRelay: async (request) => {
+        sawInput = Boolean(request.inputImage);
+        return { images: [{ b64_json: TINY_PNG_B64 }] };
+      },
+      putToR2: async (_userId, childId): Promise<PutResult> => ({
+        storageKey: `mtest/${childId}.png`,
+        publicUrl: `https://img.test/${childId}.png`,
+        contentType: "image/png",
+        width: 1,
+        height: 1,
+        sizeBytes: 70,
+      }),
+    });
+
+    expect(outcome).toBe("succeeded");
+    expect(readKey).toBe(source.storageKey);
+    expect(sawInput).toBe(true);
+    expect(await ctx.images(source.generationId)).toHaveLength(1);
+    expect(await ctx.images(generationId)).toHaveLength(1);
+    expect(Number((await ctx.gen(generationId))?.credits_charged_mp)).toBe(PRICE);
+    expect(await ctx.balanceMp(uid)).toBe(PRICE);
+    expect(Number((await ctx.lots(uid))[0]?.remaining_mp)).toBe(PRICE);
+    const debits = await ctx.ledger(uid, "debit");
+    expect(debits).toHaveLength(1);
+    expect(debits[0]).toMatchObject({ ref_id: generationId });
+    expect(Number(debits[0].amount_mp)).toBe(PRICE);
+    expect(Number(debits[0].balance_after_mp)).toBe(PRICE);
+  });
+
+  it("对话结果编辑：来源记录在入队后删除时明确失败且不扣费", async () => {
+    const uid = await ctx.createUser({ balanceMp: PRICE * 2 });
+    await ctx.addLot(uid, PRICE * 2, { source: "signup" });
+    const source = await createStoredSource(uid);
+    const generationId = await createSourceEdit(uid, source.imageId);
+    await ctx.sql`DELETE FROM images WHERE id=${source.imageId}`;
+    let relayCalled = false;
+
+    expect(
+      await runGenerationJob(generationId, {
+        callRelay: async () => {
+          relayCalled = true;
+          return { images: [{ b64_json: TINY_PNG_B64 }] };
+        },
+      }),
+    ).toBe("failed");
+    expect(relayCalled).toBe(false);
+    expect((await ctx.gen(generationId))?.error_code).toBe("source_image_unavailable");
+    expect(await ctx.images(generationId)).toHaveLength(0);
+    expect(await ctx.balanceMp(uid)).toBe(PRICE * 2);
+    expect(await ctx.ledger(uid, "debit")).toHaveLength(0);
+  });
+
+  it("对话结果编辑：来源对象不可读时明确失败且不扣费", async () => {
+    const uid = await ctx.createUser({ balanceMp: PRICE * 2 });
+    await ctx.addLot(uid, PRICE * 2, { source: "signup" });
+    const source = await createStoredSource(uid);
+    const generationId = await createSourceEdit(uid, source.imageId);
+    let relayCalled = false;
+
+    expect(
+      await runGenerationJob(generationId, {
+        getStoredImageObject: async () => {
+          throw new Error("NoSuchKey");
+        },
+        callRelay: async () => {
+          relayCalled = true;
+          return { images: [{ b64_json: TINY_PNG_B64 }] };
+        },
+      }),
+    ).toBe("failed");
+    expect(relayCalled).toBe(false);
+    expect((await ctx.gen(generationId))?.error_code).toBe("source_image_unavailable");
+    expect(await ctx.images(generationId)).toHaveLength(0);
+    expect(await ctx.balanceMp(uid)).toBe(PRICE * 2);
+    expect(await ctx.ledger(uid, "debit")).toHaveLength(0);
   });
 
   it("中转失败：归一化 failed、未扣费、无 image", async () => {

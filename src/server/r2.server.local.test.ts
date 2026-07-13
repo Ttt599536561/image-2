@@ -20,6 +20,7 @@ import {
   putUserUpload,
   storageKeyFromPublicUrl,
 } from "./r2.server";
+import * as r2Storage from "./r2.server";
 
 const ONE_PIXEL_PNG = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
@@ -72,6 +73,27 @@ describe("disposable local object storage", () => {
 
     const stored = await readLocalStorageObject(result.storageKey);
     expect(Buffer.from(stored.bytes)).toEqual(ONE_PIXEL_PNG);
+  });
+
+  it("reads a generated image through the generic server storage adapter", async () => {
+    const result = await putToR2("user-id", "generation-id", {
+      b64_json: ONE_PIXEL_PNG.toString("base64"),
+    });
+    const reader = (
+      r2Storage as typeof r2Storage & {
+        getStoredImageObject?: (storageKey: string) => Promise<{
+          bytes: Uint8Array;
+          contentType: string;
+          filename: string;
+        }>;
+      }
+    ).getStoredImageObject;
+
+    expect(reader).toBeTypeOf("function");
+    if (!reader) return;
+    const loaded = await reader(result.storageKey);
+    expect(Buffer.from(loaded.bytes)).toEqual(ONE_PIXEL_PNG);
+    expect(loaded.contentType).toBe("image/png");
   });
 
   it("round-trips and deletes reference uploads without S3 credentials", async () => {
