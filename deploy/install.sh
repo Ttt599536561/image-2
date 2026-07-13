@@ -410,7 +410,7 @@ preflight_common() {
   fi
 
   local os_release_file="${INSTALL_OS_RELEASE_FILE:-/etc/os-release}"
-  [[ -f "$os_release_file" && ! -L "$os_release_file" ]] || {
+  [[ -f "$os_release_file" && -r "$os_release_file" ]] || {
     die "无法读取系统信息：$os_release_file"
     return 1
   }
