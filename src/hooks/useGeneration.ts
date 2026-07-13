@@ -205,7 +205,17 @@ export function useGeneration(conversationId: string | null, opts: UseGeneration
                 ? {
                     ...old,
                     generations: old.generations.map((g) =>
-                      g.id === gid ? { ...g, status: "failed", errorCode: null, error: err.message } : g,
+                      g.id === gid
+                        ? {
+                            ...g,
+                            status: "failed",
+                            errorCode:
+                              err.code === "SOURCE_IMAGE_UNAVAILABLE"
+                                ? "source_image_unavailable"
+                                : null,
+                            error: err.message,
+                          }
+                        : g,
                     ),
                   }
                 : old,

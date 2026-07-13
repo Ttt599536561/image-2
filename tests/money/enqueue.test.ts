@@ -2,6 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { budgetTodayKey } from "../../src/server/budget.server";
+import { getPool, type DbPoolClient } from "../../src/db/db.server";
 import { enqueueGeneration } from "../../src/server/generation/enqueue";
 import { loadGenerationStatuses } from "../../src/server/generation/status.server";
 import { loadConversationDetail } from "../../src/server/reads.server";
@@ -25,6 +26,46 @@ async function sourceFailure(p: Promise<unknown>): Promise<{ status: number; cod
     const payload = (await error.json()) as { error: { code: string } };
     return { status: error.status, code: payload.error.code };
   }
+}
+
+async function waitForAccountLockWait(observer: DbPoolClient): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    const result = await observer.query<{ waiting: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+           FROM pg_stat_activity
+          WHERE datname=current_database()
+            AND wait_event_type='Lock'
+            AND query LIKE '%SELECT balance_mp FROM credit_accounts%'
+       ) AS waiting`,
+    );
+    if (result.rows[0]?.waiting) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("enqueue did not reach the account lock wait");
+}
+
+async function waitForDeleteToSettleOrBlock(
+  observer: DbPoolClient,
+  isSettled: () => boolean,
+): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    if (isSettled()) return;
+    const result = await observer.query<{ waiting: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+           FROM pg_stat_activity
+          WHERE datname=current_database()
+            AND wait_event_type='Lock'
+            AND query LIKE 'DELETE FROM conversations%'
+       ) AS waiting`,
+    );
+    if (result.rows[0]?.waiting) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error("conversation deletion neither settled nor reached a lock wait");
 }
 
 async function createSourceImage(
@@ -145,6 +186,79 @@ describe("入队三闸（enqueue）", () => {
     expect(await ctx.sql`SELECT id FROM images WHERE id=${source.imageId}`).toHaveLength(1);
     expect(await ctx.balanceMp(uid)).toBe(PRICE);
     expect(await ctx.ledger(uid, "debit")).toHaveLength(0);
+  });
+
+  it("对话结果编辑：并发删除会话不会与来源校验形成死锁", async () => {
+    const uid = await ctx.createUser({ balanceMp: PRICE });
+    await ctx.addLot(uid, PRICE, { source: "signup" });
+    const source = await createSourceImage(uid);
+    const pool = getPool();
+    const accountLocker = await pool.connect();
+    const deleter = await pool.connect();
+    const observer = await pool.connect();
+
+    try {
+      await accountLocker.query("BEGIN");
+      await accountLocker.query(
+        "SELECT balance_mp FROM credit_accounts WHERE user_id=$1 FOR UPDATE",
+        [uid],
+      );
+
+      const enqueuePromise = enqueueGeneration({
+        user: { id: uid, maxConcurrency: 2 },
+        input: {
+          prompt: "edit during deletion",
+          size: "auto",
+          conversationId: source.conversationId,
+          sourceImageId: source.imageId,
+          credentialMode: "system",
+        },
+      });
+      await waitForAccountLockWait(observer);
+
+      let deleteSettled = false;
+      const deletePromise = (async () => {
+        try {
+          await deleter.query("BEGIN");
+          await deleter.query("SET LOCAL deadlock_timeout='100ms'");
+          const result = await deleter.query(
+            "DELETE FROM conversations WHERE id=$1 AND user_id=$2 RETURNING id",
+            [source.conversationId, uid],
+          );
+          await deleter.query("COMMIT");
+          return result;
+        } catch (error) {
+          await deleter.query("ROLLBACK").catch(() => undefined);
+          throw error;
+        }
+      })().finally(() => {
+        deleteSettled = true;
+      });
+
+      await waitForDeleteToSettleOrBlock(observer, () => deleteSettled);
+      await accountLocker.query("COMMIT");
+
+      const [enqueueOutcome, deleteOutcome] = await Promise.allSettled([
+        enqueuePromise,
+        deletePromise,
+      ]);
+      expect(deleteOutcome.status).toBe("fulfilled");
+      expect(enqueueOutcome.status).toBe("rejected");
+      if (enqueueOutcome.status === "rejected") {
+        expect(enqueueOutcome.reason).toBeInstanceOf(Response);
+        await expect(sourceFailure(Promise.reject(enqueueOutcome.reason))).resolves.toEqual({
+          status: 404,
+          code: "SOURCE_IMAGE_UNAVAILABLE",
+        });
+      }
+      expect(await ctx.sql`SELECT id FROM conversations WHERE id=${source.conversationId}`).toHaveLength(0);
+    } finally {
+      await accountLocker.query("ROLLBACK").catch(() => undefined);
+      await deleter.query("ROLLBACK").catch(() => undefined);
+      accountLocker.release();
+      deleter.release();
+      observer.release();
+    }
   });
 
   it("对话结果编辑：会话与状态读取返回安全来源摘要并保留已删除来源 ID", async () => {

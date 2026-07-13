@@ -38,6 +38,27 @@ export interface EnqueueResult {
 
 type PersistableEnqueueRequest = Omit<EnqueueRequest, "customApiKey" | "generationId">;
 
+async function assertEditableSource(
+  c: TxClient,
+  sourceImageId: string,
+  userId: string,
+  conversationId: string,
+  lock: boolean,
+): Promise<void> {
+  const source = await c.query(
+    `SELECT i.id
+       FROM images i
+       JOIN generations sg ON sg.id=i.generation_id
+      WHERE i.id=$1 AND i.user_id=$2 AND sg.user_id=$2
+        AND sg.status='succeeded' AND sg.conversation_id=$3
+      ${lock ? "FOR SHARE OF i,sg" : ""}`,
+    [sourceImageId, userId, conversationId],
+  );
+  if (source.rowCount !== 1) {
+    throw httpError(404, "SOURCE_IMAGE_UNAVAILABLE", "这张图片已不可编辑");
+  }
+}
+
 async function run(
   c: TxClient,
   user: EnqueueUser,
@@ -59,18 +80,8 @@ async function run(
     if (!input.conversationId) {
       throw httpError(404, "SOURCE_IMAGE_UNAVAILABLE", "这张图片已不可编辑");
     }
-    const source = await c.query(
-      `SELECT i.id
-         FROM images i
-         JOIN generations sg ON sg.id=i.generation_id
-        WHERE i.id=$1 AND i.user_id=$2 AND sg.user_id=$2
-          AND sg.status='succeeded' AND sg.conversation_id=$3
-        FOR SHARE OF i,sg`,
-      [sourceImageId, user.id, input.conversationId],
-    );
-    if (source.rowCount !== 1) {
-      throw httpError(404, "SOURCE_IMAGE_UNAVAILABLE", "这张图片已不可编辑");
-    }
+    // 先无锁校验，确保伪造/越权来源在余额、并发和预算闸之前统一拒绝。
+    await assertEditableSource(c, sourceImageId, user.id, input.conversationId, false);
   }
 
   if (input.credentialMode === "system") {
@@ -108,19 +119,37 @@ async function run(
   // 通过 → 建会话（如新）+ INSERT generations(queued)。
   let conversationId = input.conversationId;
   if (conversationId) {
-    // 客户端提供 id（乐观立即跳转）：既有则复用、不存在则用此 id 新建——单条 owner-safe upsert。
-    // ON CONFLICT DO UPDATE 的 WHERE 限本人：他人占用该 id → 不更新、无 RETURNING → 404（防越权挂别人会话）。
-    // 既有会话只 bump updated_at、不改 title（续聊不应改名）；新建才落 title。
-    const title = input.prompt.slice(0, 20);
-    const r = await c.query(
-      `INSERT INTO conversations(id, user_id, title) VALUES($1,$2,$3)
-       ON CONFLICT (id) DO UPDATE SET updated_at=now()
-       WHERE conversations.user_id=$2
-       RETURNING id`,
-      [conversationId, user.id, title],
-    );
-    if (r.rowCount === 0) throw httpError(404, "NOT_FOUND", "会话不存在");
-    conversationId = r.rows[0].id as string;
+    let resolvedConversationId: string;
+    if (sourceImageId) {
+      // 编辑只能续接既有会话。先锁 conversation，再锁来源 generation/image，
+      // 与会话级联删除保持同一锁序，避免并发删除形成锁环。
+      const r = await c.query(
+        `UPDATE conversations SET updated_at=now()
+          WHERE id=$1 AND user_id=$2
+          RETURNING id`,
+        [conversationId, user.id],
+      );
+      if (r.rowCount === 0) {
+        throw httpError(404, "SOURCE_IMAGE_UNAVAILABLE", "这张图片已不可编辑");
+      }
+      await assertEditableSource(c, sourceImageId, user.id, conversationId, true);
+      resolvedConversationId = r.rows[0].id as string;
+    } else {
+      // 客户端提供 id（乐观立即跳转）：既有则复用、不存在则用此 id 新建——单条 owner-safe upsert。
+      // ON CONFLICT DO UPDATE 的 WHERE 限本人：他人占用该 id → 不更新、无 RETURNING → 404（防越权挂别人会话）。
+      // 既有会话只 bump updated_at、不改 title（续聊不应改名）；新建才落 title。
+      const title = input.prompt.slice(0, 20);
+      const r = await c.query(
+        `INSERT INTO conversations(id, user_id, title) VALUES($1,$2,$3)
+         ON CONFLICT (id) DO UPDATE SET updated_at=now()
+         WHERE conversations.user_id=$2
+         RETURNING id`,
+        [conversationId, user.id, title],
+      );
+      if (r.rowCount === 0) throw httpError(404, "NOT_FOUND", "会话不存在");
+      resolvedConversationId = r.rows[0].id as string;
+    }
+    conversationId = resolvedConversationId;
   } else {
     const title = input.prompt.slice(0, 20);
     const conv = await c.query("INSERT INTO conversations(user_id, title) VALUES($1,$2) RETURNING id", [user.id, title]);

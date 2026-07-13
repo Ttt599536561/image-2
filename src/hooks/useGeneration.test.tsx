@@ -170,6 +170,45 @@ describe("useGeneration credential snapshot", () => {
     await waitFor(() => expect(onAccepted).toHaveBeenCalledWith(accepted));
   });
 
+  it("maps an unavailable edit source onto the optimistic failed turn", async () => {
+    const conversationId = "00000000-0000-4000-8000-000000000030";
+    const sourceImageId = "00000000-0000-4000-8000-000000000031";
+    const sourceImage: SourceImageSummary = {
+      id: sourceImageId,
+      publicUrl: "/media/user/source.png",
+      width: 1024,
+      height: 1024,
+    };
+    mocks.apiPost.mockRejectedValueOnce(
+      new ApiError(404, "SOURCE_IMAGE_UNAVAILABLE", "这张图片已不可编辑"),
+    );
+    const { result, queryClient } = setup(undefined, conversationId);
+    queryClient.setQueryData<ConversationDetail>(["conversation", conversationId], {
+      id: conversationId,
+      title: "existing",
+      createdAt: "2026-07-11T12:00:00.000Z",
+      updatedAt: "2026-07-11T12:00:00.000Z",
+      generations: [],
+    });
+
+    act(() => {
+      result.current.submit(params, { mode: "system", apiKey: "" }, {
+        source: { sourceImageId, sourceImage },
+      });
+    });
+
+    await waitFor(() => {
+      expect(
+        queryClient.getQueryData<ConversationDetail>(["conversation", conversationId])
+          ?.generations.at(-1),
+      ).toMatchObject({
+        status: "failed",
+        errorCode: "source_image_unavailable",
+        error: "这张图片已不可编辑",
+      });
+    });
+  });
+
   it("fully rolls back a new optimistic conversation when custom mode is disabled", async () => {
     mocks.apiPost.mockRejectedValueOnce(
       new ApiError(503, "CUSTOM_KEY_MODES_DISABLED", "自定义 Key 模式暂不可用"),

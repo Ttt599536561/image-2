@@ -56,6 +56,7 @@ import styles from "./ConversationView.module.css";
 // 一轮生成（generations 行 + 可选 images 行），渲染单元（08 §9.4）。
 type Turn = ConversationGeneration;
 type EditDraft = {
+  conversationId: string;
   sourceImageId: string;
   sourceImage: SourceImageSummary;
   request: GenerateParams;
@@ -135,6 +136,7 @@ export function ConversationView({
 
   const [request, setRequest] = useState<GenerateParams>(EMPTY_REQUEST);
   const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
+  const activeEditDraft = editDraft?.conversationId === conversationId ? editDraft : null;
   const [inputImageFile, setInputImageFile] = useState<File | null>(null); // ④b 图生图参考图（用后即弃）
   const [panelOpen, setPanelOpen] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -169,6 +171,10 @@ export function ConversationView({
   const activeEnqueueIdSet = new Set(activeEnqueueIds);
 
   const lastTurn = turns[turns.length - 1];
+
+  useEffect(() => {
+    setEditDraft(null);
+  }, [conversationId]);
 
   const pendingTurns = turns.filter(
     (turn) => isGenerationPending(turn) && !missingTombstones.has(turn.id),
@@ -365,8 +371,9 @@ export function ConversationView({
   };
 
   const startEditing = (turn: Turn) => {
-    if (turn.status !== "succeeded" || !turn.image) return;
+    if (!conversationId || turn.status !== "succeeded" || !turn.image) return;
     setEditDraft({
+      conversationId,
       sourceImageId: turn.image.id,
       sourceImage: {
         id: turn.image.id,
@@ -385,8 +392,10 @@ export function ConversationView({
   };
 
   const setComposerRequest = (next: GenerateParams) => {
-    if (editDraft) {
-      setEditDraft((current) => (current ? { ...current, request: next } : current));
+    if (activeEditDraft) {
+      setEditDraft((current) =>
+        current?.conversationId === conversationId ? { ...current, request: next } : current,
+      );
       return;
     }
     setRequest(next);
@@ -410,11 +419,11 @@ export function ConversationView({
   };
 
   const onSubmit = () => {
-    if (editDraft) {
-      runGeneration(editDraft.request, {
+    if (activeEditDraft) {
+      runGeneration(activeEditDraft.request, {
         source: {
-          sourceImageId: editDraft.sourceImageId,
-          sourceImage: editDraft.sourceImage,
+          sourceImageId: activeEditDraft.sourceImageId,
+          sourceImage: activeEditDraft.sourceImage,
         },
         onAccepted: (accepted: GenerateAccepted) => {
           setEditDraft(null);
@@ -486,7 +495,7 @@ export function ConversationView({
 
   const composer = (
     <Composer
-      request={editDraft?.request ?? request}
+      request={activeEditDraft?.request ?? request}
       onChange={setComposerRequest}
       onSubmit={onSubmit}
       disabled={controlsDisabled}
@@ -497,9 +506,9 @@ export function ConversationView({
       pricePerImageMp={priceMp}
       variant={turns.length === 0 ? "full" : "compact"}
       textareaRef={textareaRef}
-      inputImageFile={editDraft ? null : inputImageFile}
-      onPickInputImage={editDraft ? undefined : onPickInputImage}
-      editSource={editDraft?.sourceImage ?? null}
+      inputImageFile={activeEditDraft ? null : inputImageFile}
+      onPickInputImage={activeEditDraft ? undefined : onPickInputImage}
+      editSource={activeEditDraft?.sourceImage ?? null}
       onCancelEdit={() => setEditDraft(null)}
     />
   );

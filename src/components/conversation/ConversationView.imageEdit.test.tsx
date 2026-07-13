@@ -1,8 +1,8 @@
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { createMemoryRouter, RouterProvider } from "react-router";
+import { createMemoryRouter, RouterProvider, useParams } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConversationDetail, ConversationGeneration } from "../../contracts/conversation";
 import type { MeResponse } from "../../contracts/me";
@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
 
 const userId = "00000000-0000-4000-8000-000000000001";
 const conversationId = "00000000-0000-4000-8000-000000000010";
+const secondConversationId = "00000000-0000-4000-8000-000000000018";
 const sourceGenerationId = "00000000-0000-4000-8000-000000000011";
 const sourceImageId = "00000000-0000-4000-8000-000000000012";
 const childGenerationId = "00000000-0000-4000-8000-000000000013";
@@ -218,6 +219,43 @@ function renderView(initialDetail = detail()) {
   return { client, router };
 }
 
+function renderSwitchableView() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } },
+  });
+  const details: Record<string, ConversationDetail> = {
+    [conversationId]: detail(false, false),
+    [secondConversationId]: {
+      ...detail(false, false),
+      id: secondConversationId,
+      title: "second conversation",
+      generations: [],
+    },
+  };
+  mocks.apiGet.mockImplementation(async (url: string) => {
+    const id = url.split("/").at(-1) ?? "";
+    return details[id];
+  });
+
+  function RoutedConversationView() {
+    const { id = "" } = useParams();
+    return (
+      <ConversationView
+        conversationId={id}
+        initialDetail={details[id]}
+        initialInspirations={[]}
+      />
+    );
+  }
+
+  const router = createMemoryRouter(
+    [{ path: "/c/:id", element: <RoutedConversationView /> }],
+    { initialEntries: [`/c/${conversationId}`] },
+  );
+  render(providers(client, <RouterProvider router={router} />));
+  return { client, router };
+}
+
 describe("conversation image text editing", () => {
   beforeEach(() => {
     localStorage.clear();
@@ -265,6 +303,21 @@ describe("conversation image text editing", () => {
     await user.click(screen.getByRole("button", { name: "取消编辑" }));
     expect(textarea).toHaveValue("ordinary draft");
     expect(screen.queryByText("正在编辑这张图")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "生成" })).toBeInTheDocument();
+  });
+
+  it("clears the edit source when navigating to another conversation", async () => {
+    const user = userEvent.setup();
+    const { router } = renderSwitchableView();
+
+    await user.click(await screen.findByRole("button", { name: "编辑图片" }));
+    expect(screen.getByText("正在编辑这张图")).toBeInTheDocument();
+
+    await act(async () => {
+      await router.navigate(`/c/${secondConversationId}`);
+    });
+
+    await waitFor(() => expect(screen.queryByText("正在编辑这张图")).not.toBeInTheDocument());
     expect(screen.getByRole("button", { name: "生成" })).toBeInTheDocument();
   });
 
