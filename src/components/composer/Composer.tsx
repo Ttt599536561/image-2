@@ -4,6 +4,7 @@ import {
   ChevronDown,
   Crop,
   ImagePlus,
+  Pencil,
   SlidersHorizontal,
   Sparkles,
   Wand2,
@@ -11,7 +12,13 @@ import {
 } from "lucide-react";
 import { type Ref, useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import type { Background, CredentialMode, GenerateParams, Quality } from "../../contracts/generate";
+import type {
+  Background,
+  CredentialMode,
+  GenerateParams,
+  Quality,
+  SourceImageSummary,
+} from "../../contracts/generate";
 import { UPLOAD_ACCEPT } from "../../contracts/upload";
 import { PRICE_PER_IMAGE_MP } from "../../lib/credits";
 import { formatCredits } from "../../lib/format";
@@ -40,6 +47,8 @@ export interface ComposerProps {
   // ④b 图生图：参考图（受控于父级；父级负责校验类型/大小并 toast）。null = 文生图。
   inputImageFile?: File | null;
   onPickInputImage?: (file: File | null) => void;
+  editSource?: SourceImageSummary | null;
+  onCancelEdit?: () => void;
 }
 
 export function Composer({
@@ -56,6 +65,8 @@ export function Composer({
   textareaRef,
   inputImageFile = null,
   onPickInputImage,
+  editSource = null,
+  onCancelEdit,
 }: ComposerProps) {
   const sizePop = usePopover();
   const advPop = usePopover();
@@ -63,7 +74,8 @@ export function Composer({
   const popoverDir = variant === "compact" ? styles.popoverUp : "";
 
   // ④b：参考图启用与否取决于父级是否接了回调（接了=图生图可用）。
-  const i2iEnabled = typeof onPickInputImage === "function";
+  const isEditing = editSource !== null;
+  const i2iEnabled = !isEditing && typeof onPickInputImage === "function";
   const fileInputRef = useRef<HTMLInputElement>(null);
   // 缩略图预览：为 File 造 object URL，换图/卸载时回收。
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -120,7 +132,9 @@ export function Composer({
     }
   };
 
-  const placeholder = inputImageFile
+  const placeholder = isEditing
+    ? "描述你想改变的内容…"
+    : inputImageFile
     ? "描述你想如何修改这张图…（如：换成赛博朋克风格、把背景改成海边）"
     : variant === "full"
       ? "描述你想生成的画面…"
@@ -139,7 +153,24 @@ export function Composer({
         />
       ) : null}
 
-      {inputImageFile && previewUrl ? (
+      {editSource ? (
+        <div className={styles.refRow}>
+          <img
+            className={styles.refThumb}
+            src={editSource.publicUrl}
+            alt="正在编辑的来源图片"
+          />
+          <div className={styles.editMeta}>
+            <span className={styles.editLabel}>
+              <Pencil size={13} />
+              正在编辑这张图
+            </span>
+            <code className={styles.editId} title={editSource.id}>
+              {editSource.id}
+            </code>
+          </div>
+        </div>
+      ) : inputImageFile && previewUrl ? (
         <div className={styles.refRow}>
           <div className={styles.refThumbWrap}>
             <img className={styles.refThumb} src={previewUrl} alt="参考图" />
@@ -174,7 +205,7 @@ export function Composer({
 
       <div className={styles.controls}>
         <div className={styles.left}>
-          {i2iEnabled ? (
+          {isEditing ? null : i2iEnabled ? (
             <button
               type="button"
               className={`${styles.pill} ${inputImageFile ? styles.pillActive : ""}`}
@@ -311,7 +342,15 @@ export function Composer({
         </div>
 
         <div className={styles.right}>
-          {credentialMode === "custom" ? (
+          {isEditing ? (
+            <span className={styles.costHint}>
+              {credentialMode === "custom"
+                ? customEnabled
+                  ? "自定义 Key"
+                  : "自定义 Key 暂停使用"
+                : "系统 Key"}
+            </span>
+          ) : credentialMode === "custom" ? (
             <span className={styles.costHint}>
               {customEnabled ? "使用自定义 Key · 本站不扣积分" : "自定义 Key 暂停使用"}
             </span>
@@ -321,13 +360,26 @@ export function Composer({
               积分 / 剩余 {formatCredits(balanceMp)} 积分
             </span>
           ) : null}
+          {isEditing ? (
+            <button
+              type="button"
+              className={styles.cancelEdit}
+              onClick={onCancelEdit}
+              disabled={disabled}
+              aria-label="取消编辑"
+            >
+              <X size={14} />
+              取消
+            </button>
+          ) : null}
           {credentialMode === "custom" || canAfford ? (
             <button
               type="button"
               className={styles.send}
               onClick={onSubmit}
               disabled={!canSend || !modeCanGenerate}
-              aria-label="生成"
+              aria-label={isEditing ? "生成编辑结果" : "生成"}
+              title={isEditing ? "生成编辑结果" : "生成"}
             >
               <ArrowUp size={18} />
             </button>

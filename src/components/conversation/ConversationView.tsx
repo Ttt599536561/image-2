@@ -7,17 +7,29 @@ import {
   Copy,
   Download,
   FileText,
+  Pencil,
   RefreshCw,
   X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useNavigation } from "react-router";
 import { ConversationDetail, type ConversationGeneration } from "../../contracts/conversation";
-import type { Background, GenerateParams, Quality, Size } from "../../contracts/generate";
+import type {
+  Background,
+  GenerateAccepted,
+  GenerateParams,
+  Quality,
+  Size,
+  SourceImageSummary,
+} from "../../contracts/generate";
 import { SaveResponse } from "../../contracts/image";
 import { UPLOAD_ACCEPT, UPLOAD_MAX_BYTES, type UploadMime } from "../../contracts/upload";
 import type { InspirationItem } from "../../contracts/inspiration";
-import { useActiveGenerationEnqueueIds, useGeneration } from "../../hooks/useGeneration";
+import {
+  type GenerationSubmissionOptions,
+  useActiveGenerationEnqueueIds,
+  useGeneration,
+} from "../../hooks/useGeneration";
 import { useGenerationStatuses } from "../../hooks/useGenerationStatus";
 import { useUserApiConfig } from "../../hooks/useUserApiConfig";
 import { useConversationDetail, useMe } from "../../hooks/queries";
@@ -43,6 +55,11 @@ import styles from "./ConversationView.module.css";
 
 // 一轮生成（generations 行 + 可选 images 行），渲染单元（08 §9.4）。
 type Turn = ConversationGeneration;
+type EditDraft = {
+  sourceImageId: string;
+  sourceImage: SourceImageSummary;
+  request: GenerateParams;
+};
 
 const EMPTY_REQUEST: GenerateParams = {
   prompt: "",
@@ -65,6 +82,7 @@ const FAILURE_MESSAGES: Record<string, string> = {
   relay_rate_limited: "生成请求过于频繁，请稍后重试",
   invalid_response: "生成服务返回异常，请重试",
   storage_failed: "图片保存失败，请重试",
+  source_image_unavailable: "这张图片已不可编辑",
 };
 // #5：用户卡片只显友好中文，绝不直显中转英文原文（原文仍可经「查看原始响应」/后台生成记录排查）。
 function failureMessage(code: string | null | undefined, _raw?: string | null): string {
@@ -78,6 +96,7 @@ function rawResponseOf(turn: Turn): string {
           status: "failed",
           credentialMode: turn.credentialMode,
           deadlineAt: turn.deadlineAt,
+          sourceImageId: turn.sourceImageId,
           errorCode: turn.errorCode,
           error: turn.error,
           httpStatus: turn.httpStatus,
@@ -86,6 +105,7 @@ function rawResponseOf(turn: Turn): string {
           status: turn.status,
           credentialMode: turn.credentialMode,
           deadlineAt: turn.deadlineAt,
+          sourceImageId: turn.sourceImageId,
           model: "gpt-image-2",
           size: turn.size,
           image: turn.image ? { width: turn.image.width, height: turn.image.height } : null,
@@ -114,6 +134,7 @@ export function ConversationView({
   const isDesktop = useMediaQuery("(min-width: 1024px)");
 
   const [request, setRequest] = useState<GenerateParams>(EMPTY_REQUEST);
+  const [editDraft, setEditDraft] = useState<EditDraft | null>(null);
   const [inputImageFile, setInputImageFile] = useState<File | null>(null); // ④b 图生图参考图（用后即弃）
   const [panelOpen, setPanelOpen] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -319,7 +340,7 @@ export function ConversationView({
     textareaRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
   };
 
-  const runGeneration = (req: GenerateParams, file: File | null = null, onAccepted?: () => void) => {
+  const runGeneration = (req: GenerateParams, options: GenerationSubmissionOptions = {}) => {
     if (!req.prompt.trim()) return;
     switch (submissionBlock) {
       case "not_ready":
@@ -340,7 +361,35 @@ export function ConversationView({
         toast.error("积分不足，去充值");
         return;
     }
-    submit(req, userApiConfig.config, { file, onAccepted });
+    submit(req, userApiConfig.config, options);
+  };
+
+  const startEditing = (turn: Turn) => {
+    if (turn.status !== "succeeded" || !turn.image) return;
+    setEditDraft({
+      sourceImageId: turn.image.id,
+      sourceImage: {
+        id: turn.image.id,
+        publicUrl: turn.image.publicUrl,
+        width: turn.image.width,
+        height: turn.image.height,
+      },
+      request: {
+        prompt: "",
+        size: turn.size as Size,
+        quality: (turn.quality as Quality | null) ?? "auto",
+        background: (turn.background as Background | null) ?? "auto",
+      },
+    });
+    window.requestAnimationFrame(focusComposer);
+  };
+
+  const setComposerRequest = (next: GenerateParams) => {
+    if (editDraft) {
+      setEditDraft((current) => (current ? { ...current, request: next } : current));
+      return;
+    }
+    setRequest(next);
   };
 
   // ④b：参考图选取——父级权威校验类型/大小（与后端 contracts/upload 同值），不合法 toast 不入选。
@@ -361,10 +410,30 @@ export function ConversationView({
   };
 
   const onSubmit = () => {
+    if (editDraft) {
+      runGeneration(editDraft.request, {
+        source: {
+          sourceImageId: editDraft.sourceImageId,
+          sourceImage: editDraft.sourceImage,
+        },
+        onAccepted: (accepted: GenerateAccepted) => {
+          setEditDraft(null);
+          window.requestAnimationFrame(() => {
+            flowRef.current
+              ?.querySelector<HTMLElement>(`[data-generation-id="${accepted.generationId}"]`)
+              ?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+          });
+        },
+      });
+      return;
+    }
     // 审查 #1：入队成功(202)后才清空 prompt/参考图（失败保留可重试，i2i 尤其避免「丢图须重选」）。
-    runGeneration(request, inputImageFile, () => {
-      setRequest((r) => ({ ...r, prompt: "" }));
-      setInputImageFile(null); // 用后即弃：一次提交一张参考图
+    runGeneration(request, {
+      file: inputImageFile,
+      onAccepted: () => {
+        setRequest((r) => ({ ...r, prompt: "" }));
+        setInputImageFile(null); // 用后即弃：一次提交一张参考图
+      },
     });
   };
 
@@ -380,12 +449,19 @@ export function ConversationView({
 
   // #7：重试 / 重新生成直接带原参发起，不回填输入框、不需用户再点「生成」。
   const regenerate = (turn: Turn) => {
-    runGeneration({
-      prompt: turn.prompt,
-      size: turn.size as Size,
-      quality: (turn.quality as Quality | null) ?? "auto",
-      background: (turn.background as Background | null) ?? "auto",
-    });
+    runGeneration(
+      {
+        prompt: turn.prompt,
+        size: turn.size as Size,
+        quality: (turn.quality as Quality | null) ?? "auto",
+        background: (turn.background as Background | null) ?? "auto",
+      },
+      {
+        source: turn.sourceImageId
+          ? { sourceImageId: turn.sourceImageId, sourceImage: turn.sourceImage }
+          : null,
+      },
+    );
   };
 
   const copyPrompt = (prompt: string) => {
@@ -410,8 +486,8 @@ export function ConversationView({
 
   const composer = (
     <Composer
-      request={request}
-      onChange={setRequest}
+      request={editDraft?.request ?? request}
+      onChange={setComposerRequest}
       onSubmit={onSubmit}
       disabled={controlsDisabled}
       canAfford={canAfford}
@@ -421,8 +497,10 @@ export function ConversationView({
       pricePerImageMp={priceMp}
       variant={turns.length === 0 ? "full" : "compact"}
       textareaRef={textareaRef}
-      inputImageFile={inputImageFile}
-      onPickInputImage={onPickInputImage}
+      inputImageFile={editDraft ? null : inputImageFile}
+      onPickInputImage={editDraft ? undefined : onPickInputImage}
+      editSource={editDraft?.sourceImage ?? null}
+      onCancelEdit={() => setEditDraft(null)}
     />
   );
   const keyModal =
@@ -475,13 +553,14 @@ export function ConversationView({
           <div className={styles.flow} ref={flowRef}>
             <div className={styles.flowInner}>
               {turns.map((turn) => (
-                <div className={styles.turn} key={turn.id}>
+                <div className={styles.turn} key={turn.id} data-generation-id={turn.id}>
                   <div className={styles.userBubble}>
                     {turn.prompt}
                     {turn.size !== "auto" ? (
                       <span className={styles.bubbleSize}> · {sizeLabel(turn.size as Size)}</span>
                     ) : null}
                   </div>
+                  {renderSourceReference(turn)}
                   {renderResult(turn)}
                 </div>
               ))}
@@ -501,6 +580,40 @@ export function ConversationView({
       {keyModal}
     </>
   );
+
+  function renderSourceReference(turn: Turn) {
+    if (!turn.sourceImageId) return null;
+    if (!turn.sourceImage) {
+      return <div className={styles.sourceUnavailable}>基于的图片已不可用</div>;
+    }
+    return (
+      <div className={styles.sourceReference}>
+        <button
+          type="button"
+          className={styles.sourceThumbButton}
+          aria-label={`查看编辑来源 ${turn.sourceImage.id}`}
+          onClick={() =>
+            lightbox.open(
+              turn.sourceImage!.publicUrl,
+              imageFilename(turn.sourceImage!.publicUrl, turn.sourceImage!.id),
+            )
+          }
+        >
+          <img
+            className={styles.sourceThumb}
+            src={turn.sourceImage.publicUrl}
+            alt="编辑来源"
+          />
+        </button>
+        <div className={styles.sourceMeta}>
+          <span className={styles.sourceLabel}>基于此图编辑</span>
+          <code className={styles.sourceId} title={turn.sourceImage.id}>
+            {turn.sourceImage.id}
+          </code>
+        </div>
+      </div>
+    );
+  }
 
   function renderResult(turn: Turn) {
     if (missingTombstones.has(turn.id)) {
@@ -628,6 +741,12 @@ export function ConversationView({
             <RefreshCw size={13} />
             重新生成
           </button>
+          {turn.image ? (
+            <button type="button" className={styles.chip} onClick={() => startEditing(turn)}>
+              <Pencil size={13} />
+              编辑图片
+            </button>
+          ) : null}
           <button type="button" className={styles.chip} onClick={() => copyPrompt(turn.prompt)}>
             <ClipboardCopy size={13} />
             复制提示词
