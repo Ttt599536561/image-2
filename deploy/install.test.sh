@@ -505,6 +505,21 @@ test_preflight_rejects_platform_disk_and_repo_before_prompts() {
   assert_not_contains "$output" '请输入系统 Relay API Key' 'Docker check must precede prompts'
 }
 
+test_preflight_accepts_os_release_symlink() {
+  local docker_log
+
+  make_fixture preflight-os-release-symlink
+  mv "$CASE_ROOT/os-release" "$CASE_ROOT/os-release.target"
+  ln -s 'os-release.target' "$CASE_ROOT/os-release"
+  printf '999\n' >"$FAKE_STATE/free-kib"
+
+  run_without_input --domain images.example.com
+  [[ "$RUN_STATUS" -ne 0 ]] || fail_assertion 'low disk space should still fail'
+  [[ -f "$FAKE_STATE/docker.log" ]] || fail_assertion 'a readable os-release symlink must pass platform validation'
+  docker_log="$(<"$FAKE_STATE/docker.log")"
+  assert_contains "$docker_log" 'docker info' 'platform validation should continue to Docker preflight'
+}
+
 test_domain_validation_and_ports_stop_before_prompts() {
   local output
 
@@ -1318,6 +1333,7 @@ test_upgrade_pre_migration_failure_restores_exact_original_writers() {
 
 run_test 'CLI validation before preflight and prompts' test_cli_validation_stops_before_preflight_and_prompts
 run_test 'platform, disk, Docker, and repository preflight' test_preflight_rejects_platform_disk_and_repo_before_prompts
+run_test 'standard os-release symlink preflight' test_preflight_accepts_os_release_symlink
 run_test 'domain and 80/443 validation before prompts' test_domain_validation_and_ports_stop_before_prompts
 run_test 'proxy public URL and port validation' test_proxy_url_and_port_validation
 run_test 'explicit and automatic loopback port selection' test_explicit_and_auto_selected_ports_are_rendered
