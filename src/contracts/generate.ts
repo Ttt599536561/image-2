@@ -36,6 +36,7 @@ export const SYSTEM_ERROR_CODES = [
   "provider_timeout",
   "content_rejected",
   "invalid_request",
+  "source_image_unavailable",
   "relay_unreachable",
   "unknown",
 ] as const;
@@ -47,6 +48,7 @@ export const CUSTOM_ERROR_CODES = [
   "provider_timeout",
   "relay_unreachable",
   "invalid_request",
+  "source_image_unavailable",
   "content_rejected",
   "invalid_response",
   "storage_failed",
@@ -62,6 +64,7 @@ export const ERROR_CODES = [
   "provider_timeout",
   "relay_unreachable",
   "invalid_request",
+  "source_image_unavailable",
   "content_rejected",
   "invalid_response",
   "storage_failed",
@@ -74,6 +77,14 @@ export interface GeneratedImage {
   width: number | null; // PNG 维度解析失败可空（与 DB images.width/height、succeeded 契约同口径）
   height: number | null;
 }
+
+export const SourceImageSummary = z.object({
+  id: z.uuid(),
+  publicUrl: PublicMediaUrlSchema,
+  width: z.number().int().nullable(),
+  height: z.number().int().nullable(),
+});
+export type SourceImageSummary = z.infer<typeof SourceImageSummary>;
 
 // Composer 只编辑生图参数；凭据模式在提交边界冻结并组装。
 export const GenerateParamsSchema = z.object({
@@ -93,12 +104,20 @@ export type GenerateParams = z.infer<typeof GenerateParamsSchema>;
 
 // POST /api/generate wire 请求。旧页面缺 mode 且无 custom Key 时兼容为 system。
 export const GenerateRequest = GenerateParamsSchema.extend({
+  sourceImageId: z.uuid().optional(),
   credentialMode: CredentialModeSchema.optional(),
   customApiKey: z.string().trim().max(500).optional(),
 })
   .strict()
   .superRefine((value, ctx) => {
     const mode = value.credentialMode ?? "system";
+    if (value.sourceImageId && value.inputImageKey) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["sourceImageId"],
+        message: "SOURCE_IMAGE_CONFLICT",
+      });
+    }
     if (mode === "custom" && !value.customApiKey) {
       ctx.addIssue({
         code: "custom",
@@ -133,6 +152,8 @@ const statusIdentity = {
   generationId: z.uuid(),
   credentialMode: CredentialModeSchema,
   deadlineAt: z.iso.datetime(),
+  sourceImageId: z.uuid().nullable(),
+  sourceImage: SourceImageSummary.nullable(),
 };
 
 export const GenerateStatusResponse = z.discriminatedUnion("status", [

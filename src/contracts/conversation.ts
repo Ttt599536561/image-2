@@ -1,6 +1,6 @@
 // 会话契约（07 §8.3）。列表（分页倒序）+ 详情（含 generations 正序、含图/态）+ 改名。
 import { z } from "zod";
-import { CredentialModeSchema, ERROR_CODES } from "./generate";
+import { CredentialModeSchema, ERROR_CODES, SourceImageSummary } from "./generate";
 import { PublicMediaUrlSchema } from "./public-media-url";
 
 export const ConversationListItem = z.object({
@@ -27,6 +27,8 @@ export const ConversationGeneration = z.object({
   background: z.string().nullable(),
   credentialMode: CredentialModeSchema,
   deadlineAt: z.iso.datetime(),
+  sourceImageId: z.uuid().nullable(),
+  sourceImage: SourceImageSummary.nullable(),
   status: z.enum(["queued", "claimed", "running", "succeeded", "failed"]),
   errorCode: z.enum(ERROR_CODES).nullable(),
   error: z.string().nullable(),

@@ -209,6 +209,8 @@ export const generations = pgTable(
     moderation: text("moderation").notNull().default("low"),
     // ④b 图生图：参考图上传 key（uploads/<userId>/…）；NULL = 文生图。管线有图走 /images/edits multipart。
     inputImageKey: text("input_image_key"),
+    // 对话结果图编辑来源；应用层校验 owner/succeeded，不加 FK 以保留来源删除后的历史关系。
+    sourceImageId: uuid("source_image_id"),
     credentialMode: text("credential_mode").notNull().default("system"),
     deadlineAt: timestamp("deadline_at", tz).notNull().default(sql`now() + interval '5 minutes'`),
     status: text("status").notNull().default("queued"),
@@ -230,6 +232,7 @@ export const generations = pgTable(
     ),
     check("generations_credential_mode_chk", sql`${t.credentialMode} IN ('system','custom')`),
     index("ix_gen_conv").on(t.conversationId),
+    index("ix_gen_source_image").on(t.sourceImageId),
     index("ix_gen_user_time").on(t.userId, t.createdAt.desc()),
     // cron 扫超时/重扫；status 前导列缩小集合
     index("ix_gen_status_time").on(t.status, t.createdAt),

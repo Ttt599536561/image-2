@@ -12,6 +12,7 @@ const params: GenerateParams = {
   quality: "auto",
   background: "auto",
 };
+const sourceImageId = "00000000-0000-4000-8000-000000000009";
 
 describe("GenerateRequest credential modes", () => {
   it("keeps old requests compatible by defaulting to system", () => {
@@ -69,6 +70,29 @@ describe("GenerateRequest credential modes", () => {
       customBaseUrl: "https://invalid.example/v1",
     });
     expect(result.success).toBe(false);
+  });
+
+  it("accepts one existing source image id", () => {
+    expect(GenerateRequest.parse({ ...params, sourceImageId })).toMatchObject({
+      sourceImageId,
+      credentialMode: "system",
+    });
+  });
+
+  it("rejects malformed or conflicting source images", () => {
+    expect(
+      GenerateRequest.safeParse({
+        ...params,
+        sourceImageId: "https://storage.example/source.png",
+      }).success,
+    ).toBe(false);
+    expect(
+      GenerateRequest.safeParse({
+        ...params,
+        sourceImageId,
+        inputImageKey: "uploads/user/ref.png",
+      }).success,
+    ).toBe(false);
   });
 });
 

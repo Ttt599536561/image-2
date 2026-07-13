@@ -8,6 +8,8 @@ import { PublicMediaUrlSchema } from "./public-media-url";
 const MEDIA_URL = "/media/users/a%20file.png";
 const GENERATION_ID = "00000000-0000-4000-8000-000000000001";
 const IMAGE_ID = "00000000-0000-4000-8000-000000000002";
+const SOURCE_IMAGE_ID = "00000000-0000-4000-8000-000000000003";
+const SOURCE_MEDIA_URL = "/media/users/source.png";
 const DEADLINE_AT = "2026-07-12T12:05:00.000Z";
 
 describe("public media URL contract", () => {
@@ -43,6 +45,13 @@ describe("self-hosted media response integration", () => {
       generationId: GENERATION_ID,
       credentialMode: "system",
       deadlineAt: DEADLINE_AT,
+      sourceImageId: SOURCE_IMAGE_ID,
+      sourceImage: {
+        id: SOURCE_IMAGE_ID,
+        publicUrl: SOURCE_MEDIA_URL,
+        width: null,
+        height: 1,
+      },
       status: "succeeded",
       image: { publicUrl: MEDIA_URL, width: 1, height: 1 },
       creditsChargedMp: 1000,
@@ -61,6 +70,13 @@ describe("self-hosted media response integration", () => {
       background: "auto",
       credentialMode: "system",
       deadlineAt: DEADLINE_AT,
+      sourceImageId: SOURCE_IMAGE_ID,
+      sourceImage: {
+        id: SOURCE_IMAGE_ID,
+        publicUrl: SOURCE_MEDIA_URL,
+        width: 1,
+        height: null,
+      },
       status: "succeeded",
       errorCode: null,
       error: null,
@@ -78,6 +94,19 @@ describe("self-hosted media response integration", () => {
     } as const;
 
     expect(ConversationGeneration.parse(response)).toEqual(response);
+  });
+
+  it("parses an ordinary generation with no edit source", () => {
+    const response = {
+      generationId: GENERATION_ID,
+      credentialMode: "system",
+      deadlineAt: DEADLINE_AT,
+      sourceImageId: null,
+      sourceImage: null,
+      status: "queued",
+    } as const;
+
+    expect(GenerateStatusResponse.parse(response)).toEqual(response);
   });
 
   it("parses an image library item", () => {
