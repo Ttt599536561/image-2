@@ -27,15 +27,29 @@ export async function loadGenerationStatuses(
   if (uniqueIds.length === 0) return [];
   await expireDueGenerations({ generationIds: uniqueIds, userId });
   const rows = await getSql()`SELECT g.id,g.credential_mode,g.deadline_at,g.status,g.started_at,
-                                    g.error_code,g.error,g.http_status,g.duration_ms,g.credits_charged_mp,
-                                    i.public_url,i.width,i.height
-                             FROM generations g LEFT JOIN images i ON i.generation_id=g.id
+                                    g.source_image_id,g.error_code,g.error,g.http_status,
+                                    g.duration_ms,g.credits_charged_mp,
+                                    i.public_url,i.width,i.height,
+                                    si.id AS source_join_id,si.public_url AS source_public_url,
+                                    si.width AS source_width,si.height AS source_height
+                             FROM generations g
+                             LEFT JOIN images i ON i.generation_id=g.id
+                             LEFT JOIN images si ON si.id=g.source_image_id AND si.user_id=g.user_id
                              WHERE g.id=ANY(${uniqueIds}::uuid[]) AND g.user_id=${userId}`;
   return rows.map((row) => {
     const identity = {
       generationId: row.id as string,
       credentialMode: row.credential_mode as "system" | "custom",
       deadlineAt: new Date(row.deadline_at as string | Date).toISOString(),
+      sourceImageId: (row.source_image_id as string | null) ?? null,
+      sourceImage: row.source_public_url
+        ? {
+            id: row.source_join_id as string,
+            publicUrl: row.source_public_url as string,
+            width: row.source_width == null ? null : Number(row.source_width),
+            height: row.source_height == null ? null : Number(row.source_height),
+          }
+        : null,
     };
     if (row.status === "succeeded") {
       return {

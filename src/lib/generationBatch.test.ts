@@ -14,6 +14,8 @@ describe("loadStatusChunks", () => {
         generationId,
         credentialMode: "custom",
         deadlineAt: "2026-07-11T00:05:00.000Z",
+        sourceImageId: null,
+        sourceImage: null,
         status: "queued",
       })),
       missingIds: chunk.slice(1),

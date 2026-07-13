@@ -27,6 +27,8 @@ const item = {
   generationId: firstId,
   credentialMode: "custom" as const,
   deadlineAt: "2026-07-11T00:05:00.000Z",
+  sourceImageId: null,
+  sourceImage: null,
   status: "queued" as const,
 };
 

@@ -94,10 +94,14 @@ export async function loadConversationDetail(userId: string, id: string): Promis
   if (!conv) throw new Response("会话不存在", { status: 404 });
   const gens = (await sql`
     SELECT g.id, g.prompt, g.size, g.quality, g.background, g.credential_mode, g.deadline_at,
-           g.status, g.error_code, g.error,
+           g.source_image_id, g.status, g.error_code, g.error,
            g.http_status, g.credits_charged_mp, g.duration_ms, g.created_at,
-           i.id AS image_id, i.public_url, i.width, i.height, i.saved_to_library
-    FROM generations g LEFT JOIN images i ON i.generation_id = g.id
+           i.id AS image_id, i.public_url, i.width, i.height, i.saved_to_library,
+           si.id AS source_join_id, si.public_url AS source_public_url,
+           si.width AS source_width, si.height AS source_height
+    FROM generations g
+    LEFT JOIN images i ON i.generation_id = g.id
+    LEFT JOIN images si ON si.id = g.source_image_id AND si.user_id = g.user_id
     WHERE g.conversation_id = ${id} AND g.user_id = ${userId}
     ORDER BY g.created_at ASC`) as Row[];
   return {
@@ -113,6 +117,15 @@ export async function loadConversationDetail(userId: string, id: string): Promis
       background: (g.background as string | null) ?? null,
       credentialMode: g.credential_mode as "system" | "custom",
       deadlineAt: iso(g.deadline_at),
+      sourceImageId: (g.source_image_id as string | null) ?? null,
+      sourceImage: g.source_public_url
+        ? {
+            id: g.source_join_id as string,
+            publicUrl: g.source_public_url as string,
+            width: numOrNull(g.source_width),
+            height: numOrNull(g.source_height),
+          }
+        : null,
       status: g.status as ConversationDetail["generations"][number]["status"],
       errorCode: (g.error_code as ConversationDetail["generations"][number]["errorCode"]) ?? null,
       error: (g.error as string | null) ?? null,

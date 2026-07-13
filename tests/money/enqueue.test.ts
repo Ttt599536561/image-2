@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { budgetTodayKey } from "../../src/server/budget.server";
 import { enqueueGeneration } from "../../src/server/generation/enqueue";
+import { loadGenerationStatuses } from "../../src/server/generation/status.server";
+import { loadConversationDetail } from "../../src/server/reads.server";
 import { type TestCtx, ensureSeedConfig, newCtx, priceMp } from "./_helpers";
 
 async function status(p: Promise<unknown>): Promise<number> {
@@ -28,12 +30,18 @@ async function sourceFailure(p: Promise<unknown>): Promise<{ status: number; cod
 async function createSourceImage(
   userId: string,
   status = "succeeded",
-): Promise<{ conversationId: string; generationId: string; imageId: string }> {
+): Promise<{
+  conversationId: string;
+  generationId: string;
+  imageId: string;
+  publicUrl: string;
+}> {
   const source = await ctx.createGeneration(userId, { status });
   const imageId = randomUUID();
+  const publicUrl = `/media/sources/${imageId}.png`;
   await ctx.sql`INSERT INTO images(id,generation_id,user_id,storage_key,public_url,content_type,width,height,size_bytes)
-                VALUES(${imageId},${source.generationId},${userId},${`sources/${imageId}.png`},${`/media/sources/${imageId}.png`},'image/png',1,1,68)`;
-  return { ...source, imageId };
+                VALUES(${imageId},${source.generationId},${userId},${`sources/${imageId}.png`},${publicUrl},'image/png',1,1,68)`;
+  return { ...source, imageId, publicUrl };
 }
 
 let ctx: TestCtx;
@@ -137,6 +145,49 @@ describe("入队三闸（enqueue）", () => {
     expect(await ctx.sql`SELECT id FROM images WHERE id=${source.imageId}`).toHaveLength(1);
     expect(await ctx.balanceMp(uid)).toBe(PRICE);
     expect(await ctx.ledger(uid, "debit")).toHaveLength(0);
+  });
+
+  it("对话结果编辑：会话与状态读取返回安全来源摘要并保留已删除来源 ID", async () => {
+    const uid = await ctx.createUser({ balanceMp: PRICE });
+    await ctx.addLot(uid, PRICE, { source: "signup" });
+    const source = await createSourceImage(uid);
+    const result = await enqueueGeneration({
+      user: { id: uid, maxConcurrency: 2 },
+      input: {
+        prompt: "replace the product name",
+        size: "auto",
+        conversationId: source.conversationId,
+        sourceImageId: source.imageId,
+        credentialMode: "system",
+      },
+    });
+
+    const detail = await loadConversationDetail(uid, source.conversationId);
+    const turn = detail.generations.find((generation) => generation.id === result.generationId);
+    const [statusItem] = await loadGenerationStatuses(uid, [result.generationId]);
+    const expectedSource = {
+      id: source.imageId,
+      publicUrl: source.publicUrl,
+      width: 1,
+      height: 1,
+    };
+    expect(turn).toMatchObject({ sourceImageId: source.imageId, sourceImage: expectedSource });
+    expect(statusItem).toMatchObject({
+      generationId: result.generationId,
+      sourceImageId: source.imageId,
+      sourceImage: expectedSource,
+    });
+    expect(JSON.stringify({ turn, statusItem })).not.toContain("storageKey");
+    expect(JSON.stringify({ turn, statusItem })).not.toContain("storage_key");
+
+    await ctx.sql`DELETE FROM images WHERE id=${source.imageId}`;
+    const afterDelete = await loadConversationDetail(uid, source.conversationId);
+    const deletedTurn = afterDelete.generations.find(
+      (generation) => generation.id === result.generationId,
+    );
+    const [deletedStatus] = await loadGenerationStatuses(uid, [result.generationId]);
+    expect(deletedTurn).toMatchObject({ sourceImageId: source.imageId, sourceImage: null });
+    expect(deletedStatus).toMatchObject({ sourceImageId: source.imageId, sourceImage: null });
   });
 
   it("对话结果编辑：伪造、越权、未成功和跨对话来源统一拒绝且零写入", async () => {
