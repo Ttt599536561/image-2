@@ -64,7 +64,7 @@ Release 正文只作为纯文本摘要展示，React 必须转义内容；完整
 
 ### 4.3 发布工作流
 
-本功能发布时把包版本从 `0.1.0` 提升到 `0.2.0`。以后推送 `vX.Y.Z` Tag 时，GitHub Actions 必须先校验 Tag 与 `package.json` 完全一致，并且严格高于当前最新稳定 Release，再运行类型检查、单元测试、构建、秘密扫描、Compose 校验和部署脚本测试。全部通过后才使用仓库自带的 `gh` CLI 创建并标记新的 Latest 稳定 Release；失败时不得创建 Release。这个单调递增约束保证 GitHub 的 `latest` 语义不会把较低版本误当成目标。
+本功能随 `0.2.0` 基线交付。以后推送 `vX.Y.Z` Tag 时，GitHub Actions 必须先校验 Tag 与 `package.json` 完全一致，并且严格高于当前最新稳定 Release，再运行类型检查、单元测试、构建、秘密扫描、Compose 校验和部署脚本测试。全部通过后才使用仓库自带的 `gh` CLI 创建并标记新的 Latest 稳定 Release；失败时不得创建 Release。这个单调递增约束保证 GitHub 的 `latest` 语义不会把较低版本误当成目标。
 
 仓库当前没有 Tag 或 Release，因此实现代码本身不会把任意 `main` 提交当成可更新版本。创建远端 Tag/Release 属于后续明确的发布操作，不由本地实现隐式执行。
 

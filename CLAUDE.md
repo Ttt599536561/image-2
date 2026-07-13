@@ -17,7 +17,7 @@
 - 管理后台更新入口为 `/admin/system-update`；宿主机
   `ai-image-workshop-update.path` 已启用并运行，Web 不持有 Docker 或 shell 权限。
 - GitHub `main`、`v0.2.0` tag 和 stable/latest Release 尚未发布。真实 Relay 检查、恢复演练、
-  凭据轮换和异地备份属于持续运维，不是待实现功能。
+  凭据轮换和异地备份按持续运维周期执行。
 
 ## 不可破坏
 

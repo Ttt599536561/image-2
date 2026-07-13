@@ -23,7 +23,7 @@
 - Modify: `docs/test-cases.md`
 - Modify: `docs/prototypes/README.md`
 
-- [ ] **Step 1: Add one consistent release/deployment summary**
+- [x] **Step 1: Add one consistent release/deployment summary**
 
 Use these exact facts wherever the file owns current status:
 
@@ -38,15 +38,15 @@ Use these exact facts wherever the file owns current status:
 
 Keep `docs/PROGRESS.md` as the detailed status source. Other entry points link to it instead of duplicating the entire deployment log.
 
-- [ ] **Step 2: Separate completed requirements from recurring operations**
+- [x] **Step 2: Separate completed requirements from recurring operations**
 
 Replace headings such as `仍需人工验收` with `持续运维与发布动作`. Keep real Relay checks, off-host encrypted backups, restore drills, monitoring, and high availability as recurring or future operations, not as unfinished product requirements.
 
-- [ ] **Step 3: Archive obsolete entry points cleanly**
+- [x] **Step 3: Archive obsolete entry points cleanly**
 
 Make `docs/requirements.md`, `docs/test-cases.md`, and prototype documentation state that their historical material is closed and point readers to the current requirements, development index, operations checks, and production runbook.
 
-- [ ] **Step 4: Review and commit the entry-point batch**
+- [x] **Step 4: Review and commit the entry-point batch**
 
 Run:
 
@@ -81,11 +81,11 @@ git commit -m "docs: close project status and entry points"
 - Modify: `docs/dev/11-structure-roadmap.md`
 - Modify: `docs/dev/INSPIRATION-UGC-PLAN.md`
 
-- [ ] **Step 1: Close the current requirements baseline**
+- [x] **Step 1: Close the current requirements baseline**
 
 State at the top of the product specification and API-key PRD that all requirements in those documents are implemented in `0.2.0`. Preserve rule details as the current contract. Describe production Relay checks as periodic acceptance rather than missing implementation.
 
-- [ ] **Step 2: Record the deployed runtime and updater**
+- [x] **Step 2: Record the deployed runtime and updater**
 
 Use the following operational evidence in `docs/dev/00-overview.md`, `docs/dev/09-admin.md`, `docs/dev/10-ops-test.md`, and `docs/dev/deploy.md`:
 
@@ -98,19 +98,19 @@ Updater: ai-image-workshop-update.path enabled/active; service enabled
 Admin route without a session: 302 to login
 ```
 
-- [ ] **Step 3: Remove the obsolete Debian workaround**
+- [x] **Step 3: Remove the obsolete Debian workaround**
 
 Delete the `INSTALL_OS_RELEASE_FILE=/usr/lib/os-release` workaround from `docs/dev/deploy.md`. Replace it with one sentence that Debian's standard `/etc/os-release -> /usr/lib/os-release` link is supported since commit `c5131aa`; unreadable or broken paths remain errors.
 
-- [ ] **Step 4: Clarify publication and one-click update sequencing**
+- [x] **Step 4: Clarify publication and one-click update sequencing**
 
 Document that the updater code is installed and idle, but the first official one-click update requires a strictly higher stable Release after `0.2.0` is merged to GitHub `main` and published as the baseline Release. Do not claim that `v0.2.0` already exists.
 
-- [ ] **Step 5: Reclassify remaining operational work**
+- [x] **Step 5: Reclassify remaining operational work**
 
 Keep cost observation, real-provider checks, encrypted off-host backups, restore drills, monitoring, credential rotation, and high availability under recurring operations or optional enhancements. Remove wording that treats them as missing implementation requirements.
 
-- [ ] **Step 6: Review and commit the current-document batch**
+- [x] **Step 6: Review and commit the current-document batch**
 
 Run:
 
@@ -141,7 +141,7 @@ git commit -m "docs: align implemented requirements and operations"
 - Modify: `docs/superpowers/specs/2026-07-12-self-hosted-one-command-deployment-design.md`
 - Modify: `docs/superpowers/specs/2026-07-12-github-release-admin-updater-design.md`
 
-- [ ] **Step 1: Replace the two unchecked implementation plans**
+- [x] **Step 1: Replace the two unchecked implementation plans**
 
 Rewrite the self-hosted deployment and admin-updater plans as compact implementation records. Each record contains:
 
@@ -167,15 +167,15 @@ Status: completed and deployed on 2026-07-13.
 
 Do not retain unexecuted test-file creation steps or empty checkboxes as if they were future product work. Name final artifacts that actually exist, including `deploy/ai-image-workshop-update`, `scripts/validate-release.ts`, admin routes, contracts, systemd units, and the release workflow.
 
-- [ ] **Step 2: Close the shorter implementation records**
+- [x] **Step 2: Close the shorter implementation records**
 
 Update the Debian and API-key records to `completed and deployed`. Move credential rotation, live provider smoke, rollback drills, and monitoring from `Still Required` to `Ongoing Operations`; do not mark those recurring actions as already performed when there is no evidence.
 
-- [ ] **Step 3: Add completion headers to specifications**
+- [x] **Step 3: Add completion headers to specifications**
 
 Each active specification gets a status line saying its scoped requirements are implemented in `0.2.0`. The v1 design is marked completed and superseded. The deployment and updater designs link to current operations documentation and record the 2026-07-13 production deployment.
 
-- [ ] **Step 4: Verify no historical implementation plan remains open**
+- [x] **Step 4: Verify no historical implementation plan remains open**
 
 Run:
 
@@ -185,7 +185,7 @@ rg -n "^- \[ \]|Status:.*pending|状态：已批准$|状态：用户已确认" d
 
 Expected: no unchecked implementation checkbox or pending/approval-only status remains. The documentation-closure plan itself is excluded until Task 4 marks it complete.
 
-- [ ] **Step 5: Commit the historical-document batch**
+- [x] **Step 5: Commit the historical-document batch**
 
 ```powershell
 git add docs/superpowers/plans docs/superpowers/specs
@@ -197,7 +197,7 @@ git commit -m "docs: close historical specifications and plans"
 **Files:**
 - Modify: `docs/superpowers/plans/2026-07-13-documentation-closure.md`
 
-- [ ] **Step 1: Scan status, version, and workaround consistency**
+- [x] **Step 1: Scan status, version, and workaround consistency**
 
 Run:
 
@@ -208,7 +208,7 @@ rg -n "0\.2\.0|c5131aaa0335250a3846c380519324fbbf4b231b|20260713T145807Z|/admin/
 
 Expected: stale scan is empty except this plan's own unchecked tracking before completion and any sentence explicitly stating the GitHub Release is not yet published. Required facts appear in their owning status and operations documents.
 
-- [ ] **Step 2: Validate every local Markdown link**
+- [x] **Step 2: Validate every local Markdown link**
 
 Run:
 
@@ -230,7 +230,7 @@ if ($errors.Count) { $errors; throw 'Broken Markdown links' }
 
 Expected: exit code `0` with no broken local links.
 
-- [ ] **Step 3: Mark this plan complete and perform final Git checks**
+- [x] **Step 3: Mark this plan complete and perform final Git checks**
 
 Change every checkbox in this file to `[x]`, then run:
 
@@ -242,7 +242,7 @@ git diff --stat bcae3e5..HEAD
 
 Expected: only intended Markdown changes, no application code or production configuration changes, and no whitespace errors.
 
-- [ ] **Step 4: Commit the completed plan**
+- [x] **Step 4: Commit the completed plan**
 
 ```powershell
 git add docs/superpowers/plans/2026-07-13-documentation-closure.md
