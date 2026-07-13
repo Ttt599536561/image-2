@@ -1,6 +1,10 @@
 # 运行时与配置
 
-状态：单机全自托管 Docker 运行时、安装/恢复脚本和空栈持久化 smoke 已完成。实际服务器上的 Relay 生图验收仍按 [deploy.md](deploy.md) 执行。
+状态：`0.2.0` 单机全自托管运行时、安装/恢复脚本、空栈持久化 smoke 和管理后台更新器均已实现并部署。真实 Relay 检查按运维周期执行，不是未实现功能。
+
+## 生产基线
+
+2026-07-13，腾讯云生产环境升级到提交 `c5131aaa0335250a3846c380519324fbbf4b231b`。升级备份为 `deploy/backups/20260713T145807Z`；`postgres`、`web`、`worker`、`scheduler` 均运行，内网与公网 `/healthz` 均返回 `204`。`ai-image-workshop-update.path` 已启用且 active，更新 service 已启用。完整证据见 [PROGRESS.md](../PROGRESS.md)。
 
 ## 运行拓扑
 
@@ -51,4 +55,4 @@ npm run test:deploy
 npm run test:deploy:smoke
 ```
 
-服务器安装、登录、真实 Relay 生图、备份和恢复步骤见 [deploy.md](deploy.md)，完整验收范围见 [10-ops-test.md](10-ops-test.md)。
+服务器安装、登录、周期性真实 Relay 检查、备份和恢复步骤见 [deploy.md](deploy.md)，完整验收范围见 [10-ops-test.md](10-ops-test.md)。

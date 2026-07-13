@@ -1,6 +1,6 @@
 # 系统架构
 
-状态：下图是当前 Debian Docker 单机生产拓扑。
+状态：下图是已实现并部署的 `0.2.0` Debian Docker 单机生产拓扑。腾讯云生产环境运行提交 `c5131aa`，详细证据见 [PROGRESS.md](../PROGRESS.md)。
 
 ```mermaid
 flowchart TB

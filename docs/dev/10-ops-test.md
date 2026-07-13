@@ -1,6 +1,10 @@
 # 运维与验证
 
-状态：部署脚本契约、Docker 镜像构建和空数据 Compose 持久化 smoke 已进入 CI。真实 system/custom Relay 生图验收必须在目标服务器执行。
+状态：现有 `0.2.0` 功能、部署脚本契约、Docker 镜像构建和空数据 Compose 持久化 smoke 均已实现。真实 system/custom Relay 生图按生产运维周期检查。
+
+## 当前生产验证
+
+2026-07-13 已验证腾讯云生产提交 `c5131aaa0335250a3846c380519324fbbf4b231b`：升级前备份为 `deploy/backups/20260713T145807Z`；四个服务均运行，Web/PostgreSQL healthy；内网与公网 `/healthz` 均返回 `204`；更新 `.path` 为 enabled/active，service 为 enabled；未登录访问 `/admin/system-update` 返回 `302`。这些结果证明本次部署基础健康，不替代真实 Relay 和恢复演练的周期性执行。
 
 ## Scheduler
 
@@ -43,7 +47,7 @@ npm run test:deploy:smoke
 
 金额/锁测试另在一次性 PostgreSQL 中运行 `npm run test:money`，必须保留 `FOR UPDATE`、回滚、幂等和并发语义。
 
-## 服务器验收
+## 服务器验收基线与周期性检查
 
 | 项目 | 通过条件 |
 |---|---|

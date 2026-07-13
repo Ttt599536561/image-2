@@ -2,6 +2,8 @@
 
 要求 Debian、Docker Engine、Docker Compose v2、Git、jq 和 systemd。所有命令都从项目根目录执行；首次安装从空 PostgreSQL 和空媒体卷开始，不迁移 Neon、Supabase 或 Netlify 数据。
 
+当前生产基线：腾讯云站点 `https://one-image2.tangguo.xin` 于 2026-07-13 升级到 `0.2.0`，提交为 `c5131aaa0335250a3846c380519324fbbf4b231b`。生产证据统一见 [PROGRESS.md](../PROGRESS.md)。
+
 ## 安装
 
 ```bash
@@ -51,6 +53,8 @@ curl -fsS -o /dev/null -w '%{http_code}\n' https://images.example.com/healthz
 
 安装成功后还会创建 `ai-image-workshop-updater` 系统组、初始化 `/var/lib/ai-image-workshop-updater`，并启用 `ai-image-workshop-update.service` 与 `.path`。旧部署执行一次 `sudo bash deploy/install.sh --upgrade` 后会自动补齐这套初始化；不需要给 Web Docker socket。
 
+当前生产实例已经完成这次引导：`.path` 为 enabled/active，service 为 enabled，更新器状态为 idle。
+
 随后依次检查：
 
 1. 使用安装时的邮箱登录 `/admin/login`。
@@ -62,6 +66,8 @@ curl -fsS -o /dev/null -w '%{http_code}\n' https://images.example.com/healthz
 ## 更新与运维
 
 管理员可在 `/admin/system-update` 点击“检查更新”。更新通道固定为公开仓库 `Ttt599536561/image-2` 的最新稳定 GitHub Release；draft、prerelease、非严格 `vMAJOR.MINOR.PATCH` 和非递增版本都会被拒绝。点击“立即更新”后，网站会进入数分钟维护窗口：先排空任务、停止写入服务、校验备份，再拉取精确 tag、构建、迁移和健康检查。
+
+更新器功能已经部署，但 GitHub `main`、`v0.2.0` tag 与 stable/latest Release 尚未发布。先完成 `0.2.0` 基线发布；后台首次正式一键更新应使用之后严格递增的稳定版，不能把当前部署分支伪装成 Release。
 
 页面重连期间可在服务器查看同一请求：
 
@@ -92,7 +98,7 @@ docker compose --env-file deploy/.env.production logs --tail=100 -f web worker s
 
 # 备份与恢复
 sudo bash deploy/backup.sh
-sudo bash deploy/restore.sh deploy/backups/20260712T120000Z
+sudo bash deploy/restore.sh deploy/backups/<BACKUP_ID>
 ```
 
 升级开始迁移后的失败必须按脚本提示恢复，不要直接反复执行 `--upgrade`。恢复只允许写入已停止且为空的目标卷，并要求输入确认串。
@@ -103,16 +109,7 @@ sudo bash deploy/restore.sh deploy/backups/20260712T120000Z
 
 ### 无法读取 `/etc/os-release`
 
-安装器默认读取 `INSTALL_OS_RELEASE_FILE=/etc/os-release`，并要求它是可读的普通文件。如果该路径是符号链接，而 `/usr/lib/os-release` 是真实文件，请给当前命令添加覆盖值：
-
-```bash
-sudo INSTALL_OS_RELEASE_FILE=/usr/lib/os-release bash deploy/install.sh --upgrade
-
-# 续装时使用相同前缀
-sudo INSTALL_OS_RELEASE_FILE=/usr/lib/os-release bash deploy/install.sh --resume
-```
-
-首次安装也可以在原安装命令前使用同一个环境变量。不要把其他发行版的文件伪装成 Debian。
+从提交 `c5131aa` 起，安装器原生支持 Debian 标准的 `/etc/os-release -> /usr/lib/os-release` 符号链接，不需要环境变量绕过。若仍出现该错误，检查链接是否断裂、目标是否为可读普通文件，以及系统 `ID` 是否确为 `debian`；不要用其他发行版文件伪装 Debian。
 
 ### 已创建管理员的状态缺少管理员邮箱
 

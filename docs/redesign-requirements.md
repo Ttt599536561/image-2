@@ -1,8 +1,8 @@
 # AI 图像工坊 · 产品需求规格（v2 重构）
 
-> 状态：v2、系统/自定义 Key 和单机全自托管部署均已实现；目标服务器验收状态见 [PROGRESS.md](PROGRESS.md)。本文件是 v2 的**完整产品规格**；增补细则以 [批准版 PRD](../tasks/prd-user-api-key-modes.md) 为准。
+> 状态：本文及批准版 PRD 的现有需求均已在 `0.2.0` 实现，并于 2026-07-13 部署到腾讯云生产环境；证据见 [PROGRESS.md](PROGRESS.md)。本文件是当前 v2 的**完整产品规格**，后续只在出现新增需求时继续修订。
 > 关联：[requirements.md](requirements.md)（v1 现状）、[development.md](development.md)（现有架构）、[test-cases.md](test-cases.md)（v1 用例）。
-> 更新：2026-07-12。产品规则以本文件 §25 和批准版 PRD 为准；实施/发布状态只看 [PROGRESS.md](PROGRESS.md)。
+> 更新：2026-07-13。产品规则以本文件 §25 和批准版 PRD 为准；实施、部署与 Release 状态只看 [PROGRESS.md](PROGRESS.md)。
 
 ## 1. 背景与目标
 
@@ -310,11 +310,11 @@ PostgreSQL。**金额一律用整数**（定死）：积分列用**毫积分 BIG
 - **🔑 v1 apiKey 清理与新 custom 例外的边界**：旧 `imageProxy.ts → proxyGeneration.ts → jobStore` 明文 Key 链路仍属禁止。新 custom Key 只允许按 user ID 存本地、经统一 `/api/generate` 上送并立即转 generation-scoped 密文；任何普通 generation/job/log/response 字段或兼容触发载荷仍不得携带 Key。
 - **净新增**：注册登录、Postgres、对象存储、队列、积分账本、兑换码、后台管理、并发控制。
 
-## 19. 待确认
+## 19. 已确认决策
 
 > **产品决策已全部拍板。** system 保留赠送、FIFO、余额、默认并发、单日预算与成功扣费；custom 使用用户自己的单 Key、固定 Base URL、零扣费、零余额/预算/并发/提交限流且不自动回退 system。两种模式共用 `/api/generate`、图片存储和 5 分钟 deadline。完整矩阵见 §25。
 >
-> **技术实现已完成自动化验证**：标准 PostgreSQL 事务、AES-GCM 临时凭据、批量状态、5 分钟终态竞争和空数据 Compose 持久化 smoke 已有证据。真实 Relay、目标主机容量与单图成本需在服务器验收，状态只看 [PROGRESS.md](PROGRESS.md)。
+> **技术实现已完成自动化与生产基础验证**：标准 PostgreSQL 事务、AES-GCM 临时凭据、批量状态、5 分钟终态竞争和空数据 Compose 持久化 smoke 已有证据。真实 Relay、目标主机容量与单图成本按运维周期观察，状态只看 [PROGRESS.md](PROGRESS.md)。
 >
 > **残留风险（已接受）**：不验证邮箱 → 新号 0.14 免费额度可被批量注册薅、烧共享 Key/compute 额度（由单日预算熔断兜底）。日后若被规模化薅再补防护。
 
@@ -348,9 +348,11 @@ PostgreSQL。**金额一律用整数**（定死）：积分列用**毫积分 BIG
 - **数据地基（历史迁移）**：已删除的 v1 `src/server/asyncImageJob.ts` `JobRecord`（只有 status/时间/原始 response）→ 迁到 `generations` 表（§16）并补 userId/model/size/duration/failureReason 等；`events`（§16）作看板唯一事实源。
 - **失败原因归一化**：中转原始文案映射成有限枚举。
 - **中转故障兜底**：fetch 设 timeout、重试退避、清晰文案、后台可切**备用中转 Base URL**。
-- **system 单日预算熔断**：只统计/拦截 system 请求；custom 不读、不增该预算键。仍需分别观察两种模式的 compute、DB、存储与失败率，避免把 custom 平台成本混进 system 中转成本。
+- **system 单日预算熔断**：只统计/拦截 system 请求；custom 不读、不增该预算键。运维中持续分别观察两种模式的 compute、DB、存储与失败率，避免把 custom 平台成本混进 system 中转成本。
 
-## 23. 运营进阶（后台 should / later）
+## 23. 非当前基线的候选增强
+
+以下条目不属于已经批准并实现的 `0.2.0` 需求，也不是当前待办。未来若决定建设其中任一能力，应建立新的需求文档、设计和验收范围后再实施。
 
 - **客服 360 视图**：输入邮箱即看余额/流水/兑换/生成历史(含失败原因)/并发/封禁；一键重发结果图、补偿积分(走台账+审计)、重置密码、解封。
 - **配置中心**：充值档/赠送/文案/URL/定价/默认并发/保留期/中转 Base·Key·模型 收敛一处，分组+校验+改动写审计+可回滚。

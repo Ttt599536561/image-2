@@ -42,4 +42,4 @@ npm run dev:disposable:test
 - custom 成功、失败和超时后 `generation_credentials` 无对应明文或遗留记录。
 - 兑换、资产删除/下载、灵感投稿审核和后台审计按 owner/admin 权限工作。
 
-本地结果不能写成目标服务器已经验收；服务器步骤以 [deploy.md](deploy.md) 为准。
+本地结果本身不能证明目标服务器状态。当前腾讯云 `0.2.0` 基线已经在 2026-07-13 完成容器、健康检查、版本和更新器验证，证据见 [PROGRESS.md](../PROGRESS.md)；未来每次发布仍以 [deploy.md](deploy.md) 的服务器步骤重新验收。

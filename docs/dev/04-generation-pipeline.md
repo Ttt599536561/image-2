@@ -1,6 +1,6 @@
 # 生图管线
 
-状态：Docker worker 路径已实现并通过单元测试与空数据 Compose smoke；真实 Relay 生图在目标服务器验收。
+状态：`0.2.0` Docker worker 路径与本文契约已经实现并部署，通过单元测试与空数据 Compose smoke。真实 Relay 生图作为生产周期性检查执行。
 
 ## 提交与状态
 

@@ -1,10 +1,10 @@
 # 技术设计索引
 
-产品规则见 [redesign-requirements.md](../redesign-requirements.md)，当前发布状态见 [PROGRESS.md](../PROGRESS.md)。本目录描述设计；已完成计划不再是工作队列。
+当前技术基线为 `0.2.0`，现有需求已经实现并部署。产品规则见 [redesign-requirements.md](../redesign-requirements.md)，生产与 Release 状态见 [PROGRESS.md](../PROGRESS.md)。本目录描述当前设计；已完成计划不再是工作队列。
 
 ## 当前运行时
 
-当前生产运行时为 Debian Docker Compose：Caddy/现有代理 -> React Router SSR `web`；私有 `worker` 消费本机 PostgreSQL 的 `generations` 队列；单例 `scheduler` 跑维护任务；图片持久化到本机 `media_data`。root systemd 更新器独立处理后台发出的官方稳定版更新请求，Web 不持有 Docker 或宿主机 shell 权限。发布步骤只看 [deploy.md](deploy.md)。仓库中的 `netlify/` 是过渡兼容 handler 源码，Docker 运行时不依赖 Netlify 平台。
+当前生产运行时为 Debian Docker Compose：Caddy/现有代理 -> React Router SSR `web`；私有 `worker` 消费本机 PostgreSQL 的 `generations` 队列；单例 `scheduler` 跑维护任务；图片持久化到本机 `media_data`。root systemd 更新器独立处理后台发出的官方稳定版更新请求，Web 不持有 Docker 或宿主机 shell 权限。腾讯云生产环境运行提交 `c5131aa`；发布步骤只看 [deploy.md](deploy.md)。仓库中的 `netlify/` 是过渡兼容 handler 源码，Docker 运行时不依赖 Netlify 平台。
 
 ## 按需阅读
 
