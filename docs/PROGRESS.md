@@ -1,51 +1,63 @@
 # 当前状态
 
-更新：2026-07-13。当前发布形态是 Debian 单机 Docker、自托管 PostgreSQL、本地媒体、system/custom 双 Key 模式，以及管理后台稳定版更新器。
+更新：2026-07-13。当前产品基线为 `0.2.0`，现有产品、工程、单机部署和管理后台更新需求均已实现。
 
 | 里程碑 | 状态 | 证据 |
 |---|---|---|
-| Self-hosted PostgreSQL | Complete | Private Compose service and persistent volume |
-| Self-hosted media | Complete | Shared local volume and `/media/*` route |
-| One-command Debian install | Complete | Three visible inputs; generated internal secrets |
-| Backup and restore | Complete | Checked local DB/media archives; seven-copy retention |
-| Deployment CI | Complete | Script contracts and empty-stack persistence smoke |
-| Key modes | Complete | Fresh install enables system/custom; custom credentials are encrypted per job with zero site debit |
-| Production infrastructure | Deployed | Nginx forwards HTTPS traffic to the healthy loopback Web service; functional acceptance remains |
-| Site favicon | Complete | `/favicon.svg?v=1` is linked globally and served from the production domain |
-| Admin stable updater | Complete | Admin check/start UI, isolated control mounts, guarded systemd update and recovery, monotonic Release CI |
+| 对话式生图与资产 | 已实现 | 登录会话、历史、资产库、灵感库和本地持久化媒体 |
+| 积分与后台运营 | 已实现 | 成功后扣费、FIFO 批次、兑换码、套餐、审计和管理后台 |
+| system/custom Key 模式 | 已实现 | 统一任务状态机；custom 每任务加密且本站零扣费 |
+| 单机全自托管 | 已部署 | Debian Docker Compose、PostgreSQL 17、本地媒体和持久卷 |
+| 安装、备份与恢复 | 已实现 | 三项可见输入、内部密钥自动生成、校验和与七份普通备份保留 |
+| 部署 CI | 已实现 | 脚本契约、构建元数据、空栈安装和持久化 smoke |
+| 管理后台稳定版更新 | 已部署 | 检查/启动页面、隔离控制目录、systemd 更新器、恢复边界和 Release CI |
+| 腾讯云生产环境 | 已验证 | 容器运行、Web/PostgreSQL 健康、内外网 `/healthz` 均为 `204` |
 
 ## 当前线上实例
 
 - 站点：[https://one-image2.tangguo.xin](https://one-image2.tangguo.xin)
 - 管理员入口：[https://one-image2.tangguo.xin/admin/login](https://one-image2.tangguo.xin/admin/login)
+- 系统更新入口：[https://one-image2.tangguo.xin/admin/system-update](https://one-image2.tangguo.xin/admin/system-update)
+- 产品版本：`0.2.0`
+- 生产提交：`c5131aaa0335250a3846c380519324fbbf4b231b`
 - 入口链路：Nginx -> `127.0.0.1:18080` -> React Router SSR `web`
-- 服务：`postgres`、`web`、`worker`、`scheduler`
+- 运行服务：`postgres`、`web`、`worker`、`scheduler`
 - TLS：已启用并配置自动续期
-- 生产代码版本：`cbb5a78`（站点 favicon）
-- Key 配置：`CUSTOM_KEY_MODES_ENABLED=true`，custom 加密密钥已配置且完成加解密往返检查
+- Key 配置：`CUSTOM_KEY_MODES_ENABLED=true`，custom 加密密钥已配置
 
-线上基础设施已经完成镜像重建、数据库迁移、容器健康检查、管理员登录页检查、favicon 内容一致性检查。真实生图与恢复演练仍按下文验收，生产环境文件和真实 Key 不进入 Git。
+## 2026-07-13 部署证据
 
-## 发布结论
+- 升级前备份：`deploy/backups/20260713T145807Z`
+- 备份校验：`database.dump`、`media.tar.gz`、`manifest.env` 全部通过 SHA-256 校验
+- 容器：`postgres`、`web`、`worker`、`scheduler` 均运行；Web 与 PostgreSQL 为 healthy
+- 健康检查：`http://127.0.0.1:18080/healthz` 和公开 `/healthz` 均返回 `204`
+- 版本固化：Web 容器内 `APP_VERSION=0.2.0`，`APP_COMMIT_SHA` 与生产提交一致
+- 后台入口：未登录访问 `/admin/system-update` 返回 `302` 到登录流程
+- 更新器：`ai-image-workshop-update.path` 为 enabled/active，`ai-image-workshop-update.service` 为 enabled
+- 工作树：生产仓库无未提交修改
 
-仓库已经具备服务器部署所需代码和文档：安装器自动生成内部密钥、迁移空 PostgreSQL、创建管理员、启动 web/worker/scheduler，并验证健康状态。宿主机不使用 `3000/5432`；域名模式使用 Caddy 的 `80/443`，现有代理模式只绑定指定或自动选择的回环端口。
+## 发布边界
 
-部署、升级和已知故障处理只看 [deploy.md](dev/deploy.md)。安装时输入系统 Relay Key、管理员邮箱和管理员密码；登录地址是 `/admin/login`。
+更新器代码和 CI 发布规则已经实现并部署，但 GitHub `main`、`v0.2.0` tag 与 stable/latest Release 尚未发布。
+当前服务器通过 `codex/admin-system-updater` 分支完成一次性引导；这不影响线上运行。
 
-## 仍需人工验收
+正式发布时先把当前分支合入 `main`，再创建指向 `main` 精确提交的 `v0.2.0` tag。CI 验证版本、tag、提交归属和质量门后发布 stable/latest Release。未来后台一键更新只接受严格递增的稳定版。
 
-以下项目需要真实第三方 Relay、用户 Key 或维护窗口，不以容器健康代替：
+## 持续运维与发布动作
 
-- 完成一次真实 `system` 生成，确认只产生一个终态、一张图片和最多一次 debit。
-- 完成一次真实 `custom` 生成，确认本站余额不变、无 debit，并在终态删除临时凭据。
-- 确认历史 `/media/*` 在应用容器再次重建后仍可读取。
-- 执行一次生产备份，并恢复到新的空卷完成演练。
+以下是需要按发布或运维周期执行的动作，不代表产品功能未实现：
+
+- 合并 GitHub 分支并发布 `v0.2.0` 基线 Release。
+- 使用真实第三方 Relay 周期性检查 system/custom 的 t2i/i2i、单终态、扣费和凭据清理。
+- 定期验证历史 `/media/*` 在应用容器重建后仍可读取。
+- 定期执行生产备份恢复到新空卷的演练，并记录恢复时间。
+- 轮换管理员凭据、撤销旧会话并复查审计记录。
 - 接入长期监控、告警和加密异地备份。
 
-## 后续增强
+## 可选增强
 
 - 把仍复用的 `netlify/functions` handler 移到平台无关目录；Docker 运行时已经不依赖 Netlify。
 - 根据真实 CPU、内存、队列、Relay 和存储指标决定 worker 扩容。
-- 配置加密异地备份和定期恢复演练。
+- 多机高可用和自动异地备份不属于当前单机部署基线。
 
-多机高可用和自动异地备份不在当前单机部署范围内。
+部署、升级、发布和故障恢复只看 [Docker 部署与运维](dev/deploy.md)；自动与人工验收范围见 [运维与验证](dev/10-ops-test.md)。

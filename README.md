@@ -8,6 +8,11 @@ AI 图像工坊是一个需要登录的对话式 AI 生图应用，固定使用 
 
 已部署站点：[https://one-image2.tangguo.xin](https://one-image2.tangguo.xin)
 
+当前产品基线为 `0.2.0`，现有需求已经实现。腾讯云生产环境运行提交
+`c5131aaa0335250a3846c380519324fbbf4b231b`，容器、内外网健康检查和宿主机更新器均已验收。
+GitHub `main`、`v0.2.0` tag 与 stable/latest Release 尚未发布；准确状态与生产证据统一见
+[当前状态](docs/PROGRESS.md)。
+
 ## 主要能力
 
 - 对话式生成、历史会话、资产库和灵感库。
@@ -70,6 +75,7 @@ sudo bash deploy/install.sh \
 - [当前发布状态](docs/PROGRESS.md)
 - [技术设计索引](docs/dev/README.md)
 - [运行时与配置](docs/dev/00-overview.md)
+- [Docker 部署与运维](docs/dev/deploy.md)
 - [运维与验证](docs/dev/10-ops-test.md)
 - [产品需求规格](docs/redesign-requirements.md)
 - [Key 模式产品契约](tasks/prd-user-api-key-modes.md)

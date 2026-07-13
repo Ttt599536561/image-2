@@ -4,13 +4,20 @@
 
 ## 当前生产事实
 
+- 当前产品版本为 `0.2.0`；腾讯云生产环境运行提交
+  `c5131aaa0335250a3846c380519324fbbf4b231b`，站点为
+  `https://one-image2.tangguo.xin`。
 - Debian Docker Compose：Caddy/现有代理 -> `web`，并运行 `worker`、单例 `scheduler`。
 - PostgreSQL 17 在私有 Compose 网络中，数据卷为 `postgres_data`；宿主机不发布 `5432`。
 - 媒体默认存 `media_data:/app/data/media`，数据库保存相对地址 `/media/<key>`。
 - 容器内 Web 使用 `3000`；宿主机已有 `3000` 不冲突。现有代理模式只绑定空闲的 `127.0.0.1` 端口。
 - 安装从空数据开始，不迁移 Neon/Supabase/Netlify 数据。Neon 与 S3 仅是可选驱动。
 - 安装器只收集 Relay Key、管理员邮箱、可见管理员密码；内部密钥自动生成。管理员入口 `/admin/login`。部署完成即开放 system/custom，用户可在浏览器保存自己的 Key。
-- 安装、resume、升级、备份、恢复及空栈持久化 smoke 已实现并验证；真实 Relay 生图须在目标服务器验收。
+- 安装、resume、升级、备份、恢复及空栈持久化 smoke 已实现并验证；现有产品与工程需求全部收口。
+- 管理后台更新入口为 `/admin/system-update`；宿主机
+  `ai-image-workshop-update.path` 已启用并运行，Web 不持有 Docker 或 shell 权限。
+- GitHub `main`、`v0.2.0` tag 和 stable/latest Release 尚未发布。真实 Relay 检查、恢复演练、
+  凭据轮换和异地备份属于持续运维，不是待实现功能。
 
 ## 不可破坏
 
@@ -27,4 +34,4 @@
 - [技术索引](docs/dev/README.md)
 - [产品契约](tasks/prd-user-api-key-modes.md)
 
-已完成计划和历史平台记录只用于回归调查，不作为当前任务清单。
+现有需求、计划和规格均已完成；历史记录只用于回归调查，不作为当前任务清单。后续只有新增需求才进入需求文档。
