@@ -14,6 +14,28 @@ async function status(p: Promise<unknown>): Promise<number> {
   }
 }
 
+async function sourceFailure(p: Promise<unknown>): Promise<{ status: number; code: string }> {
+  try {
+    await p;
+    throw new Error("expected enqueue to reject");
+  } catch (error) {
+    if (!(error instanceof Response)) throw error;
+    const payload = (await error.json()) as { error: { code: string } };
+    return { status: error.status, code: payload.error.code };
+  }
+}
+
+async function createSourceImage(
+  userId: string,
+  status = "succeeded",
+): Promise<{ conversationId: string; generationId: string; imageId: string }> {
+  const source = await ctx.createGeneration(userId, { status });
+  const imageId = randomUUID();
+  await ctx.sql`INSERT INTO images(id,generation_id,user_id,storage_key,public_url,content_type,width,height,size_bytes)
+                VALUES(${imageId},${source.generationId},${userId},${`sources/${imageId}.png`},${`/media/sources/${imageId}.png`},'image/png',1,1,68)`;
+  return { ...source, imageId };
+}
+
 let ctx: TestCtx;
 let PRICE = 70; // 当前生效单图价（mp），beforeAll 读取，余额闸阈值据此算
 beforeAll(async () => {
@@ -93,6 +115,93 @@ describe("入队三闸（enqueue）", () => {
     );
     expect(s).toBe(400);
     expect((await ctx.sql`SELECT 1 FROM generations WHERE user_id=${uid}`).length).toBe(0);
+  });
+
+  it("对话结果编辑：本人当前对话的成功来源入队并保留原图", async () => {
+    const uid = await ctx.createUser({ balanceMp: PRICE });
+    await ctx.addLot(uid, PRICE, { source: "signup" });
+    const source = await createSourceImage(uid);
+
+    const result = await enqueueGeneration({
+      user: { id: uid, maxConcurrency: 2 },
+      input: {
+        prompt: "把招牌文字改成夏日限定",
+        size: "1024x1024",
+        conversationId: source.conversationId,
+        sourceImageId: source.imageId,
+        credentialMode: "system",
+      },
+    });
+
+    expect((await ctx.gen(result.generationId))?.source_image_id).toBe(source.imageId);
+    expect(await ctx.sql`SELECT id FROM images WHERE id=${source.imageId}`).toHaveLength(1);
+    expect(await ctx.balanceMp(uid)).toBe(PRICE);
+    expect(await ctx.ledger(uid, "debit")).toHaveLength(0);
+  });
+
+  it("对话结果编辑：伪造、越权、未成功和跨对话来源统一拒绝且零写入", async () => {
+    const uid = await ctx.createUser({ balanceMp: PRICE });
+    await ctx.addLot(uid, PRICE, { source: "signup" });
+    const valid = await createSourceImage(uid);
+    const failed = await createSourceImage(uid, "failed");
+    const otherConversation = await ctx.createGeneration(uid, { status: "succeeded" });
+    const otherUser = await ctx.createUser({ balanceMp: PRICE });
+    const foreign = await createSourceImage(otherUser);
+    const beforeGenerations = await ctx.sql`SELECT id FROM generations WHERE user_id=${uid}`;
+    const beforeBalance = await ctx.balanceMp(uid);
+    const beforeLots = await ctx.lots(uid);
+
+    for (const input of [
+      { sourceImageId: randomUUID(), conversationId: valid.conversationId },
+      { sourceImageId: foreign.imageId, conversationId: valid.conversationId },
+      { sourceImageId: failed.imageId, conversationId: failed.conversationId },
+      { sourceImageId: valid.imageId, conversationId: otherConversation.conversationId },
+    ]) {
+      await expect(
+        sourceFailure(
+          enqueueGeneration({
+            user: { id: uid, maxConcurrency: 2 },
+            input: {
+              prompt: "edit",
+              size: "auto",
+              ...input,
+              credentialMode: "system",
+            },
+          }),
+        ),
+      ).resolves.toEqual({ status: 404, code: "SOURCE_IMAGE_UNAVAILABLE" });
+    }
+
+    expect(await ctx.sql`SELECT id FROM generations WHERE user_id=${uid}`).toHaveLength(
+      beforeGenerations.length,
+    );
+    expect(await ctx.balanceMp(uid)).toBe(beforeBalance);
+    expect(await ctx.lots(uid)).toEqual(beforeLots);
+    expect(await ctx.ledger(uid, "debit")).toHaveLength(0);
+  });
+
+  it("对话结果编辑：临时上传 key 与来源图片 ID 冲突时不入队", async () => {
+    const uid = await ctx.createUser({ balanceMp: PRICE });
+    await ctx.addLot(uid, PRICE, { source: "signup" });
+    const source = await createSourceImage(uid);
+    const before = await ctx.sql`SELECT id FROM generations WHERE user_id=${uid}`;
+
+    await expect(
+      sourceFailure(
+        enqueueGeneration({
+          user: { id: uid, maxConcurrency: 2 },
+          input: {
+            prompt: "edit",
+            size: "auto",
+            conversationId: source.conversationId,
+            sourceImageId: source.imageId,
+            inputImageKey: `uploads/${uid}/ref.png`,
+            credentialMode: "system",
+          },
+        }),
+      ),
+    ).resolves.toEqual({ status: 400, code: "INVALID_PARAM" });
+    expect(await ctx.sql`SELECT id FROM generations WHERE user_id=${uid}`).toHaveLength(before.length);
   });
 
   it("乐观立即跳转：客户端提供 conversationId+generationId → 用该 id 建会话 + queued 行", async () => {

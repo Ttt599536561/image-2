@@ -24,6 +24,7 @@ export interface EnqueueRequest {
   conversationId?: string; // 客户端提供：新建用此 id（owner-safe upsert）/ 续聊传既有 id
   generationId?: string; // 客户端提供：generations 行用此 id（乐观 turn 与服务端同 id）
   inputImageKey?: string | null; // ④b 图生图：参考图 key（owner-scope 在 run() 内校验）
+  sourceImageId?: string | null; // 对话结果图编辑：仅接收 images.id，归属/状态/会话在事务内校验
   credentialMode: CredentialMode;
   customApiKey?: string;
 }
@@ -49,6 +50,27 @@ async function run(
   const inputImageKey = input.inputImageKey?.trim() || null;
   if (inputImageKey && !inputImageKey.startsWith(`uploads/${user.id}/`)) {
     throw httpError(400, "INVALID_PARAM", "参考图无效");
+  }
+  const sourceImageId = input.sourceImageId?.trim() || null;
+  if (sourceImageId && inputImageKey) {
+    throw httpError(400, "INVALID_PARAM", "来源图片参数冲突");
+  }
+  if (sourceImageId) {
+    if (!input.conversationId) {
+      throw httpError(404, "SOURCE_IMAGE_UNAVAILABLE", "这张图片已不可编辑");
+    }
+    const source = await c.query(
+      `SELECT i.id
+         FROM images i
+         JOIN generations sg ON sg.id=i.generation_id
+        WHERE i.id=$1 AND i.user_id=$2 AND sg.user_id=$2
+          AND sg.status='succeeded' AND sg.conversation_id=$3
+        FOR SHARE OF i,sg`,
+      [sourceImageId, user.id, input.conversationId],
+    );
+    if (source.rowCount !== 1) {
+      throw httpError(404, "SOURCE_IMAGE_UNAVAILABLE", "这张图片已不可编辑");
+    }
   }
 
   if (input.credentialMode === "system") {
@@ -108,9 +130,9 @@ async function run(
   const gen = await c.query(
     `INSERT INTO generations(
        id,conversation_id,user_id,prompt,model,size,quality,background,moderation,input_image_key,
-       credential_mode,deadline_at,status
+       source_image_id,credential_mode,deadline_at,status
      )
-     VALUES($1,$2,$3,$4,'gpt-image-2',$5,$6,$7,'low',$8,$9,now()+interval '5 minutes','queued')
+     VALUES($1,$2,$3,$4,'gpt-image-2',$5,$6,$7,'low',$8,$9,$10,now()+interval '5 minutes','queued')
      ON CONFLICT(id) DO NOTHING
      RETURNING id,deadline_at`,
     [
@@ -122,6 +144,7 @@ async function run(
       input.quality ?? null,
       input.background ?? null,
       inputImageKey,
+      sourceImageId,
       input.credentialMode,
     ],
   );

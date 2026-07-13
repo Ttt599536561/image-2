@@ -87,6 +87,31 @@ describe("custom enqueue", () => {
     expect(await ctx.sql`SELECT 1 FROM generations WHERE user_id=${userId}`).toHaveLength(0);
   });
 
+  it("queues an owned successful conversation source without using system money gates", async () => {
+    const userId = await ctx.createUser({ balanceMp: 0 });
+    const source = await ctx.createGeneration(userId, { status: "succeeded" });
+    const sourceImageId = randomUUID();
+    await ctx.sql`INSERT INTO images(id,generation_id,user_id,storage_key,public_url,width,height)
+                  VALUES(${sourceImageId},${source.generationId},${userId},${`sources/${sourceImageId}.png`},${`/media/sources/${sourceImageId}.png`},1,1)`;
+
+    const result = await enqueueGeneration({
+      user: { id: userId, maxConcurrency: 1 },
+      input: {
+        prompt: "replace the label",
+        size: "auto",
+        conversationId: source.conversationId,
+        sourceImageId,
+        credentialMode: "custom",
+        customApiKey: "fictional-custom-edit",
+      },
+    });
+
+    expect((await ctx.gen(result.generationId))?.source_image_id).toBe(sourceImageId);
+    expect(await ctx.credentials(result.generationId)).toHaveLength(1);
+    expect(await ctx.balanceMp(userId)).toBe(0);
+    expect(await ctx.ledger(userId, "debit")).toHaveLength(0);
+  });
+
   it("fails before creating rows when encryption is unavailable", async () => {
     const userId = await ctx.createUser({ balanceMp: 0 });
     delete process.env.CUSTOM_KEY_JOB_ENCRYPTION_KEY;

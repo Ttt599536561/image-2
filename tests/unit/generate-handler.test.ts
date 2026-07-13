@@ -12,6 +12,7 @@ vi.mock("../../src/server/generation/enqueue", () => ({ enqueueGeneration: mocks
 import handler from "../../netlify/functions/generate";
 
 const base = { prompt: "unit prompt", size: "auto" };
+const sourceImageId = "00000000-0000-4000-8000-000000000006";
 const originalFlag = process.env.CUSTOM_KEY_MODES_ENABLED;
 
 async function body(response: Response): Promise<Record<string, any>> {
@@ -125,5 +126,39 @@ describe("POST /api/generate handler", () => {
       user: { id: "00000000-0000-4000-8000-000000000001", maxConcurrency: 2 },
       input: { ...base, credentialMode: "system" },
     });
+  });
+
+  it("forwards only a valid source image id to the existing enqueue path", async () => {
+    const response = await handler(
+      new Request("http://localhost/api/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...base, sourceImageId, credentialMode: "system" }),
+      }),
+    );
+
+    expect(response.status).toBe(202);
+    expect(mocks.enqueueGeneration).toHaveBeenCalledWith({
+      user: { id: "00000000-0000-4000-8000-000000000001", maxConcurrency: 2 },
+      input: { ...base, sourceImageId, credentialMode: "system" },
+    });
+  });
+
+  it("rejects malformed or conflicting sources without enqueueing", async () => {
+    for (const source of [
+      { sourceImageId: "https://storage.example/source.png" },
+      { sourceImageId, inputImageKey: "uploads/user/ref.png" },
+    ]) {
+      const response = await handler(
+        new Request("http://localhost/api/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...base, ...source, credentialMode: "system" }),
+        }),
+      );
+      expect(response.status).toBe(400);
+      expect((await body(response)).error.code).toBe("INVALID_PARAM");
+    }
+    expect(mocks.enqueueGeneration).not.toHaveBeenCalled();
   });
 });
