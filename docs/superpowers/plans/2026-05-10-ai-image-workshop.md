@@ -1,6 +1,6 @@
 # AI Image Workshop v1 Archive
 
-Status: completed and superseded by the authenticated React Router v2 application.
+Status: completed and superseded by the authenticated React Router `0.2.0` application. This archive contains no active requirements.
 
 - [x] Built the original Vite/React image generation UI, request adapter,
   validation, local configuration, redaction, tests, and responsive styling.

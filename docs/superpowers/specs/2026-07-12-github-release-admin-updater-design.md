@@ -1,7 +1,13 @@
 # GitHub Release 管理员一键更新设计
 
 日期：2026-07-12
-状态：已批准
+状态：本文范围已在 `0.2.0` 实现，并于 2026-07-13 在腾讯云生产环境完成引导部署。
+
+## 实现结果
+
+管理后台 `/admin/system-update`、严格 Release 检查、原子请求/状态、维护中间件、受限宿主机更新器、systemd units、备份 pin、回滚/恢复边界和 GitHub Release CI 均已交付。生产提交为 `c5131aaa0335250a3846c380519324fbbf4b231b`，`.path` 为 enabled/active，service 为 enabled，内外网 `/healthz` 均返回 `204`。
+
+GitHub `main`、`v0.2.0` tag 与 stable/latest Release 尚未发布；这是发布操作状态，不是功能缺口。完成基线 Release 后，后台正常一键更新从更高的稳定版本开始。生产证据见 [PROGRESS.md](../../PROGRESS.md)，命令见 [deploy.md](../../dev/deploy.md)。
 
 ## 1. 目标
 

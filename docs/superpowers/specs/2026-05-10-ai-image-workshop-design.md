@@ -1,5 +1,7 @@
 # AI Image Workshop Design
 
+Status: completed as the v1 design and superseded by the authenticated React Router `0.2.0` product. This document is historical context, not an active requirement set.
+
 ## Summary
 
 Create a text-to-image website that lets users call the fixed One-API relay for GPT image generation. The first version focuses on matching the supplied UI references and keeping the request adapter isolated so relay-specific models such as `gpt-image-2` can be selected without breaking the official-compatible default.

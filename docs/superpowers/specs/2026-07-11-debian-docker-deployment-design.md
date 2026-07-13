@@ -1,9 +1,14 @@
 # Debian Docker Deployment Design
 
-Status: approved target. The runtime is implemented and locally verified;
-production rollout is pending. Handler extraction in items 2 and 5 is deferred:
-the Docker routes and scheduler currently import compatibility modules from
+Status: implemented and deployed in the `0.2.0` production baseline on
+2026-07-13. The final production topology was extended by the later all-local
+self-hosted design: PostgreSQL and media now run on the Debian host. Docker
+routes and scheduler still import compatibility modules from
 `netlify/functions`, but do not require the Netlify platform.
+
+Production runs commit `c5131aaa0335250a3846c380519324fbbf4b231b` at
+`https://one-image2.tangguo.xin`; current evidence is in
+[PROGRESS.md](../../PROGRESS.md).
 
 ## Goal
 
