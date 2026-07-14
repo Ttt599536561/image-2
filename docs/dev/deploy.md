@@ -67,7 +67,7 @@ curl -fsS -o /dev/null -w '%{http_code}\n' https://images.example.com/healthz
 
 管理员可在 `/admin/system-update` 点击“检查更新”。更新通道固定为公开仓库 `Ttt599536561/image-2` 的最新稳定 GitHub Release；draft、prerelease、非严格 `vMAJOR.MINOR.PATCH` 和非递增版本都会被拒绝。点击“立即更新”后，网站会进入数分钟维护窗口：先排空任务、停止写入服务、校验备份，再拉取精确 tag、构建、迁移和健康检查。
 
-更新器功能已经部署，但 GitHub `main`、`v0.2.0` tag 与 stable/latest Release 尚未发布。先完成 `0.2.0` 基线发布；后台首次正式一键更新应使用之后严格递增的稳定版，不能把当前部署分支伪装成 Release。
+更新器功能已经部署。`v0.2.1` 是供当前 `0.2.0` 生产实例首次检测的严格递增 stable/latest Release；功能分支本身仍不是更新来源。Release 发布完成后，在后台重新检查并由管理员明确启动更新。
 
 页面重连期间可在服务器查看同一请求：
 

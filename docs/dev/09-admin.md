@@ -14,7 +14,7 @@
 
 检查更新与启动更新均由 `/api/admin/system-update*` 再次执行 admin 鉴权和严格同源 JSON POST 校验。启动前先写 `system_update_start` 审计，再原子发布唯一请求。Web 不执行 Git、Docker 或 shell，也不接触项目根目录。
 
-2026-07-13 的生产引导已经安装并启用宿主机更新器：`.path` 为 enabled/active，service 为 enabled；页面显示的当前版本为 `0.2.0`。GitHub `v0.2.0` stable/latest Release 尚未发布，因此首次正式一键更新要从后续严格递增的稳定版开始。
+2026-07-13 的生产引导已经安装并启用宿主机更新器：`.path` 为 enabled/active，service 为 enabled；页面显示的当前版本为 `0.2.0`。`v0.2.1` 是首个供该生产实例检测的严格递增 stable/latest Release，发布完成后页面应显示可更新。
 
 **单角色（本期）**：`users.role ∈ {user, admin}`（[02 §3.2](02-database.md) 已建）。RBAC 多级分层（超管/审核员/客服）后置 [§23](../redesign-requirements.md)，但 `role` 字段已在，将来加级不改表。
 

@@ -1,6 +1,6 @@
 # 生图管线
 
-状态：`0.2.0` Docker worker 基线路径已经实现并部署，通过单元测试与空数据 Compose smoke。本文新增的对话结果图编辑管线已在 `codex/admin-system-updater` 实现并完成本地验证，尚未部署；真实 Relay 生图仍作为生产周期性检查执行。
+状态：`0.2.0` Docker worker 基线路径已经实现并部署，通过单元测试与空数据 Compose smoke。本文新增的对话结果图编辑管线随 `v0.2.1` stable Release 发布并完成本地验证，等待生产更新；真实 Relay 生图仍作为生产周期性检查执行。
 
 ## 提交与状态
 

@@ -1,6 +1,6 @@
 # AI 图像工坊 · 产品需求规格（v2 重构）
 
-> 状态：本文 §1-§25 的 `0.2.0` 基线已于 2026-07-13 部署到腾讯云生产环境；§26 对话结果图编辑已在 `codex/admin-system-updater` 实现并完成本地验证，但尚未部署。证据见 [PROGRESS.md](PROGRESS.md)。本文件是当前 v2 的**完整产品规格**，后续只在出现新增需求时继续修订。
+> 状态：本文 §1-§25 的 `0.2.0` 基线已于 2026-07-13 部署到腾讯云生产环境；§26 对话结果图编辑随 `v0.2.1` stable Release 发布并完成本地验证，等待生产更新。证据见 [PROGRESS.md](PROGRESS.md)。本文件是当前 v2 的**完整产品规格**，后续只在出现新增需求时继续修订。
 > 关联：[requirements.md](requirements.md)（v1 现状）、[development.md](development.md)（现有架构）、[test-cases.md](test-cases.md)（v1 用例）。
 > 更新：2026-07-14。产品规则以本文件及批准设计为准；实施、部署与 Release 状态只看 [PROGRESS.md](PROGRESS.md)。
 
