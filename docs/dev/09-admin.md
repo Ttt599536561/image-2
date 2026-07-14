@@ -1,6 +1,6 @@
 # 10 · 后台管理
 
-状态：本文后台能力均已在 `0.2.0` 实现。腾讯云生产环境运行提交 `c5131aa`，系统更新入口为 `/admin/system-update`。
+状态：本文后台能力均已在 `0.2.0` 实现。腾讯云生产环境运行提交 `c5131aa`；`v0.2.2` 修复宿主更新请求校验和已受理请求的等待状态，发布与生产恢复结果见 [PROGRESS.md](../PROGRESS.md)。
 
 > 独立 `/admin/*` 后台（仅 `role=admin`）：兑换码 / 用户 / 灵感库 / 生成记录 / 套餐与全局参数 / 数据看板，外加贯穿全部模块的**敏感操作二次确认 + 审计留痕**。
 > 规则真相源：规格 [§9](../redesign-requirements.md)（后台全功能）/ [§16](../redesign-requirements.md)（表）/ [§24-3·§24-13](../redesign-requirements.md)；结构看 [wireframes.html](../prototypes/wireframes.html) 11–18，视觉令牌贴 [design-system.html](../prototypes/design-system.html)，**后台自建、不引 Refine**（[00 §1.1](00-overview.md) 已排除）。
@@ -10,11 +10,11 @@
 
 ## 10.1 总览与 RBAC
 
-后台导航包含 `/admin/system-update`。该页显示镜像内固化的版本/提交、宿主机更新状态和官方 GitHub 最新稳定版；只有 `enabled + available + idle` 才能点击“立即更新”。请求接受后浏览器每 2 秒轮询，并把请求 ID 保存在 `sessionStorage`，所以 Web 重启或页面刷新不会丢失跟踪。断线只表示正在重启，不推断失败；页面同时展示宿主机 `status` 命令。
+后台导航包含 `/admin/system-update`。该页显示镜像内固化的版本/提交、宿主机更新状态和官方 GitHub 最新稳定版；只有 `enabled + available + idle` 才能点击“立即更新”。请求接受后浏览器每 2 秒轮询，并把请求 ID 保存在 `sessionStorage`，所以 Web 重启或页面刷新不会丢失跟踪。宿主尚未发布匹配阶段时明确显示“更新请求已提交，等待主机更新器接收”；断线只表示正在重启，不推断失败，页面同时保留宿主机状态查询边界。
 
 检查更新与启动更新均由 `/api/admin/system-update*` 再次执行 admin 鉴权和严格同源 JSON POST 校验。启动前先写 `system_update_start` 审计，再原子发布唯一请求。Web 不执行 Git、Docker 或 shell，也不接触项目根目录。
 
-2026-07-13 的生产引导已经安装并启用宿主机更新器：`.path` 为 enabled/active，service 为 enabled；页面显示的当前版本为 `0.2.0`。`v0.2.1` 是首个供该生产实例检测的严格递增 stable/latest Release，发布完成后页面应显示可更新。
+2026-07-13 的生产引导已经安装并启用宿主机更新器：`.path` 为 enabled/active，service 为 enabled；页面显示的当前版本为 `0.2.0`。生产首次向 `v0.2.1` 更新时，宿主脚本未聚合 `jq --stream` 事件，合法四字段请求被错误拒绝且公开状态停留在 `idle`。`v0.2.2` 使用 slurp 聚合修复请求与预约校验，并用真实 `process-request` Shell 测试和后台等待态 UI 测试锁定该行为。
 
 **单角色（本期）**：`users.role ∈ {user, admin}`（[02 §3.2](02-database.md) 已建）。RBAC 多级分层（超管/审核员/客服）后置 [§23](../redesign-requirements.md)，但 `role` 字段已在，将来加级不改表。
 

@@ -137,6 +137,10 @@ export default function SystemUpdatePage() {
 
   const status = snapshot?.status ?? null;
   const release = snapshot?.latestRelease ?? null;
+  const awaitingHostClaim = Boolean(
+    storedRequestId &&
+      (!status || status.requestId !== storedRequestId || status.phase === "idle"),
+  );
   const canStart = Boolean(
     snapshot?.enabled &&
       snapshot.releaseState === "available" &&
@@ -324,7 +328,24 @@ export default function SystemUpdatePage() {
         </section>
       </div>
 
-      {status && (isActive(status) || TERMINAL_PHASES.has(status.phase)) ? (
+      {awaitingHostClaim ? (
+        <section
+          className={styles.progressBand}
+          aria-labelledby="update-pending-title"
+          aria-live="polite"
+        >
+          <div className={styles.progressIcon}>
+            <LoaderCircle size={22} className={styles.spin} />
+          </div>
+          <div className={styles.progressContent}>
+            <p className={styles.eyebrow}>更新进度</p>
+            <h2 id="update-pending-title">更新请求已提交，等待主机更新器接收</h2>
+            <p>
+              请求编号：<code>{storedRequestId}</code>
+            </p>
+          </div>
+        </section>
+      ) : status && (isActive(status) || TERMINAL_PHASES.has(status.phase)) ? (
         <section className={styles.progressBand} aria-labelledby="update-progress-title">
           <div className={styles.progressIcon}>
             {status.phase === "completed" || status.phase === "recovered" ? (

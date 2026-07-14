@@ -179,7 +179,7 @@ npm run typecheck
 npm run build
 npm run assert-no-secrets
 npm run docker:validate
-npm run release:validate -- --expected-version 0.2.2
+npm run release:validate -- --tag v0.2.2 --latest-tag v0.2.1
 ```
 
 Run the updater shell regression in the disposable Debian container once as part of
@@ -262,4 +262,3 @@ then use the authenticated UI to verify a successful conversation result card ex
 Update the hotfix design and progress/deploy documentation with the actual release
 commit, tag workflow result, production backup ID, final status, and health evidence;
 commit and push this evidence only after production verification.
-

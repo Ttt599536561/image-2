@@ -1,7 +1,7 @@
 # System Updater Request Validation Hotfix Design
 
 Date: 2026-07-14
-Status: Approved for implementation and production recovery
+Status: Implemented; release and production recovery pending
 
 ## Incident
 
@@ -84,4 +84,3 @@ image-edit behavior changes in this hotfix.
 - Production reports `completed`, `currentVersion: 0.2.2`, and `maintenance: false`.
 - Public `/healthz` returns 204, the deployed frontend contains the conversation image
   edit source contract and edit action, and existing data remains available.
-

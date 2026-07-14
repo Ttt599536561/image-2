@@ -1,6 +1,6 @@
 {
   "name": "ai-image-workshop",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "engines": {
     "node": ">=22 <23"
@@ -23,7 +23,7 @@
     "db:test:migrate": "node --import tsx scripts/migrate-test-database.ts",
     "assert-no-secrets": "node --env-file-if-exists=.env --import tsx scripts/assert-no-secrets-in-bundle.ts",
     "docker:validate": "docker compose --env-file deploy/.env.production.example config --quiet",
-    "test:deploy": "bash deploy/install-lib.test.sh && bash deploy/install.test.sh && bash deploy/auth-migration.test.sh && bash deploy/backup-restore.test.sh && bash deploy/ci-smoke.test.sh",
+    "test:deploy": "bash deploy/ai-image-workshop-update.test.sh && bash deploy/install-lib.test.sh && bash deploy/install.test.sh && bash deploy/auth-migration.test.sh && bash deploy/backup-restore.test.sh && bash deploy/ci-smoke.test.sh",
     "release:validate": "node --import tsx scripts/validate-release.ts",
     "test:deploy:smoke": "bash deploy/ci-smoke.sh"
   },

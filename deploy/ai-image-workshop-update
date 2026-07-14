@@ -338,8 +338,8 @@ safe_json_file() {
 validate_request_json() {
   local path="$1"
   safe_json_file "$path" 65536 || return 1
-  jq --stream -e '
-    [select(length == 2 and (.[0] | length) == 1) | .[0][0]] as $keys |
+  jq --stream --slurp -e '
+    [.[] | select(length == 2 and (.[0] | length) == 1) | .[0][0]] as $keys |
     ($keys | length) == 4 and ($keys | unique | length) == 4
   ' "$path" >/dev/null || return 1
   jq -e '
@@ -360,8 +360,8 @@ validate_reservation() {
   token="${files[0]}"
   [[ "${token##*/}" == "$request_id.json" ]] || return 1
   safe_json_file "$token" 4096 || return 1
-  jq --stream -e '
-    [select(length == 2 and (.[0] | length) == 1) | .[0][0]] as $keys |
+  jq --stream --slurp -e '
+    [.[] | select(length == 2 and (.[0] | length) == 1) | .[0][0]] as $keys |
     ($keys | length) == 4 and ($keys | unique | length) == 4
   ' "$token" >/dev/null || return 1
   jq -e --arg id "$request_id" '
