@@ -1,0 +1,325 @@
+.page {
+  min-height: 100vh;
+  background: var(--bg-canvas);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+}
+
+/* ===== 顶部导航 ===== */
+.nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: var(--space-5) var(--space-6);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--accent-on-surface);
+}
+
+.navLinks {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.navLogin {
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 14px;
+}
+.navLogin:hover {
+  color: var(--text-primary);
+}
+
+.navCta {
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+  text-decoration: none;
+  font-size: 14px;
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-full);
+}
+.navCta:hover {
+  background: var(--primary-bg-hover);
+}
+
+/* ===== Hero ===== */
+.hero {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: var(--space-12) var(--space-6) var(--space-10);
+  text-align: center;
+}
+
+.eyebrow {
+  display: inline-block;
+  font-size: 13px;
+  color: var(--accent-on-surface);
+  background: var(--accent-surface);
+  border-radius: var(--radius-full);
+  padding: var(--space-1) var(--space-3);
+  margin: 0 0 var(--space-4);
+}
+
+.heroTitle {
+  font-size: clamp(30px, 5vw, 48px);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  margin: 0 0 var(--space-4);
+}
+
+.heroSub {
+  max-width: 560px;
+  margin: 0 auto var(--space-6);
+  color: var(--text-secondary);
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+.heroActions {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.primaryBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--primary-bg);
+  color: var(--primary-fg);
+  text-decoration: none;
+  font-size: 15px;
+  font-weight: 500;
+  padding: var(--space-3) var(--space-6);
+  border-radius: var(--radius-full);
+}
+.primaryBtn:hover {
+  background: var(--primary-bg-hover);
+}
+
+.ghostBtn {
+  display: inline-flex;
+  align-items: center;
+  color: var(--text-primary);
+  text-decoration: none;
+  font-size: 15px;
+  padding: var(--space-3) var(--space-6);
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+}
+.ghostBtn:hover {
+  background: var(--bg-subtle);
+}
+
+.heroStrip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-4);
+  margin-top: var(--space-10);
+}
+
+.heroImg {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+}
+
+/* ===== 通用版块 ===== */
+.section {
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: var(--space-10) var(--space-6);
+}
+
+.sectionTitle {
+  font-size: clamp(22px, 3vw, 30px);
+  text-align: center;
+  margin: 0 0 var(--space-2);
+  letter-spacing: -0.01em;
+}
+
+.sectionSub {
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 14px;
+  margin: 0 0 var(--space-6);
+}
+
+/* ===== 作品画廊（瀑布流） ===== */
+.gallery {
+  columns: 4 220px;
+  column-gap: var(--space-4);
+}
+
+.card {
+  break-inside: avoid;
+  margin: 0 0 var(--space-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.cardImg {
+  width: 100%;
+  display: block;
+}
+
+.cardCaption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+}
+
+.cardTitle {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardCategory {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--accent-on-surface);
+  background: var(--accent-surface);
+  border-radius: var(--radius-full);
+  padding: 2px var(--space-2);
+}
+
+/* ===== 能力卡片 ===== */
+.capGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-4);
+}
+
+.capCard {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+}
+
+.capIcon {
+  color: var(--accent);
+}
+
+.capTitle {
+  font-size: 17px;
+  margin: var(--space-3) 0 var(--space-2);
+}
+
+.capBody {
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.7;
+  margin: 0;
+}
+
+/* ===== 步骤 ===== */
+.stepGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-4);
+}
+
+.stepCard {
+  background: var(--bg-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-6);
+}
+
+.stepNo {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--accent);
+}
+
+.stepTitle {
+  font-size: 16px;
+  margin: var(--space-2) 0;
+}
+
+.stepBody {
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.7;
+  margin: 0;
+}
+
+/* ===== 特色条 ===== */
+.featureStrip {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-4);
+}
+
+.feature {
+  display: flex;
+  gap: var(--space-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+}
+
+.featureTitle {
+  font-size: 15px;
+  margin: 0 0 var(--space-1);
+}
+
+.featureBody {
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.7;
+  margin: 0;
+}
+
+/* ===== 收口 CTA / 页脚 ===== */
+.finalCta {
+  text-align: center;
+  padding: var(--space-12) var(--space-6);
+}
+
+.finalTitle {
+  font-size: clamp(22px, 3vw, 30px);
+  margin: 0 0 var(--space-6);
+}
+
+.footer {
+  text-align: center;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  padding: var(--space-6);
+  border-top: 1px solid var(--border-subtle);
+}
+
+/* ===== 移动端 ===== */
+@media (max-width: 720px) {
+  .capGrid,
+  .stepGrid,
+  .featureStrip,
+  .heroStrip {
+    grid-template-columns: 1fr;
+  }
+
+  .hero {
+    padding-top: var(--space-8);
+  }
+}

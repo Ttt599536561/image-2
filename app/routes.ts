@@ -4,6 +4,7 @@ import { index, layout, type RouteConfig, route } from "@react-router/dev/routes
 // 阶段一：受保护前台挂 _app（mock 放行）；鉴权页挂 _auth；/admin 留阶段二。
 export default [
   route("healthz", "routes/healthz.ts"),
+  route("welcome", "routes/welcome.tsx"), // 公开落地页（营销门面），无需登录
   route("media/*", "routes/media.$.ts"),
   // 阶段二 ②：Better Auth catch-all 资源路由（/api/auth/*），无 UI（05 §6.1）。
   route("api/auth/*", "routes/api.auth.$.ts"),
