@@ -182,9 +182,7 @@ export function AuthForm({ mode, admin = false }: { mode: "login" | "register"; 
           <Link to="/forgot" className={styles.footerLink}>
             忘记密码?
           </Link>
-        ) : (
-          <span>注册即送 0.14 积分（2 张）</span>
-        )}
+        ) : null}
       </div>
     </form>
   );
