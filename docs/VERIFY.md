@@ -32,6 +32,12 @@
 | `npm run test:money` | 扣费、FIFO、负余额、幂等等资金用例 | 全部 passed |
 | `npm run db:test:migrate` | （仅当 money 测试报数据库错时先跑它重建测试库） | 退出码 0 |
 
+> **前置环境要求**：money 测试强制要求一个"一次性 PostgreSQL 测试库"——
+> 项目根目录需有 gitignored 的 `.env.test`，内含 `DATABASE_URL` 和
+> `DATABASE_URL_UNPOOLED` 两个指向测试库的连接串（这是安全设计，防止
+> 测试误碰生产数据）。本地没有 Docker/PostgreSQL 时该套件跑不了，
+> 可在有数据库的环境（如 CI 或服务器）执行，不许因此跳过资金验收。
+
 > 资金规则是本项目"不可破坏"区（见 CLAUDE.md），相关改动没有
 > money 测试全绿**禁止提交**。
 
