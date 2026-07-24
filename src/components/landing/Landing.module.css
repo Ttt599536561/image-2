@@ -3,16 +3,31 @@
   background: var(--bg-canvas);
   color: var(--text-primary);
   font-family: var(--font-sans);
+  scroll-behavior: smooth;
 }
 
-/* ===== 顶部导航 ===== */
+/* ===== 顶部导航（滚动后毛玻璃吸顶） ===== */
 .nav {
+  position: sticky;
+  top: 0;
+  z-index: 20;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  max-width: 1080px;
+  max-width: 1120px;
   margin: 0 auto;
-  padding: var(--space-5) var(--space-6);
+  padding: var(--space-4) var(--space-6);
+  transition:
+    background-color 0.3s ease,
+    box-shadow 0.3s ease,
+    backdrop-filter 0.3s ease;
+}
+
+.navScrolled {
+  background: color-mix(in srgb, var(--bg-canvas) 82%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 1px 0 var(--border-subtle);
 }
 
 .brand {
@@ -30,10 +45,29 @@
   gap: var(--space-3);
 }
 
+.themeToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: transform 0.2s ease, color 0.2s ease;
+}
+.themeToggle:hover {
+  transform: translateY(-1px);
+  color: var(--text-primary);
+}
+
 .navLogin {
   color: var(--text-secondary);
   text-decoration: none;
   font-size: 14px;
+  transition: color 0.2s ease;
 }
 .navLogin:hover {
   color: var(--text-primary);
@@ -46,17 +80,21 @@
   font-size: 14px;
   padding: var(--space-2) var(--space-4);
   border-radius: var(--radius-full);
+  transition: background-color 0.2s ease;
 }
 .navCta:hover {
   background: var(--primary-bg-hover);
 }
 
-/* ===== Hero ===== */
+/* ===== Hero：左文案 + 右叠层画卡 ===== */
 .hero {
-  max-width: 1080px;
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  align-items: center;
+  gap: var(--space-10);
+  max-width: 1120px;
   margin: 0 auto;
-  padding: var(--space-12) var(--space-6) var(--space-10);
-  text-align: center;
+  padding: var(--space-12) var(--space-6) var(--space-12);
 }
 
 .eyebrow {
@@ -70,23 +108,58 @@
 }
 
 .heroTitle {
-  font-size: clamp(30px, 5vw, 48px);
-  line-height: 1.2;
+  font-size: clamp(32px, 4.5vw, 50px);
+  line-height: 1.18;
   letter-spacing: -0.02em;
   margin: 0 0 var(--space-4);
 }
 
 .heroSub {
-  max-width: 560px;
-  margin: 0 auto var(--space-6);
+  max-width: 480px;
   color: var(--text-secondary);
   font-size: 16px;
-  line-height: 1.7;
+  line-height: 1.75;
+  margin: 0 0 var(--space-4);
+}
+
+/* 提示词打字机 */
+.typer {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-6);
+  font-size: 14px;
+}
+
+.typerLabel {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.typerText {
+  font-family: var(--font-mono);
+  color: var(--accent-on-surface);
+  min-height: 1.5em;
+}
+
+.caret {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.12em;
+  background: var(--accent);
+  animation: caretBlink 1s steps(1) infinite;
+}
+
+@keyframes caretBlink {
+  50% {
+    opacity: 0;
+  }
 }
 
 .heroActions {
   display: flex;
-  justify-content: center;
   gap: var(--space-3);
   flex-wrap: wrap;
 }
@@ -102,9 +175,19 @@
   font-weight: 500;
   padding: var(--space-3) var(--space-6);
   border-radius: var(--radius-full);
+  transition: transform 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
 }
 .primaryBtn:hover {
   background: var(--primary-bg-hover);
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.btnArrow {
+  transition: transform 0.2s ease;
+}
+.primaryBtn:hover .btnArrow {
+  transform: translateX(3px);
 }
 
 .ghostBtn {
@@ -117,35 +200,84 @@
   border-radius: var(--radius-full);
   border: 1px solid var(--border-subtle);
   background: var(--bg-surface);
+  transition: background-color 0.2s ease, transform 0.2s ease;
 }
 .ghostBtn:hover {
   background: var(--bg-subtle);
+  transform: translateY(-2px);
 }
 
-.heroStrip {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: var(--space-4);
-  margin-top: var(--space-10);
+/* Hero 右侧：光晕 + 叠层浮动画卡 */
+.heroVisual {
+  position: relative;
+  height: 420px;
 }
 
-.heroImg {
-  width: 100%;
+.glow {
+  position: absolute;
+  inset: 8% 4%;
+  background: radial-gradient(
+    ellipse at center,
+    color-mix(in srgb, var(--accent) 24%, transparent),
+    transparent 70%
+  );
+  filter: blur(40px);
+  border-radius: 50%;
+}
+
+.heroCard {
+  position: absolute;
+  width: 52%;
   aspect-ratio: 1;
   object-fit: cover;
   border-radius: var(--radius-lg);
+  border: 5px solid var(--bg-surface);
   box-shadow: var(--shadow-md);
+  animation: floatY 7s ease-in-out infinite;
+}
+
+.heroCard0 {
+  top: 6%;
+  left: 0;
+  transform: rotate(-6deg);
+  z-index: 3;
+}
+
+.heroCard1 {
+  top: 0;
+  right: 4%;
+  transform: rotate(4deg);
+  z-index: 2;
+  animation-delay: -2.3s;
+}
+
+.heroCard2 {
+  bottom: 2%;
+  left: 26%;
+  transform: rotate(-1.5deg);
+  z-index: 1;
+  animation-delay: -4.6s;
+}
+
+@keyframes floatY {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0 -12px;
+  }
 }
 
 /* ===== 通用版块 ===== */
 .section {
-  max-width: 1080px;
+  max-width: 1120px;
   margin: 0 auto;
-  padding: var(--space-10) var(--space-6);
+  padding: var(--space-12) var(--space-6);
 }
 
 .sectionTitle {
-  font-size: clamp(22px, 3vw, 30px);
+  font-size: clamp(23px, 3vw, 32px);
   text-align: center;
   margin: 0 0 var(--space-2);
   letter-spacing: -0.01em;
@@ -155,27 +287,134 @@
   text-align: center;
   color: var(--text-tertiary);
   font-size: 14px;
-  margin: 0 0 var(--space-6);
+  margin: 0 0 var(--space-8);
 }
 
-/* ===== 作品画廊（瀑布流） ===== */
+/* ===== 魔法演示卡 ===== */
+.magicCard {
+  max-width: 860px;
+  margin: 0 auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  padding: var(--space-8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  box-shadow: var(--shadow-sm);
+}
+
+.magicRow {
+  display: grid;
+  grid-template-columns: 1fr auto 200px;
+  align-items: center;
+  gap: var(--space-5);
+}
+
+.bubble {
+  justify-self: end;
+  max-width: 320px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.bubbleEdit {
+  display: inline-block;
+  font-size: 11px;
+  color: var(--accent-on-surface);
+  background: var(--accent-surface);
+  border-radius: var(--radius-full);
+  padding: 1px var(--space-2);
+  margin-right: var(--space-2);
+}
+
+.magicArrow {
+  color: var(--accent);
+}
+
+.magicFig {
+  margin: 0;
+}
+
+.magicFig img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.magicFig figcaption {
+  margin-top: var(--space-2);
+  font-size: 12px;
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+/* ===== 画廊：画框式 + hover 提示词 ===== */
 .gallery {
   columns: 4 220px;
   column-gap: var(--space-4);
 }
 
-.card {
+.cardReveal {
   break-inside: avoid;
-  margin: 0 0 var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.card {
+  margin: 0;
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
+  overflow: hidden;
+  box-shadow: var(--shadow-xs);
+  transition: box-shadow 0.3s ease, transform 0.3s ease;
+}
+.card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-3px);
+}
+
+.cardImgWrap {
+  position: relative;
   overflow: hidden;
 }
 
 .cardImg {
   width: 100%;
   display: block;
+  transition: transform 0.5s cubic-bezier(0.22, 0.61, 0.21, 1);
+}
+.card:hover .cardImg {
+  transform: scale(1.04);
+}
+
+.cardOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  padding: var(--space-4);
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.72), transparent 55%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.card:hover .cardOverlay {
+  opacity: 1;
+}
+
+.cardPrompt {
+  color: #fff;
+  font-size: 12px;
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .cardCaption {
@@ -210,10 +449,16 @@
 }
 
 .capCard {
+  height: 100%;
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   padding: var(--space-6);
+  transition: transform 0.25s ease, box-shadow 0.25s ease;
+}
+.capCard:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-md);
 }
 
 .capIcon {
@@ -240,6 +485,7 @@
 }
 
 .stepCard {
+  height: 100%;
   background: var(--bg-subtle);
   border-radius: var(--radius-lg);
   padding: var(--space-6);
@@ -273,6 +519,7 @@
 .feature {
   display: flex;
   gap: var(--space-3);
+  height: 100%;
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
@@ -294,11 +541,11 @@
 /* ===== 收口 CTA / 页脚 ===== */
 .finalCta {
   text-align: center;
-  padding: var(--space-12) var(--space-6);
+  padding: var(--space-12) var(--space-6) var(--space-12);
 }
 
 .finalTitle {
-  font-size: clamp(22px, 3vw, 30px);
+  font-size: clamp(23px, 3vw, 32px);
   margin: 0 0 var(--space-6);
 }
 
@@ -311,15 +558,56 @@
 }
 
 /* ===== 移动端 ===== */
-@media (max-width: 720px) {
-  .capGrid,
-  .stepGrid,
-  .featureStrip,
-  .heroStrip {
+@media (max-width: 860px) {
+  .hero {
     grid-template-columns: 1fr;
+    padding-top: var(--space-8);
+    gap: var(--space-8);
   }
 
-  .hero {
-    padding-top: var(--space-8);
+  .heroVisual {
+    height: 320px;
+  }
+
+  .magicRow {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    gap: var(--space-3);
+  }
+
+  .bubble {
+    justify-self: stretch;
+    max-width: none;
+  }
+
+  .magicArrow {
+    transform: rotate(90deg);
+  }
+
+  .magicFig {
+    width: 220px;
+  }
+
+  .capGrid,
+  .stepGrid,
+  .featureStrip {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page {
+    scroll-behavior: auto;
+  }
+  .heroCard,
+  .caret {
+    animation: none;
+  }
+  .card,
+  .cardImg,
+  .primaryBtn,
+  .ghostBtn,
+  .capCard {
+    transition: none;
   }
 }
