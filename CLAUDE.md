@@ -27,6 +27,29 @@
 - 管理员页面/API 必须有 admin guard；敏感写入同事务审计。
 - 所有业务 Compose 命令使用 `--env-file deploy/.env.production`；不得删除数据卷处理普通启动故障。
 
+## 会话开始 SOP
+
+每次新会话开始，必须先按顺序执行，再谈任务：
+
+1. 读 `docs/PROGRESS.md` 顶部"当前状态速览"和最新一条日志。
+2. 读 `docs/FEATURES.md` 中与本任务相关的条目。
+3. 跑 `git log --oneline -10` 看最近提交。
+4. 跑 `npm run typecheck`，确认基线是绿的；不绿先修基线，不做新任务。
+
+## 完工验收命令
+
+改完代码必须自己跑命令验收，通过标准与汇报格式见
+[验收红绿灯](docs/VERIFY.md)。最低门槛：`npm run typecheck` +
+`npm run test:run` 全绿；动到钱加跑 `npm run test:money`，动到页面
+加跑 `npm run test:e2e`。不许口头说"通过了"，必须贴命令输出证据。
+
+## Git 纪律
+
+- 一条功能验收全绿后立即提交一次，提交信息格式：
+  `feat|fix: [<FEATURES.md 编号>] <一句话说明>`。
+- 提交前工作区不许留无关改动；一次提交只做一件事。
+- 翻车了用 `docs/WORKFLOW.md` 第五节的救命卡回滚，不许蛮干。
+
 ## 入口
 
 - [部署手册](docs/dev/deploy.md)
