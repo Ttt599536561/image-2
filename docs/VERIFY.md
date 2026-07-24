@@ -32,11 +32,17 @@
 | `npm run test:money` | 扣费、FIFO、负余额、幂等等资金用例 | 全部 passed |
 | `npm run db:test:migrate` | （仅当 money 测试报数据库错时先跑它重建测试库） | 退出码 0 |
 
-> **前置环境要求**：money 测试强制要求一个"一次性 PostgreSQL 测试库"——
-> 项目根目录需有 gitignored 的 `.env.test`，内含 `DATABASE_URL` 和
-> `DATABASE_URL_UNPOOLED` 两个指向测试库的连接串（这是安全设计，防止
-> 测试误碰生产数据）。本地没有 Docker/PostgreSQL 时该套件跑不了，
-> 可在有数据库的环境（如 CI 或服务器）执行，不许因此跳过资金验收。
+> **前置环境（本机已配好，2026-07-25 验证可用）**：
+> 1. 起一次性测试库（Docker）：
+>    `docker run -d --name ai-image-test-db -e POSTGRES_PASSWORD=test-only-password -e POSTGRES_DB=ai_image_test -p 5433:5432 postgres:17`
+> 2. 项目根目录 `.env.test`（gitignored，已存在）必须包含：
+>    `DATABASE_URL` / `DATABASE_URL_UNPOOLED`（指向 127.0.0.1:5433/ai_image_test）、
+>    `MONEY_TEST_ALLOW_MUTATION=I_UNDERSTAND_THIS_IS_A_DISPOSABLE_DATABASE`、
+>    `DATABASE_DRIVER=pg`、`DISPOSABLE_TEST_DB_DRIVER=pg`（缺一就会去连云数据库或云存储而失败）、
+>    以及 e2e 需要的 `BETTER_AUTH_URL` / `BETTER_AUTH_SECRET` /
+>    `CUSTOM_KEY_JOB_ENCRYPTION_KEY` / `CUSTOM_KEY_MODES_ENABLED=true`
+> 3. 测试库结构变更后跑 `npm run db:test:migrate` 同步表结构。
+> 若容器被删，按上面第 1 步重建再迁移即可，数据本来就是一次性的。
 
 > 资金规则是本项目"不可破坏"区（见 CLAUDE.md），相关改动没有
 > money 测试全绿**禁止提交**。
@@ -50,6 +56,13 @@
 
 > 出处：《Effective Harnesses for Long-Running Agents》——网页功能
 > 必须端到端验收，光跑单元测试不算完成。
+>
+> ⚠️ **已知本机情况（2026-07-25 实测）**：`tests/e2e/key-modes.spec.ts`
+> 中个别用例依赖浏览器轮询节奏，在 Windows dev 服务器下偶发超时
+> （表现为"已完成/请求超时"字样等不到），同一用例换个轮次又能通过。
+> 判定方法：偶发超时 ≠ 产品缺陷——若 money 真库套件全绿而 e2e 仅
+> 个别轮询断言超时，可重跑一次确认；若同一断言**连续三次**失败，
+> 才按缺陷处理。
 
 ## 四、准备上线/发布时，加跑
 

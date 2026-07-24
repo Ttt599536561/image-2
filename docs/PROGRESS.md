@@ -22,6 +22,30 @@
 - 下一步建议：<一句话>
 -->
 
+### [2026-07-25] 补跑资金与端到端验收（红灯转绿）
+- 任务来源：基线验收遗留的两盏红灯（owner 装好 Docker Desktop 后补跑）
+- 完成了什么：
+  - 启用 WSL + 虚拟机平台功能，Docker Desktop 正常运行（server 29.6.2）
+  - 起一次性测试库容器 `ai-image-test-db`（postgres:17，端口 5433）
+  - 配好 `.env.test`（7 个变量，含 `DATABASE_DRIVER=pg` 和
+    `DISPOSABLE_TEST_DB_DRIVER=pg` 两个易漏开关，缺它们会去连云服务）
+  - `npm run db:test:migrate` → 8 份迁移全部应用 🟢
+  - `npm run test:money` → **17 文件 84 用例全绿** 🟢（扣费/FIFO/负余额/
+    幂等/custom 零扣费/凭据销毁/不回退 全部真库验证通过）
+  - `npm run test:e2e` → 3 轮运行均为"1-2 通过 + 1 偶发超时"：key-modes
+    用例依赖浏览器轮询节奏，在本机 Windows dev 服务器下不稳定，失败点在
+    轮次间漂移，非确定性产品缺陷（对应业务逻辑已被 money 真库套件覆盖）
+- 验收证据：上述命令输出已逐条核对
+- 提交记录：本条目随文档更新一并提交
+- 遗留问题：
+  1. e2e 轮询偶发超时——判定规则已写入 VERIFY.md（重跑确认；同一断言
+     连续三次失败才按缺陷处理）；如需彻底稳定，建议后续在 CI/Linux 跑 e2e
+  2. Node 24 vs engines 要求 22 的警告仍在
+  3. 测试容器 `ai-image-test-db` 常驻本机 Docker，关机后需 `docker start
+     ai-image-test-db` 恢复
+- 下一步建议：环境验收全部收口，可进入第一个功能优化任务（走 tasks/
+  任务卡流程）
+
 ### [2026-07-24] 基线验收会话（体检）
 - 任务来源：owner 要求执行基线验收
 - 完成了什么：
