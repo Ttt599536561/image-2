@@ -905,6 +905,12 @@ valid_uuid() {
 main() {
   require_commands
   load_config
+  # The Docker CLI creates its config directory on first use; under the
+  # systemd unit's ProtectSystem=strict, $HOME (/root) is read-only and the
+  # mkdir aborts image builds. Point DOCKER_CONFIG at the writable control
+  # root instead (honours an operator-provided DOCKER_CONFIG).
+  export DOCKER_CONFIG="${DOCKER_CONFIG:-$CONTROL_ROOT/.docker}"
+  mkdir -p -- "$DOCKER_CONFIG"
   cd -- "$PROJECT_ROOT"
   load_deploy_environment
   trap on_exit EXIT
