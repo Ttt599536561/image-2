@@ -1,6 +1,6 @@
 # 灵感投稿与审核记录
 
-状态：功能已在 `0.2.0` 实现并部署；空数据 Docker smoke 与腾讯云生产基础验证已通过。真实 Relay 与 UGC 复查按 [PROGRESS.md](../PROGRESS.md) 的运维周期执行。
+状态：功能已在 `0.2.7` 实现并部署；空数据 Docker smoke 与腾讯云生产基础验证已通过。真实 Relay 与 UGC 复查按 [PROGRESS.md](../PROGRESS.md) 的运维周期执行。
 
 - [x] 用户可从自己的作品提交灵感投稿，不扣积分。
 - [x] 投稿使用独立 `inspiration_submissions` 队列与永久副本，避免前台读到待审内容。

@@ -68,6 +68,7 @@
 | `0005_user_generation_credentials.sql` | system/custom mode、deadline 和临时凭据 |
 | `0006_better_auth.sql` | Better Auth 四表及 admin 字段 |
 | `0007_generation_source_image.sql` | generation 可空来源图片 ID 与查询索引 |
+| `0008_landing_gallery.sql` | 未登录首页画廊配置表 `landing_gallery_items`（排序与上下架） |
 
 安装和升级只通过 `deploy/install.sh` 应用受控迁移。修改 schema 时先生成/手写迁移，再审查 SQL；金额部分唯一索引、外键和状态谓词必须人工核对。生产改金额结构前先运行备份和余额对账。
 

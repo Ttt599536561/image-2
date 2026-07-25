@@ -65,7 +65,8 @@ export async function requireAdmin(request: Request) {
 | `/login` | `_auth.login` | 已登录则 `redirect("/")` | 登录（调 Better Auth）| 公开 |
 | `/register` | `_auth.register` | 同上 | 注册→自动登录→`redirect("/")`（发放钩子见 [05-auth.md §6.6](05-auth.md)）| 公开 |
 | `/forgot` | `_auth.forgot` | — | — | 公开（占位：「请联系站长重置」[§24.1](../redesign-requirements.md)）|
-| `/` | `_app._index` | 当前用户、余额、最近会话首屏 20、灵感画廊（欢迎态）| — | 需登录 |
+| `/welcome` | `welcome` | 公开落地页：品牌叙事 + 首页画廊（优先读 `landing_gallery_items` 上架卡，无配置回退灵感库）；已登录则 `redirect("/")` | CTA 跳 /register；主题切换 | 公开 |
+| `/` | `_app._index` | 未登录 → `redirect("/welcome")`；已登录：当前用户、余额、最近会话首屏 20、灵感画廊（欢迎态）| — | 公开（未登录跳 /welcome） |
 | `/c/:id` | `_app.c.$id` | 校验会话归属、该会话对话流（轮次）、本次面板图片 | 提交生成转交 fn（见 §9.4）| 需登录 |
 | `/assets` | `_app.assets` | 资产库首页（日期分组首屏 + 默认筛选）| 批量删除 | 需登录 |
 | `/inspiration` | `_app.inspiration` | 灵感卡列表（品类 Tab + 已上架）| 标题行「投稿」按钮开 SubmitInspirationModal（用户投稿 UGC，[INSPIRATION-UGC-PLAN.md](INSPIRATION-UGC-PLAN.md)）| 需登录 |
@@ -78,6 +79,9 @@ export async function requireAdmin(request: Request) {
 | `/admin/inspiration-submissions` | `_admin.inspiration-submissions` | 投稿审核队列（状态 Tab 筛选 + 分页 + 待审计数）| 通过（建卡 + 署名）/ 驳回（填原因）| 需 admin |
 | `/admin/generations` | `_admin.generations` | 生成记录列表（筛选分页）| — | 需 admin |
 | `/admin/packages` | `_admin.packages` | 套餐 + 全局参数 + 审计 | CRUD/改参数 | 需 admin |
+| `/admin/notifications` | `_admin.notifications` | 公告列表 | 发布公告 | 需 admin |
+| `/admin/system-update` | `_admin.system-update` | 当前版本/提交、宿主更新状态、官方最新稳定版 | 检查更新 / 立即更新（二次确认） | 需 admin |
+| `/admin/landing-gallery` | `_admin.landing-gallery` | 首页画廊配置列表（排序、上下架）| 新增（上传/贴 URL）/编辑/上移下移/上下架/删除 | 需 admin |
 
 > 主对话 `/` 与会话 `/c/:id` 共用 `_app` 三栏壳；「新建生成」= 路由到 `/` 并清空 Composer，首次提交成功后服务端建 `conversation` 并 `navigate(/c/:newId)`（[§10](../redesign-requirements.md)）。后台页面挂独立 `_admin` 布局（自建、贴 design-system，[09-admin.md §10.1](09-admin.md)）。
 

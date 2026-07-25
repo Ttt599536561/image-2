@@ -1,6 +1,6 @@
 # 原型（已实现基线）
 
-这些原型对应的现有需求已经在 `0.2.0` 中实现。它们现在用于回归、布局对照和历史说明；行为规则以 [redesign-requirements.md](../redesign-requirements.md) 为准，生产状态见 [PROGRESS.md](../PROGRESS.md)。
+这些原型对应的现有需求已经在 `0.2.7` 中实现。它们现在用于回归、布局对照和历史说明；行为规则以 [redesign-requirements.md](../redesign-requirements.md) 为准，生产状态见 [PROGRESS.md](../PROGRESS.md)。
 
 后续研发"照着原型开发"的入口。**结构看这里的图，行为/规则看 [redesign-requirements.md](../redesign-requirements.md)。**
 

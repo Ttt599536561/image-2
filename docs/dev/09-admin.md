@@ -1,8 +1,8 @@
 # 10 · 后台管理
 
-状态：本文后台能力均已在 `0.2.0` 实现。腾讯云生产环境运行提交 `c5131aa`；`v0.2.2` 修复宿主更新请求校验和已受理请求的等待状态，发布与生产恢复结果见 [PROGRESS.md](../PROGRESS.md)。
+状态：本文后台能力均已在 `0.2.7` 实现并部署。腾讯云生产环境运行提交 `db1703f`；宿主更新器历经 `v0.2.2`（聚合校验）、`v0.2.4`（jq 1.6 兼容）、`v0.2.5`（DOCKER_CONFIG）、`v0.2.6`/`v0.2.7`（镜像权限）修复，2026-07-25 首次全链路受控更新（`0.2.0` → `0.2.7`）已完成，结果见 [PROGRESS.md](../PROGRESS.md)。
 
-> 独立 `/admin/*` 后台（仅 `role=admin`）：兑换码 / 用户 / 灵感库 / 生成记录 / 套餐与全局参数 / 数据看板，外加贯穿全部模块的**敏感操作二次确认 + 审计留痕**。
+> 独立 `/admin/*` 后台（仅 `role=admin`）：兑换码 / 用户 / 灵感库 / 生成记录 / 套餐与全局参数 / 数据看板 / 公告 / 系统更新 / 首页画廊，外加贯穿全部模块的**敏感操作二次确认 + 审计留痕**。
 > 规则真相源：规格 [§9](../redesign-requirements.md)（后台全功能）/ [§16](../redesign-requirements.md)（表）/ [§24-3·§24-13](../redesign-requirements.md)；结构看 [wireframes.html](../prototypes/wireframes.html) 11–18，视觉令牌贴 [design-system.html](../prototypes/design-system.html)，**后台自建、不引 Refine**（[00 §1.1](00-overview.md) 已排除）。
 > 鉴权见 [05-auth.md §6.7](05-auth.md)；钱/码核销逻辑本身在 [03-money.md](03-money.md)，本章只写后台调用与对账侧。
 
@@ -14,7 +14,9 @@
 
 检查更新与启动更新均由 `/api/admin/system-update*` 再次执行 admin 鉴权和严格同源 JSON POST 校验。启动前先写 `system_update_start` 审计，再原子发布唯一请求。Web 不执行 Git、Docker 或 shell，也不接触项目根目录。
 
-2026-07-13 的生产引导已经安装并启用宿主机更新器：`.path` 为 enabled/active，service 为 enabled；页面显示的当前版本为 `0.2.0`。生产首次向 `v0.2.1` 更新时，宿主脚本未聚合 `jq --stream` 事件，合法四字段请求被错误拒绝且公开状态停留在 `idle`。`v0.2.2` 使用 slurp 聚合修复请求与预约校验，并用真实 `process-request` Shell 测试和后台等待态 UI 测试锁定该行为。
+2026-07-13 的生产引导已经安装并启用宿主机更新器：`.path` 为 enabled/active，service 为 enabled。生产首次向 `v0.2.1` 更新时，宿主脚本未聚合 `jq --stream` 事件，合法四字段请求被错误拒绝且公开状态停留在 `idle`；`v0.2.2` 使用 slurp 聚合修复请求与预约校验，并用真实 `process-request` Shell 测试和后台等待态 UI 测试锁定该行为。2026-07-25 按热修复设计恢复宿主更新器后首次执行生产更新（`0.2.0` → `0.2.7`），期间又发现并修复三个仅宿主环境可复现的缺陷：jq 1.6 `--stream --slurp` 拆分（`v0.2.4`）、`ProtectSystem=strict` 下 `/root/.docker` 只读（`v0.2.5`）、`UMask=0077` 导致镜像内权限不足（`v0.2.6`/`v0.2.7`）；两次迁移中断均按 `recover <REQUEST_ID>` 预案无损回滚，最终更新 completed，页面显示当前版本 `0.2.7`（完整证据见 [PROGRESS.md](../PROGRESS.md)）。
+
+后台另含「首页画廊」页（`/admin/landing-gallery`，F-073）：手动配置未登录 `/welcome` 落地页的展示图，支持上传/贴 URL 新增、编辑、上移下移排序、上下架与删除，全部写操作留审计；无上架配置时 `/welcome` 回退灵感库。
 
 **单角色（本期）**：`users.role ∈ {user, admin}`（[02 §3.2](02-database.md) 已建）。RBAC 多级分层（超管/审核员/客服）后置 [§23](../redesign-requirements.md)，但 `role` 字段已在，将来加级不改表。
 

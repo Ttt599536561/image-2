@@ -2,7 +2,7 @@
 
 要求 Debian、Docker Engine、Docker Compose v2、Git、jq 和 systemd。所有命令都从项目根目录执行；首次安装从空 PostgreSQL 和空媒体卷开始，不迁移 Neon、Supabase 或 Netlify 数据。
 
-当前生产基线：腾讯云站点 `https://one-image2.tangguo.xin` 于 2026-07-13 升级到 `0.2.0`，提交为 `c5131aaa0335250a3846c380519324fbbf4b231b`。生产证据统一见 [PROGRESS.md](../PROGRESS.md)。
+当前生产基线：腾讯云站点 `https://one-image2.tangguo.xin` 于 2026-07-25 经后台受控更新到 `0.2.7`，提交为 `db1703f97b4bbed4b223e5bcc46aff004df29f5a`。生产证据统一见 [PROGRESS.md](../PROGRESS.md)。
 
 ## 安装
 
@@ -53,7 +53,7 @@ curl -fsS -o /dev/null -w '%{http_code}\n' https://images.example.com/healthz
 
 安装成功后还会创建 `ai-image-workshop-updater` 系统组、初始化 `/var/lib/ai-image-workshop-updater`，并启用 `ai-image-workshop-update.service` 与 `.path`。旧部署执行一次 `sudo bash deploy/install.sh --upgrade` 后会自动补齐这套初始化；不需要给 Web Docker socket。
 
-当前生产实例已经完成这次引导：`.path` 为 enabled/active，service 为 enabled，更新器状态为 idle。
+当前生产实例已经完成这次引导：`.path` 为 enabled/active，service 为 enabled；2026-07-25 首次受控更新（`0.2.0` → `0.2.7`）已 completed，宿主更新器已自更新到 `v0.2.7` 版本。
 
 随后依次检查：
 
@@ -67,9 +67,9 @@ curl -fsS -o /dev/null -w '%{http_code}\n' https://images.example.com/healthz
 
 管理员可在 `/admin/system-update` 点击“检查更新”。更新通道固定为公开仓库 `Ttt599536561/image-2` 的最新稳定 GitHub Release；draft、prerelease、非严格 `vMAJOR.MINOR.PATCH` 和非递增版本都会被拒绝。点击“立即更新”后，网站会进入数分钟维护窗口：先排空任务、停止写入服务、校验备份，再拉取精确 tag、构建、迁移和健康检查。
 
-更新器功能已经部署。`v0.2.1` 是当前 `0.2.0` 生产实例首次检测到的严格递增 stable/latest Release，但首次启动暴露了宿主脚本的流式键统计缺陷：合法请求在认领前被拒绝，公开状态仍为 `idle`，没有进入备份、迁移或停站。`v0.2.2` 修复请求/预约聚合校验和后台已受理等待状态；功能分支本身仍不是更新来源。
+更新器功能已经部署并完成首次实战更新（2026-07-25，`0.2.0` → `0.2.7`）。首次启动曾暴露宿主脚本的流式键统计缺陷：合法请求在认领前被拒绝，公开状态仍为 `idle`，没有进入备份、迁移或停站；`v0.2.2` 修复了请求/预约聚合校验和后台已受理等待状态。2026-07-25 按 [热修复设计](../superpowers/specs/2026-07-14-system-updater-validation-hotfix-design.md) 恢复宿主更新器后，生产更新又依次暴露三个只存在于宿主环境的缺陷，均已修复并随对应 tag 发布：Debian 12 的 jq 1.6 会把 `--stream --slurp` 的闭合事件拆成第二个值导致校验恒失败（`v0.2.4`，改为 `-n --stream` + `inputs` 聚合）；`ProtectSystem=strict` 下 `/root` 只读使 Docker CLI 无法创建 `/root/.docker`（`v0.2.5`，更新器导出 `DOCKER_CONFIG=$CONTROL_ROOT/.docker`）；单元 `UMask=0077` 使 checkout 文件为 `600 root:root`、镜像内 `USER node` 读取失败（`v0.2.6`/`v0.2.7`，Dockerfile 归一化权限）。
 
-受该缺陷影响的 `0.2.0` 生产实例不能用旧入口完成自更新。必须先按 [热修复设计](../superpowers/specs/2026-07-14-system-updater-validation-hotfix-design.md) 校验精确 tag、只替换固定宿主更新器入口并清理匹配的过期请求，再从后台重新启动 `v0.2.2` 更新。不要直接反复点击、删除整个控制目录或绕过备份手工部署业务栈。
+生产更新只走管理员后台的守护流程：不要直接反复点击、删除整个控制目录或绕过备份手工部署业务栈。功能分支本身不是更新来源。
 
 页面重连期间可在服务器查看同一请求：
 
