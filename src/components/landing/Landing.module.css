@@ -354,29 +354,35 @@
   text-align: center;
 }
 
-/* ===== 画廊：衬底画墙 + 装裱卡 + hover 提示词（宽屏下比通用版块更宽） ===== */
+/* ===== 画廊：衬底画墙 + 紧密照片墙（图片铺满卡片，缝隙收紧，信息 hover 浮现） ===== */
 .sectionWide {
   max-width: 1760px;
   background: var(--bg-subtle);
   border-radius: var(--radius-xl);
-  padding-left: var(--space-8);
-  padding-right: var(--space-8);
+  padding-left: var(--space-6);
+  padding-right: var(--space-6);
 }
 
 .gallery {
-  columns: 5 240px;
-  column-gap: var(--space-5);
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.galleryCol {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
 }
 
 .cardReveal {
   break-inside: avoid;
-  margin-bottom: var(--space-5);
 }
 
 .card {
   margin: 0;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   overflow: hidden;
   box-shadow: var(--shadow-sm);
@@ -387,12 +393,10 @@
   transform: translateY(-3px);
 }
 
-/* 装裱感：白卡纸边框托住画面，让任何色调的作品都与页面同源 */
+/* 图片铺满卡片：无白边无装裱，让整面墙由画面本身构成 */
 .cardImgWrap {
   position: relative;
   overflow: hidden;
-  margin: var(--space-2) var(--space-2) 0;
-  border-radius: var(--radius-sm);
 }
 
 .cardImg {
@@ -408,8 +412,10 @@
   position: absolute;
   inset: 0;
   display: flex;
-  align-items: flex-end;
-  padding: var(--space-4);
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3);
   background: linear-gradient(to top, rgba(0, 0, 0, 0.72), transparent 55%);
   opacity: 0;
   transition: opacity 0.3s ease;
@@ -418,8 +424,15 @@
   opacity: 1;
 }
 
+.cardOverlayHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
 .cardPrompt {
-  color: #fff;
+  color: rgba(255, 255, 255, 0.85);
   font-size: 12px;
   line-height: 1.6;
   display: -webkit-box;
@@ -428,16 +441,10 @@
   overflow: hidden;
 }
 
-.cardCaption {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-}
-
 .cardTitle {
-  font-size: 13px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -446,8 +453,9 @@
 .cardCategory {
   flex-shrink: 0;
   font-size: 11px;
-  color: var(--accent-on-surface);
-  background: var(--accent-surface);
+  color: #fff;
+  background: rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(4px);
   border-radius: var(--radius-full);
   padding: 2px var(--space-2);
 }

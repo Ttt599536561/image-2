@@ -10,7 +10,7 @@ import {
   Sun,
   Wand2,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router";
 import { useThemeMode } from "../../lib/theme";
 import { Reveal } from "./Reveal";
@@ -26,6 +26,40 @@ export interface LandingItem {
   width: number | null;
   height: number | null;
   submitter: string | null;
+}
+
+/** 按视口宽度决定画廊列数（SSR 先按 5 列渲染，挂载后按实际宽度校正）。 */
+function useGalleryColumns(): number {
+  const [cols, setCols] = useState(5);
+  useEffect(() => {
+    const compute = () => {
+      const w = window.innerWidth;
+      setCols(w < 640 ? 2 : w < 1024 ? 3 : w < 1440 ? 4 : 5);
+    };
+    compute();
+    window.addEventListener("resize", compute);
+    return () => window.removeEventListener("resize", compute);
+  }, []);
+  return cols;
+}
+
+/**
+ * 瀑布流分列：按封面宽高比（高/宽）降序后，逐张放进当前最矮的列（LPT 装箱）。
+ * 先放高图再放矮图，矮图负责补齐列尾差，避免单列底部空出一大块。
+ * 注意：会按高度重排作品顺序，仅用于画廊视觉排布。
+ */
+function distributeToColumns(items: LandingItem[], colCount: number): LandingItem[][] {
+  const aspectOf = (item: LandingItem) =>
+    item.width && item.height ? item.height / item.width : 1.25;
+  const sorted = [...items].sort((a, b) => aspectOf(b) - aspectOf(a));
+  const columns: LandingItem[][] = Array.from({ length: colCount }, () => []);
+  const heights = new Array<number>(colCount).fill(0);
+  for (const item of sorted) {
+    const target = heights.indexOf(Math.min(...heights));
+    columns[target].push(item);
+    heights[target] += aspectOf(item);
+  }
+  return columns;
 }
 
 const CAPABILITIES = [
@@ -130,7 +164,11 @@ function ThemeToggle() {
 export function LandingPage({ items }: { items: LandingItem[] }) {
   const heroItems = items.slice(0, 3);
   const demoItems = items.slice(0, 2);
-  const galleryItems = items.slice(0, 12);
+  const galleryColCount = useGalleryColumns();
+  const galleryColumns = useMemo(
+    () => distributeToColumns(items.slice(0, 14), galleryColCount),
+    [items, galleryColCount],
+  );
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -233,8 +271,8 @@ export function LandingPage({ items }: { items: LandingItem[] }) {
         </section>
       ) : null}
 
-      {/* ③ 画廊：画框式排布，hover 浮现提示词 */}
-      {galleryItems.length > 0 ? (
+      {/* ③ 画廊：紧密照片墙，图片铺满卡片，标题与提示词 hover 浮现 */}
+      {galleryColumns.some((col) => col.length > 0) ? (
         <section className={`${styles.section} ${styles.sectionWide}`}>
           <Reveal>
             <h2 className={styles.sectionTitle}>站内用户的真实作品</h2>
@@ -243,28 +281,32 @@ export function LandingPage({ items }: { items: LandingItem[] }) {
             </p>
           </Reveal>
           <div className={styles.gallery}>
-            {galleryItems.map((item, i) => (
-              <Reveal key={item.id} delay={(i % 4) * 80} className={styles.cardReveal}>
-                <figure className={styles.card}>
-                  <div className={styles.cardImgWrap}>
-                    <img
-                      src={item.cover}
-                      alt={item.title}
-                      loading="lazy"
-                      className={styles.cardImg}
-                    />
-                    <div className={styles.cardOverlay}>
-                      <span className={styles.cardPrompt}>{item.prompt}</span>
-                    </div>
-                  </div>
-                  <figcaption className={styles.cardCaption}>
-                    <span className={styles.cardTitle}>{item.title}</span>
-                    {item.category ? (
-                      <span className={styles.cardCategory}>{item.category}</span>
-                    ) : null}
-                  </figcaption>
-                </figure>
-              </Reveal>
+            {galleryColumns.map((col, ci) => (
+              <div key={ci} className={styles.galleryCol}>
+                {col.map((item, i) => (
+                  <Reveal key={item.id} delay={(i % 4) * 80} className={styles.cardReveal}>
+                    <figure className={styles.card}>
+                      <div className={styles.cardImgWrap}>
+                        <img
+                          src={item.cover}
+                          alt={item.title}
+                          loading="lazy"
+                          className={styles.cardImg}
+                        />
+                        <div className={styles.cardOverlay}>
+                          <div className={styles.cardOverlayHead}>
+                            <span className={styles.cardTitle}>{item.title}</span>
+                            {item.category ? (
+                              <span className={styles.cardCategory}>{item.category}</span>
+                            ) : null}
+                          </div>
+                          <span className={styles.cardPrompt}>{item.prompt}</span>
+                        </div>
+                      </div>
+                    </figure>
+                  </Reveal>
+                ))}
+              </div>
             ))}
           </div>
         </section>
