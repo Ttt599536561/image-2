@@ -8,7 +8,10 @@ RUN npm run build
 FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=3000
 WORKDIR /app
-COPY package.json package-lock.json ./
+# --chown/--chmod: the guarded updater checks out the tree under systemd
+# UMask=0077, so host-side modes may be 600 root:root; the final USER node
+# must still be able to read these files.
+COPY --chown=node:node --chmod=0644 package.json package-lock.json ./
 ARG APP_VERSION
 ARG APP_COMMIT_SHA
 RUN node -e "const p=require('./package.json');const [v,s]=process.argv.slice(1);if(v!==p.version)throw Error('APP_VERSION mismatch');if(!/^[0-9a-f]{40,64}$/.test(s))throw Error('invalid APP_COMMIT_SHA')" "$APP_VERSION" "$APP_COMMIT_SHA"
