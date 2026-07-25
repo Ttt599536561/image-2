@@ -213,6 +213,121 @@
   color: var(--text-tertiary);
 }
 
+/* —— F-074 项目分组 —— */
+.projectBlock {
+  position: relative;
+}
+.projectRow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s, color 0.15s;
+}
+.projectRow:hover {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+}
+.projectName {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.projectActions {
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.projectRow:hover .projectActions,
+.projectActions:focus-within {
+  opacity: 1;
+}
+@media (hover: none) {
+  .projectActions {
+    opacity: 1;
+  }
+}
+.projectAction {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+.projectAction:hover {
+  background: var(--border-subtle);
+  color: var(--text-primary);
+}
+.projectAction:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.projectMenu {
+  position: absolute;
+  right: 4px;
+  top: calc(100% - 2px);
+  z-index: 10;
+  min-width: 132px;
+  padding: 4px;
+  background: var(--bg-surface);
+  border: 0.5px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+}
+.projectMenuItem {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.projectMenuItem:hover {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+}
+.projectChildren {
+  margin-left: 14px;
+}
+.projectEmpty {
+  padding: var(--space-1) var(--space-3);
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.dropIndicator {
+  height: 2px;
+  margin: 1px var(--space-2);
+  border-radius: 1px;
+  background: var(--accent);
+}
+.rowDragging {
+  opacity: 0.4;
+}
+.recentRow {
+  user-select: none;
+}
+
 .spacer {
   flex: 1;
 }

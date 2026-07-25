@@ -9,6 +9,7 @@ import {
   type SourceImageSummary,
 } from "../contracts/generate";
 import type { MeResponse } from "../contracts/me";
+import type { ProjectListResponse } from "../contracts/project";
 import { UploadResponse } from "../contracts/upload";
 import { ApiError, apiPost, apiPostForm } from "../lib/api-client";
 import type { UserApiConfig } from "../lib/userApiConfig";
@@ -128,6 +129,25 @@ export function useGeneration(conversationId: string | null, opts: UseGeneration
         qc.setQueriesData<ConversationListResponse>({ queryKey: ["conversations"] }, (old) =>
           old ? { ...old, items: [{ id: cid, title, updatedAt: now }, ...old.items], total: old.total + 1 } : old,
         );
+        // F-074：默认项目已在缓存里则同步乐观置顶；没有（新用户首次）则等 accepted 后 invalidate 对齐。
+        qc.setQueriesData<ProjectListResponse>({ queryKey: ["projects"] }, (old) =>
+          old
+            ? {
+                ...old,
+                items: old.items.map((p) =>
+                  p.isDefault
+                    ? {
+                        ...p,
+                        conversations: [
+                          { id: cid, title, sortOrder: (p.conversations[0]?.sortOrder ?? 1) - 1, updatedAt: now },
+                          ...p.conversations,
+                        ],
+                      }
+                    : p,
+                ),
+              }
+            : old,
+        );
         navigate(`/c/${cid}`); // ⚡ 立即跳转：clientLoader 命中刚写的缓存 → 即时渲染生图骨架
       }
       // 独立 async：不绑组件生命周期。导航后旧组件卸载，但 qc 是单例、操作仍命中活缓存。
@@ -173,6 +193,7 @@ export function useGeneration(conversationId: string | null, opts: UseGeneration
           // 服务端已建会话 + queued 行（同 cid/gid）→ 拉真数据校正缓存 + 刷新侧栏。
           qc.invalidateQueries({ queryKey: ["conversation", accepted.conversationId] });
           qc.invalidateQueries({ queryKey: ["conversations"] });
+          qc.invalidateQueries({ queryKey: ["projects"] }); // F-074 项目分组同步真数据
         } catch (e) {
           const err = e instanceof ApiError ? e : new ApiError(500, "INTERNAL", "服务异常，请重试");
           if (err.code === "CUSTOM_KEY_MODES_DISABLED") {
@@ -197,6 +218,7 @@ export function useGeneration(conversationId: string | null, opts: UseGeneration
               old ? { ...old, customKeyModesEnabled: false } : old,
             );
             qc.invalidateQueries({ queryKey: ["me", "balance"] });
+            if (isNew) qc.invalidateQueries({ queryKey: ["projects"] }); // F-074 回滚后对齐项目列表
             if (isNew) navigate("/", { replace: true, state: { openKeySettings: true } });
           } else {
           // 把该乐观 turn 标 failed（友好中文卡由 ConversationView 据 error 兜底；可点重试）。

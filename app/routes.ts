@@ -15,6 +15,11 @@ export default [
   route("api/generate-status", "routes/api.generate-status.ts"),
   route("api/conversations", "routes/api.conversations.ts"),
   route("api/conversations/:id", "routes/api.conversations.$id.ts"),
+  // F-074 侧边栏项目分组：项目 CRUD + 项目/项目内会话整组排序。
+  route("api/projects", "routes/api.projects.ts"),
+  route("api/projects/order", "routes/api.projects.order.ts"),
+  route("api/projects/:id", "routes/api.projects.$id.ts"),
+  route("api/projects/:id/order", "routes/api.projects.$id.order.ts"),
   route("api/images", "routes/api.images.ts"),
   route("api/images/save", "routes/api.images.save.ts"),
   route("api/packages", "routes/api.packages.ts"),

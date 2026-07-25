@@ -6,6 +6,7 @@ import { Sidebar } from "../../src/components/shell/Sidebar";
 import { auth } from "../../src/lib/auth";
 import { requireUserPage } from "../../src/server/page.server";
 import { loadConversations, loadMe } from "../../src/server/reads.server";
+import { loadProjects } from "../../src/server/projects.server";
 import type { Route } from "./+types/_app";
 
 // 受保护三栏壳布局（08 §9.1）：父 loader 守卫 + 取首屏 me/会话列表（作 TanStack Query initialData）。
@@ -19,8 +20,12 @@ export async function loader({ request }: Route.LoaderArgs) {
     if (!s) throw redirect("/welcome");
   }
   const { userId } = await requireUserPage(request);
-  const [me, conversations] = await Promise.all([loadMe(userId), loadConversations(userId, 1, 20)]);
-  return { me, conversations };
+  const [me, conversations, projects] = await Promise.all([
+    loadMe(userId),
+    loadConversations(userId, 1, 20),
+    loadProjects(userId),
+  ]);
+  return { me, conversations, projects };
 }
 
 // ⚡ 性能：me/会话列表的新鲜度由 TanStack Query 负责（mutation onSuccess invalidate 命中 /api/me、

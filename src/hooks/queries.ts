@@ -11,6 +11,7 @@ import { MySubmissionsResponse } from "../contracts/inspirationSubmission";
 import { MeResponse } from "../contracts/me";
 import { NotificationListResponse } from "../contracts/notification";
 import { PackagesResponse } from "../contracts/package";
+import { ProjectListResponse } from "../contracts/project";
 import { apiGet } from "../lib/api-client";
 
 /** _app 父 loader 数据（me + 会话列表首屏），供子组件作 query initialData。 */
@@ -35,6 +36,16 @@ export function useConversations(q?: string) {
     queryFn: () =>
       apiGet(search ? `/api/conversations?q=${encodeURIComponent(search)}` : "/api/conversations", ConversationListResponse),
     initialData: search ? undefined : app?.conversations,
+  });
+}
+
+/** F-074 侧栏项目分组：项目列表（含各项目会话），搜索态不走此 hook。 */
+export function useProjects() {
+  const app = useAppLoaderData();
+  return useQuery({
+    queryKey: ["projects"],
+    queryFn: () => apiGet("/api/projects", ProjectListResponse),
+    initialData: app?.projects,
   });
 }
 

@@ -160,9 +160,20 @@ export async function installGenerationHarness(
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+      // F-074：镜像 enqueue.ts 归属逻辑——默认项目懒创建 + 新会话置顶归入（否则侧栏项目视图无数据）。
       await client.query(
-        `INSERT INTO conversations(id, user_id, title, created_at, updated_at)
-         VALUES($1, $2, $3, $4, $4)
+        `INSERT INTO projects(user_id, name, is_default, sort_order)
+         VALUES($1, '默认项目', true, 0)
+         ON CONFLICT DO NOTHING`,
+        [userId],
+      );
+      await client.query(
+        `INSERT INTO conversations(id, user_id, title, project_id, sort_order, created_at, updated_at)
+         VALUES($1, $2, $3,
+           (SELECT id FROM projects WHERE user_id=$2 AND is_default),
+           (SELECT COALESCE(MIN(sort_order),0) - 1 FROM conversations
+             WHERE project_id = (SELECT id FROM projects WHERE user_id=$2 AND is_default)),
+           $4, $4)
          ON CONFLICT (id) DO NOTHING`,
         [conversationId, userId, String(body.prompt ?? "").slice(0, 20), now],
       );

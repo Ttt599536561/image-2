@@ -8,6 +8,7 @@ import { httpError } from "../../contracts/error";
 import type { CredentialMode } from "../../contracts/generate";
 import { readConfigInt } from "../config.server";
 import { isDailyBudgetExhausted } from "../budget.server";
+import { ensureDefaultProject } from "../projects.server";
 import { type TxClient, tx } from "../tx.server";
 import { encryptCustomApiKey, type EncryptedCustomApiKey } from "./credential.server";
 
@@ -139,12 +140,15 @@ async function run(
       // ON CONFLICT DO UPDATE 的 WHERE 限本人：他人占用该 id → 不更新、无 RETURNING → 404（防越权挂别人会话）。
       // 既有会话只 bump updated_at、不改 title（续聊不应改名）；新建才落 title。
       const title = input.prompt.slice(0, 20);
+      // F-074：新会话归入默认项目（懒创建，同事务）；续聊命中冲突分支时只 bump updated_at，不动归属/排序。
+      const projectId = await ensureDefaultProject(c, user.id);
       const r = await c.query(
-        `INSERT INTO conversations(id, user_id, title) VALUES($1,$2,$3)
+        `INSERT INTO conversations(id, user_id, title, project_id, sort_order)
+         VALUES($1,$2,$3,$4,(SELECT COALESCE(MIN(sort_order),0) - 1 FROM conversations WHERE project_id=$4))
          ON CONFLICT (id) DO UPDATE SET updated_at=now()
          WHERE conversations.user_id=$2
          RETURNING id`,
-        [conversationId, user.id, title],
+        [conversationId, user.id, title, projectId],
       );
       if (r.rowCount === 0) throw httpError(404, "NOT_FOUND", "会话不存在");
       resolvedConversationId = r.rows[0].id as string;
@@ -152,7 +156,14 @@ async function run(
     conversationId = resolvedConversationId;
   } else {
     const title = input.prompt.slice(0, 20);
-    const conv = await c.query("INSERT INTO conversations(user_id, title) VALUES($1,$2) RETURNING id", [user.id, title]);
+    // F-074：同上，新会话置顶进默认项目（sort_order 取项目内最小值 -1，展示按升序即最新在最上）。
+    const projectId = await ensureDefaultProject(c, user.id);
+    const conv = await c.query(
+      `INSERT INTO conversations(user_id, title, project_id, sort_order)
+       VALUES($1,$2,$3,(SELECT COALESCE(MIN(sort_order),0) - 1 FROM conversations WHERE project_id=$3))
+       RETURNING id`,
+      [user.id, title, projectId],
+    );
     conversationId = conv.rows[0].id as string;
   }
 

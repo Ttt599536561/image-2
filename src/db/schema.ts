@@ -175,7 +175,28 @@ export const redeemCodes = pgTable(
   ],
 );
 
-// ========== conversations（会话） ==========
+// ========== projects（F-074 侧边栏项目分组；会话归属与排序） ==========
+export const projects = pgTable(
+  "projects",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    isDefault: boolean("is_default").notNull().default(false),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", tz).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", tz).notNull().defaultNow(),
+  },
+  (t) => [
+    // 每用户至多一个默认项目（懒创建/存量迁移的并发幂等键；部分唯一索引，迁移 SQL 须人工核对 WHERE）
+    uniqueIndex("uq_projects_user_default").on(t.userId).where(sql`${t.isDefault}`),
+    index("ix_projects_user_sort").on(t.userId, t.sortOrder),
+  ],
+);
+
+// ========== conversations（会话；F-074 起归属 projects 并可项目内排序） ==========
 export const conversations = pgTable(
   "conversations",
   {
@@ -183,11 +204,17 @@ export const conversations = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
+    // 项目删除时保留会话（置空）；本期无删除入口，置空只是兜底
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
     title: text("title").notNull().default(""),
+    sortOrder: integer("sort_order").notNull().default(0),
     createdAt: timestamp("created_at", tz).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", tz).notNull().defaultNow(),
   },
-  (t) => [index("ix_conv_user_upd").on(t.userId, t.updatedAt.desc())],
+  (t) => [
+    index("ix_conv_user_upd").on(t.userId, t.updatedAt.desc()),
+    index("ix_conv_project_sort").on(t.projectId, t.sortOrder),
+  ],
 );
 
 // ========== generations（生成记录 + 状态机/队列） ==========
