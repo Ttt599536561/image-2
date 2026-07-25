@@ -69,9 +69,15 @@
     system-update API：build 0.2.7 / phase completed / enabled；
     /api/admin/landing-gallery 200；audit_log 有 system_update_start 记录
   - v0.2.4/v0.2.5/v0.2.7 三次发布 CI + release job 全绿，均为 stable Latest
-- 遗留：宿主保留备份 20260725T124505Z/20260725T125751Z/20260725T130630Z
-  与旧更新器 /root/ai-image-workshop-update.pre-v0.2.4-hotfix.bak；
-   dangling 镜像约 2.2G 可随时 docker system prune（未动）
+- 遗留与清理（2026-07-25 收尾复核）：宿主保留 7 份备份
+  （20260712T040301Z/20260712T084145Z/20260713T145807Z/20260725T123528Z/
+  20260725T124505Z/20260725T125751Z/20260725T130630Z，恰在保留策略内）
+  与 3 份旧更新器脚本（/root/ai-image-workshop-update.pre-v0.2.2.5286434、
+  .pre-v0.2.3-recovery.bak、.pre-v0.2.4-hotfix.bak，小文件，安全留存）；
+  两个失败构建的悬空镜像与全部构建缓存已 prune（释放约 4.5G，
+  :latest=v0.2.7 不受影响）；已合并的旧远程分支
+  codex/admin-system-updater 已删除；tasks/ 四张当日任务卡均已验收；
+  控制目录无残留请求/预约/checkpoint，web-run 迁移容器为 --rm 已自动清理
 
 ### [2026-07-25] 管理后台手动配置未登录首页画廊（F-073）
 - 任务来源：owner 口头需求"管理后台要能手动配置用户端未登录时看到的首页
