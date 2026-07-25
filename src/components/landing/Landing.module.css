@@ -354,19 +354,23 @@
   text-align: center;
 }
 
-/* ===== 画廊：画框式 + hover 提示词（宽屏下比通用版块更宽） ===== */
+/* ===== 画廊：衬底画墙 + 装裱卡 + hover 提示词（宽屏下比通用版块更宽） ===== */
 .sectionWide {
   max-width: 1760px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-xl);
+  padding-left: var(--space-8);
+  padding-right: var(--space-8);
 }
 
 .gallery {
   columns: 5 240px;
-  column-gap: var(--space-4);
+  column-gap: var(--space-5);
 }
 
 .cardReveal {
   break-inside: avoid;
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-5);
 }
 
 .card {
@@ -375,7 +379,7 @@
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
   overflow: hidden;
-  box-shadow: var(--shadow-xs);
+  box-shadow: var(--shadow-sm);
   transition: box-shadow 0.3s ease, transform 0.3s ease;
 }
 .card:hover {
@@ -383,9 +387,12 @@
   transform: translateY(-3px);
 }
 
+/* 装裱感：白卡纸边框托住画面，让任何色调的作品都与页面同源 */
 .cardImgWrap {
   position: relative;
   overflow: hidden;
+  margin: var(--space-2) var(--space-2) 0;
+  border-radius: var(--radius-sm);
 }
 
 .cardImg {
