@@ -3,6 +3,10 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 COPY . .
+# The guarded updater checks out the tree under systemd UMask=0077, so source
+# files may arrive as 600 root:root. Normalize modes so every --from=build
+# artifact in the runtime stage stays readable by USER node.
+RUN chmod -R a+rX /app
 RUN npm run build
 
 FROM node:22-bookworm-slim AS runtime
