@@ -1,15 +1,23 @@
 import { useState } from "react";
-import { Outlet, type ShouldRevalidateFunction, useNavigation } from "react-router";
+import { Outlet, redirect, type ShouldRevalidateFunction, useNavigation } from "react-router";
 import styles from "../../src/components/shell/Shell.module.css";
 import { ShellContext } from "../../src/components/shell/ShellContext";
 import { Sidebar } from "../../src/components/shell/Sidebar";
+import { auth } from "../../src/lib/auth";
 import { requireUserPage } from "../../src/server/page.server";
 import { loadConversations, loadMe } from "../../src/server/reads.server";
 import type { Route } from "./+types/_app";
 
 // 受保护三栏壳布局（08 §9.1）：父 loader 守卫 + 取首屏 me/会话列表（作 TanStack Query initialData）。
 // 未登录 → redirect("/login?next=")；封禁 → redirect("/login?reason=banned")。
+// 例外（方案 B，F-072）：未登录访问根路径 "/" → redirect("/welcome") 落地页，
+// 让新访客第一眼看到产品门面而不是登录页；已登录用户访问 "/" 照旧进主对话页。
 export async function loader({ request }: Route.LoaderArgs) {
+  const url = new URL(request.url);
+  if (url.pathname === "/") {
+    const s = await auth.api.getSession({ headers: request.headers });
+    if (!s) throw redirect("/welcome");
+  }
   const { userId } = await requireUserPage(request);
   const [me, conversations] = await Promise.all([loadMe(userId), loadConversations(userId, 1, 20)]);
   return { me, conversations };
