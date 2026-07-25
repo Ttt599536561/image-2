@@ -6,25 +6,68 @@
 
 ## 当前状态速览
 
-> 最后更新：2026-07-25（落地页改版收尾会话）
+> 最后更新：2026-07-25（首页画廊 F-073 会话）
 
 - 现在做到哪：
   - 代码线：本地 main 已完成 /welcome 公开落地页、三轮视觉改版
-    （F-070/F-071）与方案 B（F-072：根路径即门面，未登录访客打开 /
-    自动见落地页），工作区干净，全部测试 455 过/1 跳过。
+    （F-070/F-071）、方案 B（F-072：根路径即门面）与 F-073（管理后台
+    手动配置未登录首页画廊：/admin/landing-gallery CRUD + 排序 + 上下架，
+    /welcome 优先读配置、无配置回退灵感库），工作区干净，全部测试
+    59 文件 469 过/1 跳过。
   - 发布线：生产仍跑 v0.2.0；v0.2.1（对话图二次编辑 F-014）已发布待部署；
-    v0.2.2（后台更新器修复 F-052）为发布候选；落地页与方案 B 改动
-    **尚未构建发布**。
+    v0.2.2（后台更新器修复 F-052）为发布候选；落地页、方案 B 与首页画廊
+    改动 **尚未构建发布**。
 - 下一步做什么：owner 准备新开会话提新需求。新会话开始先按 CLAUDE.md
-  SOP 读本文件 + FEATURES.md。若新需求不涉及发布，落地页/方案 B 上线
-  与 v0.2.2 发布继续挂起，等 owner 发话。
+  SOP 读本文件 + FEATURES.md。若新需求不涉及发布，落地页/方案 B/首页画廊
+  上线与 v0.2.2 发布继续挂起，等 owner 发话。
 - 已知风险/坑：
-  - e2e key-modes 个别用例在 Windows dev 下偶发轮询超时，非缺陷，判定
-    规则见 VERIFY.md 第三节。
+  - e2e key-modes 在本机已从"偶发超时"变为高频失败：2026-07-25 对照实验
+    显示**无改动的基线（494e819）同样失败**（断言 已完成 toHaveCount(2) → 0），
+    判定为本机 Windows dev 轮询环境问题，非产品缺陷；建议后续在 CI/Linux
+    跑 e2e（判定规则见 VERIFY.md 第三节）。
+  - 本机 dev 库与一次性测试库已分离：`.env` → 5433/ai_image_dev，
+    `.env.test` → 5433/ai_image_test（此前同库会触发 test-env-guard 拒绝；
+    分离是 2026-07-25 做的，dev 库已迁移 0000-0008）。
   - 本机 Node 为 v24（项目要求 22），目前能跑，typecheck/test 无影响。
   - 宿主更新请求校验曾因 jq 流式统计缺陷误拒合法请求，已修复待 v0.2.2 发布。
 
 ## 会话日志（新条目追加在最上面，必须按此格式）
+
+### [2026-07-25] 管理后台手动配置未登录首页画廊（F-073）
+- 任务来源：owner 口头需求"管理后台要能手动配置用户端未登录时看到的首页
+  展示的图片"（tasks/2026-07-25-admin-landing-gallery.md）
+- 完成了什么：
+  - 新表 `landing_gallery_items`（迁移 0008 + schema.ts），与灵感库解耦
+  - 契约 LandingGalleryAction（zod）+ 上传响应；server CRUD/排序/审计
+    （src/server/admin/landing-gallery.server.ts）
+  - API：/api/admin/landing-gallery（GET/POST）+ /upload（multipart 魔数嗅探）
+  - 后台页 /admin/landing-gallery + 侧边导航「首页画廊」（沿用灵感库交互）
+  - r2.server 新增 landing/ 前缀 putLandingImage；🔴 高危点：
+    maintenance 孤儿清理 known-set UNION landing_gallery_items.image_key
+    （否则在用门面图超 1h 被误删）
+  - reads.server 新增 loadLandingGallery()（空/异常 → null 回退）；
+    welcome loader 优先读配置（全量上架卡），未配置回退灵感库 slice(14)
+  - 新增测试 14 条：孤儿保护 2、读路径 5、welcome 回退链 3、后台页组件 4
+- 验收证据：
+  - `npm run typecheck` → 退出码 0
+  - `npm run test:run` → 59 文件 469 通过/1 跳过（含新增 14 条）全绿
+  - `npm run db:test:migrate` → applied 0008_landing_gallery.sql
+  - `npm run test:e2e` → key-modes 同一断言连续失败；**基线对照实验**
+    （stash 全部改动后在 494e819 跑）同样失败 → 本机既有轮询环境问题，
+    非本次缺陷（详见状态速览）
+  - `npm run build` → 成功；`npm audit --audit-level=high` → 0 high
+  - 浏览器实操（Playwright 真实点击，脚本用后已删）：管理员登录 →
+    首页画廊空态 → 新增「山间晨雾」（贴 data URL）→ 列表可见上架 →
+    未登录 /welcome 展示该图 → 后台下架 → /welcome 回退灵感库（图消失）。
+    截图 4 张存 ../shots/f073-*.png
+- 提交记录：见 git log "feat: [F-073]" / "docs: [F-073]"
+- 环境变更：本机 `.env` dev 库与一次性测试库分离（5433/ai_image_dev ↔
+  5433/ai_image_test；此前同库触发 test-env-guard 拒绝），dev 库已迁移
+  0000-0008，本地 `npm run dev` 可用
+- 遗留问题：e2e key-modes 本机高频失败（基线同败，环境问题）；生产上线
+  前需在 CI/Linux 环境复跑 e2e
+- 下一步建议：随下次发布上线后，管理员即可在 /admin/landing-gallery
+  配置门面图；可评估「从灵感库一键选入」增强
 
 ### [2026-07-25] 修复 CI 依赖审计失败（3 个 high 漏洞）
 - 任务来源：owner 收到 GitHub CI 失败通知（tasks/2026-07-25-ci-audit-fix.md）
