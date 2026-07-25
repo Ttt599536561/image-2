@@ -43,4 +43,6 @@
 
 ## 状态
 
-进行中
+已验收（2026-07-25）：本地 audit 0 high；push 后 GitHub Actions
+CI（run 30145574）已盯到 `success`。剩余 4 个 moderate（esbuild 经
+drizzle-kit、valibot）修复需破坏性升级，按任务卡约定不动。

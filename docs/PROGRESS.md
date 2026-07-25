@@ -26,6 +26,24 @@
 
 ## 会话日志（新条目追加在最上面，必须按此格式）
 
+### [2026-07-25] 修复 CI 依赖审计失败（3 个 high 漏洞）
+- 任务来源：owner 收到 GitHub CI 失败通知（tasks/2026-07-25-ci-audit-fix.md）
+- 根因：GitHub CVE 库新披露 advisory 命中已锁定版本（react-router 8.0.1
+  RSC CSRF、better-auth 1.6.20 magic-link 劫持、postcss 路径遍历），非
+  本次代码引入；本次 push 触发 CI 暴露了它。教训：push main 前必须本地
+  跑 VERIFY.md 第四节（build/audit），push 后必须盯 CI 状态——已补记纪律。
+- 完成了什么：react-router 四件套 8.0.1→8.3.0、better-auth 1.6.20→1.6.25、
+  postcss→8.5.23（npm audit fix）；攻击面评估：两漏洞均不适用本项目
+  （不用 RSC Mode、未启用 magicLink/emailOTP），但门禁必须绿
+- 验收证据：本地 `npm audit --audit-level=high` 退出码 0；typecheck 0；
+  test:run 55 文件 455 过/1 跳过；build 成功；dev 冒烟 / →302 /welcome、
+  /login 200、/welcome 200；push 后盯 CI（bd98d00）至 success
+- 提交记录：bd98d00
+- 遗留问题：4 个 moderate（esbuild 经 drizzle-kit、valibot）修复需破坏性
+  升级，不动；npm 对钉死精确版本的 RR 包有 ERESOLVE 死结，解法为
+  `--legacy-peer-deps` 显式升级后普通 install 自洽（已验证）
+- 下一步建议：无；CI 纪律见 VERIFY.md 可补充"push 后盯 CI"一条
+
 ### [2026-07-25] 方案 B 落地：根路径即门面（F-072）
 - 任务来源：owner 拍板"做了吧"（tasks/2026-07-25-root-landing.md）
 - 完成了什么：

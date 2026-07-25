@@ -73,6 +73,13 @@
 | `npm run release:validate` | 版本号、tag、质量门完整 |
 | `npm run test:deploy` | （改了 deploy/ 脚本才需要）部署脚本契约测试 |
 
+> ⚠️ **push 到 main 即触发 GitHub CI**（audit/typecheck/单测/build/密钥
+> 断言）。纪律（2026-07-25 CI 失败教训）：push 前必须本地先跑
+> `npm run build` 和 `npm audit --audit-level=high`；push 后必须用
+> check-runs API 或 Actions 页面**盯到 ci 变绿才算任务完成**，不许
+> "推完就走"。CVE 库会持续更新：同一个 lock 昨天绿不代表今天绿，
+> audit 失败先查是不是新披露命中了旧依赖，再按"评估攻击面 + 升级"处理。
+
 ## 五、AI 常见糊弄话术，看到就打回
 
 - ❌ "逻辑上没问题" → 贴命令输出
