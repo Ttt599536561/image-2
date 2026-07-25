@@ -232,7 +232,7 @@ export function AssetsPage({ initialImages }: { initialImages?: ImagesResponse }
             <div className={styles.head}>
               <h1 className={styles.title}>资产库</h1>
               <p className={styles.sub}>
-                {bulk ? "点选 / 拖拽框选图片，下方批量操作 · 仅本人生成" : "点任意图放大预览 · 长按可多选 · 仅本人生成"}
+                {bulk ? "点选 / 拖拽框选图片，下方批量操作 · 仅本人生成" : "资产库图片仅保存7天，过期自动清理，请及时下载保存"}
               </p>
             </div>
             <button
