@@ -37,6 +37,15 @@
 
 ## 会话日志（新条目追加在最上面，必须按此格式）
 
+### [2026-07-25] 发布 v0.2.9：侧边栏项目分组会话上线更新通道
+- 任务来源：owner「发版」
+- 完成了什么：package.json + lock 同步 bump 0.2.9；`release:validate
+  --tag v0.2.9 --latest-tag v0.2.8` 通过；推送 main（407cdea）+ tag v0.2.9，
+  CI 已发布 stable/latest Release v0.2.9（Full Changelog v0.2.8...v0.2.9）
+- 下一步：owner 在 /admin/system-update 点更新；本次含 0009_projects 迁移
+  （projects 表 + conversations 两列 + 存量会话归档），更新器会在维护窗口
+  自动跑迁移，生产升级后存量用户首次进入即完成默认项目归档
+
 ### [2026-07-25] F-074/F-075 侧边栏项目分组会话：已验收（0777353）
 - 任务来源：owner「开工」（需求卡 tasks/2026-07-25-sidebar-projects.md，
   Q1–Q6 已拍板，Q3=新项目插列表首部）
