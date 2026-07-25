@@ -194,6 +194,27 @@ export async function putInspirationCover(args: {
   return { storageKey, publicUrl: publicUrl(storageKey) };
 }
 
+// ===================== 首页画廊图片：管理员本地上传（永久，F-073，由 landing_gallery CRUD 管理） =====================
+// 存 `landing/{yyyy}/{mm}/{uuid}.{ext}`（独立前缀，与灵感封面/用户图区分）。
+// 孤儿清理 cron 的 known-set UNION `landing_gallery_items.image_key` 保护在用图；删/换后不再命中 → 孤儿回收。
+export function buildLandingImageKey(ext: string): string {
+  const d = new Date();
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `landing/${yyyy}/${mm}/${randomUUID()}.${ext}`;
+}
+
+/** 落首页画廊图。返回 {storageKey(image_key), publicUrl(image_url)}。 */
+export async function putLandingImage(args: {
+  bytes: Uint8Array;
+  contentType: string;
+  ext: string;
+}): Promise<{ storageKey: string; publicUrl: string }> {
+  const storageKey = buildLandingImageKey(args.ext);
+  await putObject(storageKey, args.bytes, args.contentType);
+  return { storageKey, publicUrl: publicUrl(storageKey) };
+}
+
 // ===================== 灵感库用户投稿：副本（永久，§13.1） =====================
 // 投稿即把用户作品复制一份到 `inspirations/submissions/<uid>/{yyyy}/{mm}/{uuid}.{ext}`（以 inspirations/ 开头 →
 // deriveCoverKey 天然接受，通过后 inspirations.cover_key 复用同一对象）。pending 受孤儿 known-set 保护。

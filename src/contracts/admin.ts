@@ -130,6 +130,42 @@ export const InspirationCoverUploadResponse = z.object({
 });
 export type InspirationCoverUploadResponse = z.infer<typeof InspirationCoverUploadResponse>;
 
+// ===================== 首页画廊 CRUD（F-073：手动配置未登录 /welcome 展示图）=====================
+// 与灵感库解耦；prompt 允许为空（门面图不强制提示词），其余约束对齐灵感卡。
+const landingFields = {
+  title: z.string().min(1, "标题必填").max(100),
+  image: z.string().min(1, "图片必填").max(2000), // image_url（本地上传或贴公有 URL；image_key 由服务端派生）
+  category: z.string().max(50).nullable().optional(),
+  prompt: z.string().max(4000).optional(), // hover 浮现提示词，可空
+  summary: z.string().max(500).nullable().optional(),
+  width: z.number().int().positive().max(100000).nullable().optional(), // 原始宽高（瀑布流原比例，可空）
+  height: z.number().int().positive().max(100000).nullable().optional(),
+  sort: z.number().int().optional(),
+  active: z.boolean().optional(),
+};
+export const CreateLandingAction = z.object({ op: z.literal("create"), ...landingFields });
+export const UpdateLandingAction = z.object({ op: z.literal("update"), id: z.uuid(), ...landingFields });
+export const DeleteLandingAction = z.object({ op: z.literal("delete"), id: z.uuid() });
+// 排序：与相邻卡互换并规整 sort（同灵感库「排序编辑体验」），避免手填 sort 数字。
+export const ReorderLandingAction = z.object({
+  op: z.literal("reorder"),
+  id: z.uuid(),
+  direction: z.enum(["up", "down"]),
+});
+export const LandingGalleryAction = z.discriminatedUnion("op", [
+  CreateLandingAction,
+  UpdateLandingAction,
+  DeleteLandingAction,
+  ReorderLandingAction,
+]);
+export type LandingGalleryAction = z.infer<typeof LandingGalleryAction>;
+
+// 首页画廊图片本地上传（multipart）响应：只回公有 URL（image_key 由服务端据 image_url 派生）。
+export const LandingImageUploadResponse = z.object({
+  imageUrl: PublicMediaUrlSchema,
+});
+export type LandingImageUploadResponse = z.infer<typeof LandingImageUploadResponse>;
+
 // ===================== 灵感投稿审核（§13.1）=====================
 // 通过可先改字段（封面/宽高来自投稿图，不在此填）；驳回必填原因。一经审核即终态（服务端校验 status=pending）。
 export const ApproveSubmissionAction = z.object({

@@ -39,6 +39,8 @@ export default [
   route("api/admin/relay", "routes/api.admin.relay.ts"), // 中转站 url/key 配置（换厂商）
   route("api/admin/inspirations", "routes/api.admin.inspirations.ts"),
   route("api/admin/inspirations/upload", "routes/api.admin.inspirations.upload.ts"), // 封面本地上传（multipart）
+  route("api/admin/landing-gallery", "routes/api.admin.landing-gallery.ts"), // F-073 首页画廊（GET 列表 / POST 动作）
+  route("api/admin/landing-gallery/upload", "routes/api.admin.landing-gallery.upload.ts"), // F-073 图片本地上传（multipart）
   route("api/admin/inspiration-submissions", "routes/api.admin.inspiration-submissions.ts"), // §13.1 投稿审核（GET 队列 / POST approve|reject）
   route("api/admin/generations", "routes/api.admin.generations.ts"),
   route("api/admin/notifications", "routes/api.admin.notifications.ts"),
@@ -68,6 +70,7 @@ export default [
     route("admin/codes", "routes/_admin.codes.tsx"),
     route("admin/generations", "routes/_admin.generations.tsx"),
     route("admin/inspiration", "routes/_admin.inspiration.tsx"),
+    route("admin/landing-gallery", "routes/_admin.landing-gallery.tsx"), // F-073 首页画廊（未登录 /welcome 展示图）
     route("admin/inspiration-submissions", "routes/_admin.inspiration-submissions.tsx"), // §13.1 灵感投稿审核
     route("admin/packages", "routes/_admin.packages.tsx"),
     route("admin/notifications", "routes/_admin.notifications.tsx"), // §9 广播公告

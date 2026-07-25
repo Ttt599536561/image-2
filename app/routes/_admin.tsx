@@ -1,6 +1,7 @@
 import {
   Coins,
   Image as ImageIcon,
+  Images,
   Inbox,
   LayoutDashboard,
   Lightbulb,
@@ -40,6 +41,7 @@ const NAV = [
   { to: "/admin/codes", label: "兑换码", icon: Ticket, end: false },
   { to: "/admin/generations", label: "生成记录", icon: ImageIcon, end: false },
   { to: "/admin/inspiration", label: "灵感库", icon: Lightbulb, end: false },
+  { to: "/admin/landing-gallery", label: "首页画廊", icon: Images, end: false },
   { to: "/admin/inspiration-submissions", label: "灵感投稿", icon: Inbox, end: false },
   { to: "/admin/packages", label: "套餐 / 参数", icon: Package, end: false },
   { to: "/admin/notifications", label: "广播公告", icon: Megaphone, end: false },

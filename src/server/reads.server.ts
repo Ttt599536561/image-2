@@ -517,3 +517,31 @@ function seedInspirations(category: string | null, q: string | undefined): Inspi
   }
   return { items, categories };
 }
+
+// ===================== /welcome 首页画廊（F-073，只读） =====================
+// 管理后台手动配置的门面图（landing_gallery_items）。返回 null = 未配置/表未建/DB 不可达，
+// 调用方（welcome loader）回退 loadInspirations（其内部再回退种子）——落地页永不空。
+// 🔴 红线：只读 + 仅 active=true；只返回 image_url，绝不暴露 image_key。
+export async function loadLandingGallery(): Promise<InspirationsResponse["items"] | null> {
+  try {
+    const sql = getSql();
+    const rows = (await sql`
+      SELECT id, image_url, title, summary, prompt, category, width, height FROM landing_gallery_items
+      WHERE active = true
+      ORDER BY sort ASC, created_at DESC`) as Row[];
+    if (rows.length === 0) return null; // 未配置 → 回退灵感库
+    return rows.map((r) => ({
+      id: r.id as string,
+      cover: r.image_url as string,
+      title: r.title as string,
+      summary: (r.summary as string | null) ?? null,
+      prompt: (r.prompt as string | null) ?? "",
+      category: (r.category as string | null) ?? null,
+      width: numOrNull(r.width),
+      height: numOrNull(r.height),
+      submitter: null, // 门面图一律不显署名
+    }));
+  } catch {
+    return null; // 表未建 / DB 不可达 → 回退灵感库（种子兜底）
+  }
+}

@@ -372,6 +372,29 @@ export const inspirations = pgTable(
   (t) => [index("ix_insp_active_sort").on(t.active, t.sort)],
 );
 
+// ========== landing_gallery_items（未登录 /welcome 首页画廊；迁移 0008，F-073） ==========
+// 管理后台手动配置门面页图片，与灵感库解耦：/welcome 优先读本表 active 卡（sort, created_at），
+// 本表无 active 卡时回退 inspirations → 种子。image_key 受孤儿清理 known-set 保护（maintenance）。
+export const landingGalleryItems = pgTable(
+  "landing_gallery_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    title: text("title").notNull(),
+    imageKey: text("image_key"), // 上传对象 key（landing/… 前缀；贴外链时 NULL）
+    imageUrl: text("image_url").notNull(), // 前端只读公有 URL
+    category: text("category"), // 品类标签（hover 浮现层用，可空）
+    prompt: text("prompt").notNull().default(""), // hover 浮现提示词（门面图允许为空）
+    summary: text("summary"),
+    width: integer("width"), // 图片原始宽（瀑布流原比例预留盒，可空）
+    height: integer("height"),
+    sort: integer("sort").notNull().default(0),
+    active: boolean("active").notNull().default(true), // /welcome 只展示 active
+    createdAt: timestamp("created_at", tz).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", tz).notNull().defaultNow(),
+  },
+  (t) => [index("ix_landing_gallery_active_sort").on(t.active, t.sort)],
+);
+
 // ========== inspiration_submissions（灵感库用户投稿队列；§13.1 / 迁移 0004） ==========
 // 与上架表 inspirations 分离：用户端只读 loadInspirations(active=true) 零改动、绝不泄露 pending/rejected。
 // 投稿图为「我的作品」的永久副本（inspirations/submissions/…）；pending 副本受孤儿 cron known-set 保护，
