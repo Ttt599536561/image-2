@@ -1,6 +1,6 @@
 # 10 · 后台管理
 
-状态：本文后台能力均已在 `0.2.7` 实现并部署。腾讯云生产环境运行提交 `db1703f`；宿主更新器历经 `v0.2.2`（聚合校验）、`v0.2.4`（jq 1.6 兼容）、`v0.2.5`（DOCKER_CONFIG）、`v0.2.6`/`v0.2.7`（镜像权限）修复，2026-07-25 首次全链路受控更新（`0.2.0` → `0.2.7`）已完成，结果见 [PROGRESS.md](../PROGRESS.md)。
+状态：本文后台能力均已在 `0.2.9` 实现并部署。腾讯云生产环境运行提交 `407cdea`；宿主更新器历经 `v0.2.2`（聚合校验）、`v0.2.4`（jq 1.6 兼容）、`v0.2.5`（DOCKER_CONFIG）、`v0.2.6`/`v0.2.7`（镜像权限）修复，2026-07-25 首次全链路受控更新（`0.2.0` → `0.2.7`）已完成，结果见 [PROGRESS.md](../PROGRESS.md)。
 
 > 独立 `/admin/*` 后台（仅 `role=admin`）：兑换码 / 用户 / 灵感库 / 生成记录 / 套餐与全局参数 / 数据看板 / 公告 / 系统更新 / 首页画廊，外加贯穿全部模块的**敏感操作二次确认 + 审计留痕**。
 > 规则真相源：规格 [§9](../redesign-requirements.md)（后台全功能）/ [§16](../redesign-requirements.md)（表）/ [§24-3·§24-13](../redesign-requirements.md)；结构看 [wireframes.html](../prototypes/wireframes.html) 11–18，视觉令牌贴 [design-system.html](../prototypes/design-system.html)，**后台自建、不引 Refine**（[00 §1.1](00-overview.md) 已排除）。

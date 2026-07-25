@@ -112,6 +112,7 @@ loader 取到的首屏数据可作为对应 query 的 `initialData`（用同一 
 | 当前会话 pending IDs | 批量 job 状态轮询 | 单项终态、会话权威刷新 |
 | `["conversation", id, "images"]` | 本次面板图片 | 该会话生成成功 |
 | `["conversations", { cursor }]` | 最近会话分页 | 新建/续聊 |
+| `["projects"]` | 侧栏项目分组（含各项目会话，F-074） | 新建/续聊、项目增删改、项目/会话排序 |
 | `["assets", { range, cursor }]` | 资产库分页（含日期筛选参数） | 删除、生成成功 |
 | `["inspiration", { tab, q }]` | 灵感卡列表 | 后台 CRUD（用户侧只读） |
 | `["my-submissions"]` | 我的投稿状态（待审/通过/驳回，`useMySubmissions`） | 投稿提交成功 |

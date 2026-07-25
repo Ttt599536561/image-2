@@ -29,7 +29,8 @@
 | `credit_lots` | 可过期积分批次，FIFO 扣减 |
 | `credit_ledger` | 只追加账本与幂等记录 |
 | `packages/redeem_codes` | 套餐和兑换码 |
-| `conversations` | 用户会话 |
+| `conversations` | 用户会话；`project_id` 归属项目、`sort_order` 项目内排序（F-074） |
+| `projects` | 侧边栏项目分组（F-074）：`is_default` 每用户至多一个、`sort_order` 项目间排序 |
 | `generations` | 生成队列、deadline 和终态真相源 |
 | `generation_credentials` | custom 任务级 AES-GCM 密文，终态删除 |
 | `images` | 媒体 key、相对 public URL、保留期 |
@@ -69,6 +70,7 @@
 | `0006_better_auth.sql` | Better Auth 四表及 admin 字段 |
 | `0007_generation_source_image.sql` | generation 可空来源图片 ID 与查询索引 |
 | `0008_landing_gallery.sql` | 未登录首页画廊配置表 `landing_gallery_items`（排序与上下架） |
+| `0009_projects.sql` | 侧边栏项目分组表 `projects` + `conversations` 归属/排序列 + 存量会话归档默认项目 |
 
 安装和升级只通过 `deploy/install.sh` 应用受控迁移。修改 schema 时先生成/手写迁移，再审查 SQL；金额部分唯一索引、外键和状态谓词必须人工核对。生产改金额结构前先运行备份和余额对账。
 

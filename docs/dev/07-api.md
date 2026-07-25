@@ -35,6 +35,7 @@ Key、credential ID、密文、IV 或 auth tag。
 |---|---|
 | 鉴权/账号 | `/api/auth/*`、`GET /api/me`、账号积分批次/流水/兑换记录 |
 | 会话 | `/api/conversations`、`/api/conversations/:id` |
+| 项目 | `/api/projects`、`/api/projects/order`、`/api/projects/:id`、`/api/projects/:id/order`（F-074 项目 CRUD 与整组排序） |
 | 生图 | `POST /api/uploads`、`POST /api/generate`、`GET /api/generate-status` |
 | 图片 | `/api/images`、保存、删除、下载相关资源路由 |
 | 充值 | `GET /api/packages`、`POST /api/redeem` |

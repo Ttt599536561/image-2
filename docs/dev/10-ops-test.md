@@ -1,10 +1,10 @@
 # 运维与验证
 
-状态：现有 `0.2.7` 功能、部署脚本契约、Docker 镜像构建和空数据 Compose 持久化 smoke 均已实现。真实 system/custom Relay 生图按生产运维周期检查。
+状态：现有 `0.2.9` 功能、部署脚本契约、Docker 镜像构建和空数据 Compose 持久化 smoke 均已实现。真实 system/custom Relay 生图按生产运维周期检查。
 
 ## 当前生产验证
 
-2026-07-25 已验证腾讯云生产提交 `db1703f97b4bbed4b223e5bcc46aff004df29f5a`（`0.2.7`）：受控更新备份为 `deploy/backups/20260725T130630Z`；四个服务均运行，Web/PostgreSQL healthy；内网与公网 `/healthz` 均返回 `204`；迁移 `0007`/`0008` 已应用；更新 `.path` 为 enabled/active；未登录访问 `/admin/system-update` 返回 `302`。此前 2026-07-13 的 `0.2.0` 基线验证（提交 `c5131aa`、备份 `20260713T145807Z`）见 [PROGRESS.md](../PROGRESS.md)。这些结果证明本次部署基础健康，不替代真实 Relay 和恢复演练的周期性执行（两次真实 `recover` 已于 2026-07-25 演练成功）。
+2026-07-25 已验证腾讯云生产提交 `db1703f97b4bbed4b223e5bcc46aff004df29f5a`（`0.2.7`）：受控更新备份为 `deploy/backups/20260725T130630Z`；四个服务均运行，Web/PostgreSQL healthy；内网与公网 `/healthz` 均返回 `204`；迁移 `0007`/`0008` 已应用；更新 `.path` 为 enabled/active；未登录访问 `/admin/system-update` 返回 `302`。2026-07-26 已验证生产 `0.2.9`（提交 `407cdea93fd43377b0889814b933a64ccca134d8`）：`0.2.7` → `0.2.9` 跨版本受控更新 completed，迁移 `0009_projects` 已应用，公网 `/healthz` 204、`/welcome` 200。此前 2026-07-13 的 `0.2.0` 基线验证（提交 `c5131aa`、备份 `20260713T145807Z`）见 [PROGRESS.md](../PROGRESS.md)。这些结果证明本次部署基础健康，不替代真实 Relay 和恢复演练的周期性执行（两次真实 `recover` 已于 2026-07-25 演练成功）。
 
 ## Scheduler
 

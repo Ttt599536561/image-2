@@ -1,6 +1,6 @@
 # 代码结构与演进
 
-状态：`0.2.7` 单机 PostgreSQL、本地媒体、一键安装、备份恢复、部署 CI 和后台更新器均已实现并部署；当前状态只看 [PROGRESS.md](../PROGRESS.md)。
+状态：`0.2.9` 单机 PostgreSQL、本地媒体、一键安装、备份恢复、部署 CI 和后台更新器均已实现并部署；当前状态只看 [PROGRESS.md](../PROGRESS.md)。
 
 ## 当前结构
 

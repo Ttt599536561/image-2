@@ -159,4 +159,4 @@
 
 ## 状态
 
-已验收（2026-07-25，git `0777353`：typecheck 绿 / test:run 61 文件 487 绿 / e2e sidebar-projects 全过；key-modes 既有本机失败与基线一致）
+已验收（2026-07-25，git `0777353`：typecheck 绿 / test:run 61 文件 487 绿 / e2e sidebar-projects 全过；key-modes 既有本机失败与基线一致）；**已上线**（2026-07-26 随 `v0.2.9` 生产）

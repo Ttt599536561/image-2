@@ -1,10 +1,10 @@
 # 运行时与配置
 
-状态：`0.2.7` 单机全自托管运行时、安装/恢复脚本、空栈持久化 smoke 和管理后台更新器均已实现并部署；更新器已经过首次全链路受控更新验证（`0.2.0` → `0.2.7`）。真实 Relay 检查按运维周期执行，不是未实现功能。
+状态：`0.2.9` 单机全自托管运行时、安装/恢复脚本、空栈持久化 smoke 和管理后台更新器均已实现并部署；更新器已完成两次全链路受控更新（`0.2.0` → `0.2.7`、`0.2.7` → `0.2.9`）。真实 Relay 检查按运维周期执行，不是未实现功能。
 
 ## 生产基线
 
-2026-07-25，腾讯云生产环境经后台受控更新到 `0.2.7`，提交 `db1703f97b4bbed4b223e5bcc46aff004df29f5a`（由 `0.2.0` / `c5131aa` 一次维护窗口直升）。更新备份为 `deploy/backups/20260725T130630Z`；`postgres`、`web`、`worker`、`scheduler` 均运行，内网与公网 `/healthz` 均返回 `204`；迁移 `0007`/`0008` 已应用，`ai-image-workshop-update.path` 保持 enabled 且 active，宿主更新器已自更新到 `v0.2.7`。完整证据见 [PROGRESS.md](../PROGRESS.md)。
+2026-07-26，腾讯云生产环境经后台受控更新到 `0.2.9`，提交 `407cdea93fd43377b0889814b933a64ccca134d8`（由 `0.2.7` 跨版本直升，含 v0.2.8 文案与 F-074/F-075 侧边栏项目分组）。`postgres`、`web`、`worker`、`scheduler` 均运行，公网 `/healthz` 返回 `204`、`/welcome` 返回 `200`；迁移已应用至 `0009_projects`（存量会话自动归档默认项目），`ai-image-workshop-update.path` 保持 enabled 且 active。此前 `0.2.7` 上线证据（备份 `deploy/backups/20260725T130630Z` 等）见 [PROGRESS.md](../PROGRESS.md)。
 
 2026-07-13，腾讯云生产环境升级到提交 `c5131aaa0335250a3846c380519324fbbf4b231b`。升级备份为 `deploy/backups/20260713T145807Z`；`postgres`、`web`、`worker`、`scheduler` 均运行，内网与公网 `/healthz` 均返回 `204`。`ai-image-workshop-update.path` 已启用且 active，更新 service 已启用。完整证据见 [PROGRESS.md](../PROGRESS.md)。
 
