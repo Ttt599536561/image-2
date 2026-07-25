@@ -6,20 +6,20 @@
 
 ## 当前状态速览
 
-> 最后更新：2026-07-25（首页画廊 F-073 会话）
+> 最后更新：2026-07-25（生产上线 v0.2.7 会话）
 
 - 现在做到哪：
   - 代码线：本地 main 已完成 /welcome 公开落地页、三轮视觉改版
     （F-070/F-071）、方案 B（F-072：根路径即门面）与 F-073（管理后台
     手动配置未登录首页画廊：/admin/landing-gallery CRUD + 排序 + 上下架，
-    /welcome 优先读配置、无配置回退灵感库），工作区干净，全部测试
-    59 文件 469 过/1 跳过。
-  - 发布线：生产仍跑 v0.2.0；v0.2.1（对话图二次编辑 F-014）已发布待部署；
-    v0.2.2（后台更新器修复 F-052）为发布候选；落地页、方案 B 与首页画廊
-    改动 **尚未构建发布**。
+    /welcome 优先读配置、无配置回退灵感库），工作区干净。
+  - 发布线：**生产已跑 v0.2.7**（2026-07-25 受控更新首次全链路跑通，
+    v0.2.0 → v0.2.7 一次维护窗口；F-014 对话图二次编辑、F-052 更新器、
+    落地页/方案 B/首页画廊全部上线）。期间连续修复三个宿主环境潜伏缺陷
+    （jq 1.6 校验、/root/.docker 只读、UMask=0077 镜像权限），
+    对应 v0.2.4/v0.2.5/v0.2.7 三个补丁发布。
 - 下一步做什么：owner 准备新开会话提新需求。新会话开始先按 CLAUDE.md
-  SOP 读本文件 + FEATURES.md。若新需求不涉及发布，落地页/方案 B/首页画廊
-  上线与 v0.2.2 发布继续挂起，等 owner 发话。
+  SOP 读本文件 + FEATURES.md。
 - 已知风险/坑：
   - e2e key-modes 在本机已从"偶发超时"变为高频失败：2026-07-25 对照实验
     显示**无改动的基线（494e819）同样失败**（断言 已完成 toHaveCount(2) → 0），
@@ -29,9 +29,49 @@
     `.env.test` → 5433/ai_image_test（此前同库会触发 test-env-guard 拒绝；
     分离是 2026-07-25 做的，dev 库已迁移 0000-0008）。
   - 本机 Node 为 v24（项目要求 22），目前能跑，typecheck/test 无影响。
-  - 宿主更新请求校验曾因 jq 流式统计缺陷误拒合法请求，已修复待 v0.2.2 发布。
+  - 宿主 systemd 单元 UMask=0077：生产树文件仍是 600/700 混合权限——
+    无害（v0.2.7 Dockerfile 已归一化镜像内权限，后续更新不受影响），
+    不要去手动 chmod 生产树（deploy/backups 必须保持私有）。
 
 ## 会话日志（新条目追加在最上面，必须按此格式）
+
+### [2026-07-25] 生产上线 v0.2.7：三连根因修复，受控更新首次全链路跑通
+- 任务来源：owner「发布上线吧」（接 F-073 会话）
+- 完成了什么：
+  - 先发 v0.2.3（首页画廊）→ 生产更新卡死 → 连续定位修复三个潜伏
+    宿主环境缺陷，最终 v0.2.7 上线成功
+  - 根因①：Debian 12 的 jq 1.6 `--stream --slurp` 把流式闭合事件拆成
+    第二个 slurp 值 → 更新器重复键校验恒失败 → 任何请求被 set_failure
+    静默拒绝，systemd 重启循环 55 次（7-15 起卡 10 天）。修复：改
+    `-n --stream` + `inputs` 聚合（ec37aa7 → v0.2.4）；仓库自带更新器
+    测试套件在生产 jq 1.6 上实测 PASS
+  - 根因②：单元 ProtectSystem=strict 下 /root 只读，docker CLI
+    `mkdir /root/.docker` 中止构建 → UPDATE_FAILED 自动回滚。修复：
+    更新器导出 `DOCKER_CONFIG=$CONTROL_ROOT/.docker`（5e12bdc → v0.2.5）
+  - 根因③：单元 UMask=0077 → git checkout 出 600 root:root 文件 →
+    镜像内 USER node 读 package.json、drizzle/*.sql 全 EACCES →
+    v0.2.5/v0.2.6 两次 INTERRUPTED_AFTER_MIGRATION。修复：Dockerfile
+    运行层 `COPY --chown=node:node --chmod=0644`（ebc13ff → v0.2.6）+
+    构建层 `chmod -R a+rX /app`（c18250e → v0.2.7）
+  - 两次中断均按预案 `updater recover <REQUEST_ID>`（pg_restore 备份 +
+    旧镜像回切），站点分钟级回 v0.2.0，零数据损失
+  - 宿主热修复：/usr/local/sbin 更新器换 v0.2.5 tag 精确内容（md5 校验），
+    清 7-14 过期请求/预约，initialize（idle/0.2.0）+ .path 重启；
+    经认证后台 API（与 UI 同路径）发起更新，审计齐全
+- 验收证据：
+  - requestId 453794fb-354c-4421-a179-f727faf16d8e：13:06:25 → 13:09:16
+    completed，maintenance=false，backupId 20260725T130630Z
+  - 迁移 0007_generation_source_image + 0008_landing_gallery 于
+    13:09:08 applied，app_migrations 共 9 行
+  - 宿主更新器 md5 == `git show v0.2.7`（a4b05426…，自更新生效）；
+    生产树 HEAD=db1703f（v0.2.7）
+  - 公网 /healthz 204、/welcome 200（含 gallery/灵感内容）；后台
+    system-update API：build 0.2.7 / phase completed / enabled；
+    /api/admin/landing-gallery 200；audit_log 有 system_update_start 记录
+  - v0.2.4/v0.2.5/v0.2.7 三次发布 CI + release job 全绿，均为 stable Latest
+- 遗留：宿主保留备份 20260725T124505Z/20260725T125751Z/20260725T130630Z
+  与旧更新器 /root/ai-image-workshop-update.pre-v0.2.4-hotfix.bak；
+   dangling 镜像约 2.2G 可随时 docker system prune（未动）
 
 ### [2026-07-25] 管理后台手动配置未登录首页画廊（F-073）
 - 任务来源：owner 口头需求"管理后台要能手动配置用户端未登录时看到的首页
