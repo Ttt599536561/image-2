@@ -6,13 +6,14 @@
 
 ## 当前状态速览
 
-> 最后更新：2026-07-25（生产上线 v0.2.7 会话）
+> 最后更新：2026-07-25（F-074/F-075 侧边栏项目分组会话）
 
 - 现在做到哪：
   - 代码线：本地 main 已完成 /welcome 公开落地页、三轮视觉改版
-    （F-070/F-071）、方案 B（F-072：根路径即门面）与 F-073（管理后台
-    手动配置未登录首页画廊：/admin/landing-gallery CRUD + 排序 + 上下架，
-    /welcome 优先读配置、无配置回退灵感库），工作区干净。
+    （F-070/F-071）、方案 B（F-072：根路径即门面）、F-073（管理后台
+    手动配置未登录首页画廊）、v0.2.8 文案两条（资产库 7 天提示 + 兑换码
+    获取链接），以及 **F-074/F-075 侧边栏项目分组会话与长按拖动排序**
+    （0777353，已验收未发版），工作区干净。
   - 发布线：**生产已跑 v0.2.7**（2026-07-25 受控更新首次全链路跑通，
     v0.2.0 → v0.2.7 一次维护窗口；F-014 对话图二次编辑、F-052 更新器、
     落地页/方案 B/首页画廊全部上线）。期间连续修复三个宿主环境潜伏缺陷
@@ -35,6 +36,52 @@
     不要去手动 chmod 生产树（deploy/backups 必须保持私有）。
 
 ## 会话日志（新条目追加在最上面，必须按此格式）
+
+### [2026-07-25] F-074/F-075 侧边栏项目分组会话：已验收（0777353）
+- 任务来源：owner「开工」（需求卡 tasks/2026-07-25-sidebar-projects.md，
+  Q1–Q6 已拍板，Q3=新项目插列表首部）
+- 完成了什么：
+  - 数据层：`projects` 表 + `conversations.project_id/sort_order`（迁移
+    0009_projects.sql，幂等；存量会话一次性归入各自懒创建的默认项目并按
+    updated_at 倒序编号）；`uq_projects_user_default` 部分唯一索引做并发幂等键
+  - 服务端/契约/路由：loadProjects/createProject（置顶 shift+1）/
+    renameProject/reorderProjects/reorderProjectConversations（整组集合一致
+    校验，不符 400）；`api.projects(.order/$id/$id.order)` 四端点已注册
+  - enqueue：新会话在创建事务内 ensureDefaultProject + sort_order=min-1
+    置顶归入；_app loader 与 useProjects 水合首屏
+  - 前端：Sidebar 最近区重构为项目区（文件夹图标、点击展开/收起记
+    localStorage、hover 出现 …（重命名居中弹窗）与 +（新建居中弹窗））、
+    ProjectNameDialog 组件、Pointer Events 长按 350ms 拖动排序（同项目内/
+    项目间，跨项目在 UI 层不发生）、乐观更新+回滚全沿用现有模式
+  - 排坑两个：① <a> 原生 HTML5 拖拽会劫持真实浏览器长按手势（pointercancel）
+    → NavLink draggable={false}；② 菜单外点关闭用 data-project-menu DOM
+    归属判断（stopPropagation 对合成/原生混用不可靠）
+  - e2e fixture 同步镜像 enqueue 归属逻辑（harness 直插 DB 绕过服务端）
+- 验收证据：
+  - `npm run typecheck` 绿；`npm run test:run` 61 文件 487 通过 1 跳过
+    （新增 projects.server 12 例 + Sidebar 组件 6 例）
+  - `npm run db:test:migrate` applied 0009；e2e sidebar-projects.spec
+    9 步全过（空态→默认项目→展开收起→二次生成→新建→重命名→会话拖动→
+    项目拖动→刷新持久化）；全量 e2e 仅 key-modes 既有本机失败（与基线一致）
+- 下一步：等 owner 发版指令（bump + tag 走既有 release 流程）；生产升级后
+  存量用户首次进入即完成默认项目迁移
+- 注意：移动端长按拖动在部分浏览器可能触发侧栏滚动（touch-action 需手势前
+  设置，属已知限制）；任务卡「明确不做」清单不变（无删除项目/无跨项目移动）
+
+### [2026-07-25] 需求文档：侧边栏「项目」分组会话（未开工）
+- 任务来源：owner 新需求五条（侧边栏最近对话改为项目分组，参考
+  codex 类工具 + 参考图），明确「先写需求文档，不着急开发」
+- 完成了什么：
+  - 任务卡 `tasks/2026-07-25-sidebar-projects.md`（按 TEMPLATE.md：
+    需求细则 R1-R6、涉及文件、明确不做、验收步骤、验收命令、风险、
+    6 个待确认问题 Q1-Q6）
+  - 参考图存至 `docs/refs/sidebar-projects-reference.png`；tasks/README
+    已登记
+  - 要点：默认项目懒创建、新会话自动归入、项目内长按拖动排序
+    （跨项目回弹）、项目排序、点击展开/收起、hover 出现 `...`（重命名
+    弹窗）与 `+`（新建弹窗）；存量会话迁移是最大风险点
+- 下一步：Q1–Q6 已全部拍板（Q3 = 新项目插列表首部；其余采纳建议），
+  需求收口待开工；开发前需先安排数据结构变更，验收前安排挑刺会话
 
 ### [2026-07-25] 发布 v0.2.8：资产库 7 天清理提示 + 兑换码获取入口
 - 任务来源：owner 新需求两条（文案/提示），随后「发布更新吧」

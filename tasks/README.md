@@ -20,3 +20,4 @@
 ## 现有任务卡
 
 - `prd-user-api-key-modes.md` — Key 模式 PRD（已完成，仅作存档与格式参考）
+- `2026-07-25-sidebar-projects.md` — 侧边栏「项目」分组会话（需求已确认，待开工）
