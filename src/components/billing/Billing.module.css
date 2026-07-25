@@ -190,6 +190,9 @@
   color: var(--text-tertiary);
   margin: var(--space-3) 0 0;
 }
+.redeemHint a {
+  color: var(--accent-on-surface);
+}
 .redeemError {
   font-size: 13px;
   color: var(--danger-text);

@@ -144,6 +144,13 @@ export function BillingPage({ initialPackages }: { initialPackages?: PackagesRes
               <Ticket size={15} style={{ verticalAlign: "-2px", marginRight: 6 }} />
               兑换码充值
             </h2>
+            <p className={styles.redeemHint}>
+              前往
+              <a href="https://api.tangguo.xin/" target="_blank" rel="noopener noreferrer">
+                https://api.tangguo.xin/
+              </a>
+              获取兑换码
+            </p>
             <div className={styles.redeemRow}>
               <input
                 className={styles.redeemInput}
