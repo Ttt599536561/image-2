@@ -235,7 +235,7 @@ export function LandingPage({ items }: { items: LandingItem[] }) {
 
       {/* ③ 画廊：画框式排布，hover 浮现提示词 */}
       {galleryItems.length > 0 ? (
-        <section className={styles.section}>
+        <section className={`${styles.section} ${styles.sectionWide}`}>
           <Reveal>
             <h2 className={styles.sectionTitle}>站内用户的真实作品</h2>
             <p className={styles.sectionSub}>

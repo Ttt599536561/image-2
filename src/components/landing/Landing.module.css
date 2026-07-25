@@ -14,7 +14,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  max-width: 1120px;
+  max-width: 1440px;
   margin: 0 auto;
   padding: var(--space-4) var(--space-6);
   transition:
@@ -92,7 +92,7 @@
   grid-template-columns: 1.05fr 0.95fr;
   align-items: center;
   gap: var(--space-10);
-  max-width: 1120px;
+  max-width: 1440px;
   margin: 0 auto;
   padding: var(--space-12) var(--space-6) var(--space-12);
 }
@@ -271,7 +271,7 @@
 
 /* ===== 通用版块 ===== */
 .section {
-  max-width: 1120px;
+  max-width: 1440px;
   margin: 0 auto;
   padding: var(--space-12) var(--space-6);
 }
@@ -292,7 +292,7 @@
 
 /* ===== 魔法演示卡 ===== */
 .magicCard {
-  max-width: 860px;
+  max-width: 960px;
   margin: 0 auto;
   background: var(--bg-surface);
   border: 1px solid var(--border-subtle);
@@ -354,9 +354,13 @@
   text-align: center;
 }
 
-/* ===== 画廊：画框式 + hover 提示词 ===== */
+/* ===== 画廊：画框式 + hover 提示词（宽屏下比通用版块更宽） ===== */
+.sectionWide {
+  max-width: 1760px;
+}
+
 .gallery {
-  columns: 4 220px;
+  columns: 5 240px;
   column-gap: var(--space-4);
 }
 
