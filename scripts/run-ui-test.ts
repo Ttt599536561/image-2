@@ -1,11 +1,12 @@
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 import { loadDisposableTestEnv } from "./test-env-guard";
+import { buildFullLocalDevArgs } from "./run-disposable-test";
 
 loadDisposableTestEnv();
 
 const cli = resolve(process.cwd(), "node_modules/@react-router/dev/bin.cjs");
-const child = spawn(process.execPath, [cli, "dev", "--port", "8888", "--strictPort"], {
+const child = spawn(process.execPath, [cli, ...buildFullLocalDevArgs(process.env.E2E_BASE_URL || process.env.BETTER_AUTH_URL)], {
   env: process.env,
   stdio: "inherit",
 });

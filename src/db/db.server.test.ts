@@ -103,6 +103,22 @@ describe("database driver selection", () => {
     expect(usesPgDriver({ DATABASE_DRIVER: "neon" })).toBe(false);
   });
 
+  it("configures read and transaction capacity independently", async () => {
+    vi.stubEnv("DATABASE_DRIVER", "pg");
+    vi.stubEnv("PG_READ_POOL_MAX", "5");
+    vi.stubEnv("PG_TRANSACTION_POOL_MAX", "7");
+    vi.stubEnv("PG_CONNECTION_TIMEOUT_MS", "3000");
+    try {
+      const { getPool, getSql } = await loadDb();
+      getPool();
+      await getSql()`SELECT 1`;
+      expect(pgPoolFor("postgres://read").options).toMatchObject({ max: 5, connectionTimeoutMillis: 3000 });
+      expect(pgPoolFor("postgres://transaction").options).toMatchObject({ max: 7, connectionTimeoutMillis: 3000 });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("preserves the disposable PostgreSQL test driver", async () => {
     const { usesPgDriver } = await loadDb();
 
@@ -120,6 +136,7 @@ describe("database driver selection", () => {
       connectionString: "postgres://transaction",
       allowExitOnIdle: true,
       max: 4,
+      connectionTimeoutMillis: 10_000,
     });
 
     await closeDbPools();
@@ -141,6 +158,7 @@ describe("database driver selection", () => {
       connectionString: "postgres://read",
       allowExitOnIdle: true,
       max: 4,
+      connectionTimeoutMillis: 10_000,
     });
     expect(readPool.query).toHaveBeenNthCalledWith(
       1,

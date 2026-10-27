@@ -121,6 +121,8 @@ interface GenerationRow {
   http_status: number | null;
   credits_charged_mp: string | number;
   duration_ms: number | null;
+  image_id: string | null;
+  saved_to_library: boolean | null;
 }
 
 export interface GenerationHarness {
@@ -139,10 +141,16 @@ const tinyPng = Buffer.from(
 export async function installGenerationHarness(
   page: Page,
   userId: string,
-  options: { deadlineOffsetMs?: number } = {},
+  options: { deadlineOffsetMs?: number; events?: boolean } = {},
 ): Promise<GenerationHarness> {
   const requests: Record<string, unknown>[] = [];
   let statusRequestCount = 0;
+  const imageUrl = new URL("/e2e-generated.png", env.BETTER_AUTH_URL).href;
+
+  // Existing scenarios exercise polling; the event-specific suite opts into the real route.
+  if (!options.events) {
+    await page.route("**/api/generate-events?*", (route) => route.fulfill({ status: 503, body: "polling fixture" }));
+  }
 
   await page.route("**/e2e-generated.png", async (route) => {
     await route.fulfill({ status: 200, contentType: "image/png", body: tinyPng });
@@ -224,10 +232,10 @@ export async function installGenerationHarness(
       .split(",")
       .filter(Boolean);
     const result = await pool.query<GenerationRow>(
-      `SELECT id, credential_mode, deadline_at, status, error_code, error, http_status,
-              credits_charged_mp, duration_ms
-       FROM generations
-       WHERE user_id=$1 AND id = ANY($2::uuid[])`,
+      `SELECT g.id, g.credential_mode, g.deadline_at, g.status, g.error_code, g.error, g.http_status,
+              g.credits_charged_mp, g.duration_ms, i.id AS image_id, i.saved_to_library
+       FROM generations g LEFT JOIN images i ON i.generation_id=g.id
+       WHERE g.user_id=$1 AND g.id = ANY($2::uuid[])`,
       [userId, ids],
     );
     const byId = new Map(result.rows.map((row) => [row.id, row]));
@@ -236,13 +244,17 @@ export async function installGenerationHarness(
         generationId: row.id,
         credentialMode: row.credential_mode,
         deadlineAt: row.deadline_at.toISOString(),
+        sourceImageId: null,
+        sourceImage: null,
       };
       if (row.status === "succeeded") {
         return {
           ...identity,
           status: "succeeded",
           image: {
-            publicUrl: "http://localhost:8888/e2e-generated.png",
+            id: row.image_id,
+            savedToLibrary: row.saved_to_library === true,
+            publicUrl: imageUrl,
             width: 1,
             height: 1,
           },
@@ -297,7 +309,7 @@ export async function installGenerationHarness(
             generationId,
             userId,
             `e2e/${generationId}.png`,
-            "http://localhost:8888/e2e-generated.png",
+            imageUrl,
           ],
         );
         await client.query("COMMIT");

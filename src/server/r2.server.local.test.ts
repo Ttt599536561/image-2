@@ -111,6 +111,21 @@ describe("disposable local object storage", () => {
     await expect(getUploadObject(stored.storageKey)).rejects.toThrow();
   });
 
+  it("rejects aborted local reads and writes before publishing any bytes", async () => {
+    await writeLocalStorageObject("existing.png", ONE_PIXEL_PNG);
+    const controller = new AbortController();
+    controller.abort();
+    await expect(readLocalStorageObject("existing.png", controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+    await expect(writeLocalStorageObject("aborted.png", ONE_PIXEL_PNG, controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+    expect(existsSync(join(directory, "aborted.png"))).toBe(false);
+  });
+
+  it("never overwrites a published local image with a later write", async () => {
+    await writeLocalStorageObject("immutable.png", ONE_PIXEL_PNG);
+    await expect(writeLocalStorageObject("immutable.png", new Uint8Array([0]))).rejects.toThrow();
+    expect(readFileSync(join(directory, "immutable.png"))).toEqual(ONE_PIXEL_PNG);
+  });
+
   it("rejects symlink and junction escapes for reads, writes, and deletes", async () => {
     const sentinel = join(outsideDirectory, "probe.png");
     writeFileSync(sentinel, ONE_PIXEL_PNG);

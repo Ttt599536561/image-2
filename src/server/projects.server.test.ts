@@ -92,6 +92,12 @@ describe("createProject", () => {
     const insert = db.txQuery.mock.calls[1][0] as string;
     expect(shift).toContain("sort_order = sort_order + 1");
     expect(insert).toContain("INSERT INTO projects");
+    const [projectParts, ...projectParams] = db.sql.mock.calls[0];
+    expect(projectParts.join("?")).toMatch(/WHERE id = \? AND user_id = \?/);
+    expect(projectParams).toEqual([P1, USER]);
+    const [conversationParts, ...conversationParams] = db.sql.mock.calls[1];
+    expect(conversationParts.join("?")).toMatch(/project_id = \?/);
+    expect(conversationParams).toEqual([USER, P1]);
   });
 });
 
@@ -107,24 +113,33 @@ describe("renameProject", () => {
     db.sql.mockResolvedValueOnce([]);
     const res = await renameProject(USER, P1, "改名");
     expect(res?.item.name).toBe("改名");
+    expect(db.sql.mock.calls[1][0].join("?")).toMatch(/WHERE id = \? AND user_id = \?/);
   });
 });
 
 describe("reorderProjects", () => {
-  it("集合不一致（少/多/含他人）拒绝且不进事务", async () => {
+  it("集合不一致（少/多/含他人/等长重复）拒绝且不写入", async () => {
     db.sql.mockResolvedValue([{ id: P1 }, { id: P2 }]);
+    db.txQuery.mockResolvedValue({ rows: [{ id: P1 }, { id: P2 }], rowCount: 2 });
     await expect(reorderProjects(USER, [P1])).resolves.toBe(false);
     await expect(reorderProjects(USER, [P2, P1, P1])).resolves.toBe(false);
     await expect(reorderProjects(USER, [P1, C1])).resolves.toBe(false);
-    expect(db.txQuery).not.toHaveBeenCalled();
+    await expect(reorderProjects(USER, [P1, P1])).resolves.toBe(false);
+    expect(db.txQuery.mock.calls.some(([query]) => query.startsWith("UPDATE"))).toBe(false);
   });
 
   it("集合一致按数组顺序重写 0..n-1", async () => {
     db.sql.mockResolvedValueOnce([{ id: P1 }, { id: P2 }]);
+    db.txQuery.mockResolvedValueOnce({ rows: [{ id: P1 }, { id: P2 }], rowCount: 2 });
+    db.txQuery.mockResolvedValueOnce({ rows: [], rowCount: 2 });
     await expect(reorderProjects(USER, [P2, P1])).resolves.toBe(true);
+    expect(db.sql).not.toHaveBeenCalled();
     expect(db.txQuery).toHaveBeenCalledTimes(2);
-    expect(db.txQuery.mock.calls[0][1]).toEqual([0, P2, USER]);
-    expect(db.txQuery.mock.calls[1][1]).toEqual([1, P1, USER]);
+    expect(db.txQuery.mock.calls[0][0]).toMatch(/WHERE user_id=\$1.*FOR UPDATE/);
+    expect(db.txQuery.mock.calls[0][1]).toEqual([USER]);
+    expect(db.txQuery.mock.calls[1][0]).toMatch(/unnest\(\$1::uuid\[\]\) WITH ORDINALITY/i);
+    expect(db.txQuery.mock.calls[1][0]).toMatch(/user_id=\$2/);
+    expect(db.txQuery.mock.calls[1][1]).toEqual([[P2, P1], USER]);
   });
 });
 
@@ -132,20 +147,43 @@ describe("reorderProjectConversations", () => {
   it("项目不属于本人直接拒绝", async () => {
     db.sql.mockResolvedValueOnce([]); // projects 查无
     await expect(reorderProjectConversations(USER, P1, [C1])).resolves.toBe(false);
+    expect(db.sql).not.toHaveBeenCalled();
+    expect(db.txQuery).toHaveBeenCalledTimes(1);
+    expect(db.txQuery.mock.calls[0][0]).toMatch(/id=\$1 AND user_id=\$2.*FOR UPDATE/);
+    expect(db.txQuery.mock.calls[0][1]).toEqual([P1, USER]);
   });
 
   it("会话集合不一致拒绝", async () => {
     db.sql.mockResolvedValueOnce([{ id: P1 }]);
     db.sql.mockResolvedValueOnce([{ id: C1 }, { id: C2 }]);
+    db.txQuery.mockResolvedValueOnce({ rows: [{ id: P1 }], rowCount: 1 });
+    db.txQuery.mockResolvedValueOnce({ rows: [{ id: C1 }, { id: C2 }], rowCount: 2 });
     await expect(reorderProjectConversations(USER, P1, [C1])).resolves.toBe(false);
+    expect(db.sql).not.toHaveBeenCalled();
+    expect(db.txQuery.mock.calls.some(([query]) => query.startsWith("UPDATE"))).toBe(false);
   });
 
   it("集合一致按数组顺序重写", async () => {
     db.sql.mockResolvedValueOnce([{ id: P1 }]);
     db.sql.mockResolvedValueOnce([{ id: C1 }, { id: C2 }]);
+    db.txQuery.mockResolvedValueOnce({ rows: [{ id: P1 }], rowCount: 1 });
+    db.txQuery.mockResolvedValueOnce({ rows: [{ id: C1 }, { id: C2 }], rowCount: 2 });
+    db.txQuery.mockResolvedValueOnce({ rows: [], rowCount: 2 });
     await expect(reorderProjectConversations(USER, P1, [C2, C1])).resolves.toBe(true);
-    expect(db.txQuery).toHaveBeenCalledTimes(2);
-    expect(db.txQuery.mock.calls[0][1]).toEqual([0, C2, P1, USER]);
-    expect(db.txQuery.mock.calls[1][1]).toEqual([1, C1, P1, USER]);
+    expect(db.sql).not.toHaveBeenCalled();
+    expect(db.txQuery).toHaveBeenCalledTimes(3);
+    expect(db.txQuery.mock.calls[1][0]).toMatch(/project_id=\$1 AND user_id=\$2.*FOR UPDATE/);
+    expect(db.txQuery.mock.calls[2][0]).toMatch(/unnest\(\$1::uuid\[\]\) WITH ORDINALITY/i);
+    expect(db.txQuery.mock.calls[2][0]).toMatch(/project_id=\$2 AND c.user_id=\$3/);
+    expect(db.txQuery.mock.calls[2][1]).toEqual([[C2, C1], P1, USER]);
+  });
+
+  it("rejects a same-length duplicate conversation list", async () => {
+    db.sql.mockResolvedValueOnce([{ id: P1 }]);
+    db.sql.mockResolvedValueOnce([{ id: C1 }, { id: C2 }]);
+    db.txQuery.mockResolvedValueOnce({ rows: [{ id: P1 }], rowCount: 1 });
+    db.txQuery.mockResolvedValueOnce({ rows: [{ id: C1 }, { id: C2 }], rowCount: 2 });
+    await expect(reorderProjectConversations(USER, P1, [C1, C1])).resolves.toBe(false);
+    expect(db.txQuery.mock.calls.some(([query]) => query.startsWith("UPDATE"))).toBe(false);
   });
 });

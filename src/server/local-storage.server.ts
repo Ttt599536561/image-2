@@ -1,4 +1,5 @@
-import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { link, lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { isAbsolute, relative, resolve } from "node:path";
 
 export function isLocalStorageEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -141,19 +142,33 @@ export function contentTypeForStorageKey(storageKey: string): string {
 export async function writeLocalStorageObject(
   storageKey: string,
   bytes: Uint8Array,
+  signal?: AbortSignal,
 ): Promise<void> {
+  signal?.throwIfAborted();
   const path = await resolveWritableStoragePath(storageKey);
-  await writeFile(path, bytes);
+  signal?.throwIfAborted();
+  const temporaryPath = `${path}.${randomUUID()}.tmp`;
+  try {
+    await writeFile(temporaryPath, bytes, { signal, flag: "wx" });
+    signal?.throwIfAborted();
+    // Publish complete bytes atomically, refusing to replace an existing immutable image.
+    await link(temporaryPath, path);
+    signal?.throwIfAborted();
+  } finally {
+    await rm(temporaryPath, { force: true });
+  }
 }
 
-export async function readLocalStorageObject(storageKey: string): Promise<{
+export async function readLocalStorageObject(storageKey: string, signal?: AbortSignal): Promise<{
   bytes: Uint8Array;
   contentType: string;
   filename: string;
 }> {
+  signal?.throwIfAborted();
   const path = await resolveExistingStoragePath(storageKey);
   if (!path) throw new Error("[local-storage] object not found");
-  const bytes = new Uint8Array(await readFile(path));
+  const bytes = new Uint8Array(await readFile(path, { signal }));
+  signal?.throwIfAborted();
   return {
     bytes,
     contentType: contentTypeForStorageKey(storageKey),

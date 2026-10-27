@@ -89,9 +89,10 @@ export function buildStorageKey(userId: string, generationId: string): string {
   return `${userId}/${yyyy}/${mm}/${generationId}-${rand}.png`;
 }
 
-async function putObject(key: string, body: Uint8Array, contentType: string): Promise<void> {
+async function putObject(key: string, body: Uint8Array, contentType: string, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
   if (isLocalStorageEnabled()) {
-    await writeLocalStorageObject(key, body);
+    await writeLocalStorageObject(key, body, signal);
     return;
   }
   await getR2Client().send(
@@ -102,21 +103,25 @@ async function putObject(key: string, body: Uint8Array, contentType: string): Pr
       ContentType: contentType,
       CacheControl: "public, max-age=31536000, immutable", // key 不可变 → 强缓存
     }),
+    { abortSignal: signal },
   );
+  signal?.throwIfAborted();
 }
 
 async function fetchImageBytes(relay: {
   b64_json?: string;
   url?: string;
-}): Promise<{ bytes: Uint8Array; contentType: string }> {
+}, signal?: AbortSignal): Promise<{ bytes: Uint8Array; contentType: string }> {
+  signal?.throwIfAborted();
   if (relay.b64_json) {
     return { bytes: new Uint8Array(Buffer.from(relay.b64_json, "base64")), contentType: "image/png" };
   }
   if (!relay.url) throw new Error("relay image: 缺少 b64_json / url");
   // 临时 URL：必须在中转链路活着时立刻取字节，绝不把它存进 DB（§7.6）。
-  const resp = await fetch(relay.url);
+  const resp = await fetch(relay.url, { signal });
   if (!resp.ok) throw new Error(`relay image fetch ${resp.status}`);
   const bytes = new Uint8Array(await resp.arrayBuffer());
+  signal?.throwIfAborted();
   return { bytes, contentType: resp.headers.get("content-type") ?? "image/png" };
 }
 
@@ -137,10 +142,12 @@ export async function putToR2(
   userId: string,
   generationId: string,
   relayImage: { b64_json?: string; url?: string },
+  signal?: AbortSignal,
 ): Promise<PutResult> {
-  const { bytes, contentType } = await fetchImageBytes(relayImage);
+  const { bytes, contentType } = await fetchImageBytes(relayImage, signal);
   const storageKey = buildStorageKey(userId, generationId);
-  await putObject(storageKey, bytes, contentType);
+  await putObject(storageKey, bytes, contentType, signal);
+  signal?.throwIfAborted();
   const dims = readPngDims(bytes);
   return {
     storageKey,
@@ -272,13 +279,33 @@ export async function putUserUpload(args: {
 /** 服务端按已校验的 storage key 回读图片字节；不依赖公链，也不接受浏览器 URL。 */
 export async function getStoredImageObject(
   storageKey: string,
+  signal?: AbortSignal,
 ): Promise<{ bytes: Uint8Array; contentType: string; filename: string }> {
-  if (isLocalStorageEnabled()) return readLocalStorageObject(storageKey);
+  signal?.throwIfAborted();
+  if (isLocalStorageEnabled()) return readLocalStorageObject(storageKey, signal);
   const res = await getR2Client().send(
     new GetObjectCommand({ Bucket: env("STORAGE_BUCKET"), Key: storageKey }),
+    { abortSignal: signal },
   );
   if (!res.Body) throw new Error(`[storage] 图片对象为空：${storageKey}`);
-  const bytes = new Uint8Array(await res.Body.transformToByteArray());
+  // The SDK request may finish at headers; keep cancellation attached while its Node body streams.
+  const body = res.Body;
+  const abort = () => {
+    if ("destroy" in body) body.destroy(new DOMException("storage read aborted", "AbortError"));
+  };
+  signal?.addEventListener("abort", abort, { once: true });
+  let bytes: Uint8Array;
+  try {
+    if (signal?.aborted) {
+      // No body reader exists yet to handle an emitted stream error.
+      if ("destroy" in body) body.destroy();
+      signal.throwIfAborted();
+    }
+    bytes = new Uint8Array(await body.transformToByteArray());
+    signal?.throwIfAborted();
+  } finally {
+    signal?.removeEventListener("abort", abort);
+  }
   return {
     bytes,
     contentType: res.ContentType ?? "image/png",
@@ -289,8 +316,9 @@ export async function getStoredImageObject(
 /** 回读临时上传参考图，保留既有调用签名。 */
 export async function getUploadObject(
   storageKey: string,
+  signal?: AbortSignal,
 ): Promise<{ bytes: Uint8Array; contentType: string; filename: string }> {
-  return getStoredImageObject(storageKey);
+  return getStoredImageObject(storageKey, signal);
 }
 
 /** 删单个对象（清理 cron 单 key 失败兜底，§7.5）。 */

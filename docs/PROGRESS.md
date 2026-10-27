@@ -6,14 +6,14 @@
 
 ## 当前状态速览
 
-> 最后更新：2026-07-26（生产上线 v0.2.9）
+> 最后更新：2026-10-27（F-076 后端低延迟优化本地验收；生产信息仍为 2026-07-26 历史记录）
 
 - 现在做到哪：
   - 代码线：本地 main 已完成 /welcome 公开落地页、三轮视觉改版
     （F-070/F-071）、方案 B（F-072：根路径即门面）、F-073（管理后台
     手动配置未登录首页画廊）、v0.2.8 文案两条（资产库 7 天提示 + 兑换码
     获取链接），以及 **F-074/F-075 侧边栏项目分组会话与长按拖动排序**
-    （0777353，已随 v0.2.9 上线），工作区干净。
+    （0777353，已随 v0.2.9 上线）。2026-10-27 基于 e9f41c6 完成 F-076：持续补位 worker、原子抢占、存储 deadline、提交通知/SSE、即时结果合并与读路径优化，本地已验收。
   - 发布线：**生产已跑 v0.2.9**（2026-07-26 第二次受控更新，
     0.2.7 → 0.2.9 跨版本直升：v0.2.8 文案两条 + F-074/F-075 侧边栏
     项目分组；迁移 0009 已应用，存量会话自动归档默认项目；公网
@@ -21,23 +21,47 @@
     0.2.0 → 0.2.7）曾连续修复三个宿主环境潜伏缺陷（jq 1.6 校验、
     /root/.docker 只读、UMask=0077 镜像权限），对应 v0.2.4/v0.2.5/v0.2.7
     三个补丁发布。
-- 下一步做什么：**任务队列为空**（F-074 挑刺评审已由 owner 于
-  2026-07-26 自行完成，无待办）。owner 准备新开会话提新需求。新会话
-  开始先按 CLAUDE.md SOP 读本文件 + FEATURES.md。
+- 下一步做什么：按 `docs/dev/performance-and-hosting.md` 选定可用服务器及区域后部署；未推送远程、未访问生产、未调用收费 Relay。优先评估 Oracle Always Free A1 的当前配额与实际可用性，不能承诺免费云的容量/延迟。
 - 已知风险/坑：
   - e2e key-modes 在本机已从"偶发超时"变为高频失败：2026-07-25 对照实验
     显示**无改动的基线（494e819）同样失败**（断言 已完成 toHaveCount(2) → 0），
     判定为本机 Windows dev 轮询环境问题，非产品缺陷；建议后续在 CI/Linux
     跑 e2e（判定规则见 VERIFY.md 第三节）。
-  - 本机 dev 库与一次性测试库已分离：`.env` → 5433/ai_image_dev，
-    `.env.test` → 5433/ai_image_test（此前同库会触发 test-env-guard 拒绝；
-    分离是 2026-07-25 做的，dev 库已迁移 0000-0008）。
-  - 本机 Node 为 v24（项目要求 22），目前能跑，typecheck/test 无影响。
+  - 当前 E 盘 `.env` 使用 55432/image2_local；优化工作树 `.env.test` 使用独立 55432/image2_performance_test（迁移至0011）、E2E 18900。资金/E2E 不得复用开发库。5433/ai_image_dev 与 ai_image_test 是 7 月旧环境记录。
+  - 本项目通过 `.local/environment.ps1` 使用项目缓存内 Node 22.23.4；系统 Node 24 不作为本项目运行基线。
   - 宿主 systemd 单元 UMask=0077：生产树文件仍是 600/700 混合权限——
     无害（v0.2.7 Dockerfile 已归一化镜像内权限，后续更新不受影响），
     不要去手动 chmod 生产树（deploy/backups 必须保持私有）。
 
 ## 会话日志（新条目追加在最上面，必须按此格式）
+
+### [2026-10-27] F-076 后端低延迟优化：本地验收完成
+- 任务来源：owner 决定继续 GitHub 版本，要求先优化生图后端，再核对快速免费部署服务；目标约十个同时生图任务。
+- 完成了什么：独立 E 盘工作树 `codex/backend-performance` 实现持续补位十槽 worker、原子 SKIP LOCKED 抢占、单任务异常隔离、I/O deadline 与不可覆盖存图；PostgreSQL 提交通知、owner-scoped SSE、前端直接合并成功图片并保留轮询恢复；删除重复读取、合并 me 查询、批量排序/分页边界、通知索引、池配置与脱敏时序。新增0010/0011迁移；Compose直接Node worker+init+6分钟退出宽限。保留画质、成功后扣费/FIFO/幂等及custom零扣费。
+- 验收证据（均退出码0）：`npm run typecheck`；`npm run test:run` 输出 `Test Files 76 passed (76)` / `Tests 584 passed | 1 skipped (585)`；`npm run test:money` 输出 `Test Files 19 passed (19)` / `Tests 98 passed (98)`；`npm run test:e2e` 输出 `8 passed / 1 skipped`；SSE独立重复10次 `10 passed`；`npm run build`；`npm run assert-no-secrets` 扫描144文件PASS；Compose config通过。部署合同测试在隔离Linux/非root环境执行，updater通过、helper27/installer29/backup9/CI smoke通过；auth空库迁移原脚本经Git Bash运行通过。
+- 性能证据：11个固定1秒模拟任务、10槽错峰到达，旧/新排队p95 950ms→0ms、全部完成3000→2050ms；真实PG+本地开发Web+浏览器的10次小图片夹具，从开始提交成功结果到图片元素可见p50 40ms/p95 54ms，状态轮询0、详情重取0。不是上游生图或公网速度；原始日志位于 `.local/performance-worktree/.cache/logs/`。
+- 审查与排坑：独立审查发现并修复乐观回滚复活、网络提交失败无法恢复、测试端口不一致；补任务计时器SSR水合回归；排序E2E现在等保存响应再刷新，避免取消持久化请求。免费服务结论按当日官方文档记录，Oracle新Always Free口径为2 OCPU/12GB，而非旧文章4/24。
+- 下一步：将已验收改动接入本地工作目录并重启检查；选定可用云实例后再部署。当前没有真实上游测试/生产发布/远程推送。
+
+### [2026-10-27] 桌面 0.1.0 源码对比与独立预览
+- 任务来源：owner 要求检查 `C:\Users\Administrator\Desktop\image-2`、与当前版本比较并启动网站。
+- 完成了什么：只读检查桌面 `codex/work / deb4ae3`（0.1.0），在 E 盘 `.local/desktop-image-2` 建立含未跟踪文件的独立副本，保留原 C 盘内容；复用桌面现有依赖到 E 盘，启动 `http://localhost:8889/` 并打开。当前 0.2.9 的 8888 服务继续运行；比较记录在副本 `.local/README.md`。
+- 验收证据：旧版 `npm run build` 退出码 0；`npm run test:run` 输出 `Test Files 11 passed (11)` / `Tests 65 passed (65)`；8889 首页 200，代理 GET 405；8888 healthz 204。旧版 package/source/lock 无修改。
+- 差异与限制：旧版为无账户计费的文生图单页，本地 Vite 同步代理直返图片，默认模型 gpt-image-1-mini；当前版为固定 gpt-image-2 的完整持久任务/资产平台。旧版 npm ci 因 lock 的 @emnapi 依赖不一致失败，使用原已有依赖副本完成验证。没有调用真实 Relay，不能声称同模型出图更快。
+- 下一步：owner 对照两版后决定后续改造；后端性能方案仍待确认，未开始产品实现。
+
+### [2026-10-27] 后端性能审计与 10 并发改造方案
+- 任务来源：owner 要求全面优化后端与最快出图，并明确高峰约 10 个同时生图任务。
+- 完成了什么：并行审计生图/存储/状态链路与数据库读取；确认 worker 批次屏障、默认单并发、异常外溢、终态后二次详情请求、部分存储缺少 deadline、重复查询等问题；完成 `tasks/2026-10-27-backend-performance.md`，保留现有质量和资金规则，暂未改产品实现。
+- 验收证据：`npm run typecheck`、`npm run build` 退出码 0；现有开发服务 5 个常用读取 API 各 50 请求/并发 10，非 200 为 0、p95 17.2–35.8ms，原始记录 `.cache/logs/performance-audit-dev-baseline.json`。数据来自本地近空库，不代表生产或上游生成耗时；额外生产模式测量进程启动被自动审批以 `blocked by policy` 拦截。
+- 下一步：按项目工作流确认具体改造方案后编写实施计划，依次做调度/执行/结果、通知/读取两批；真实 Relay 并发与流式兼容性需要独立实测。
+
+### [2026-10-27] E 盘本地源码接管与开发环境启动
+- 任务来源：owner「拉取源码到本地，熟悉代码，启动并打开，准备下达新需求」。
+- 完成了什么：克隆 `main` / `e9f41c6` 至 `E:\iamge2生图项目工作区`；梳理路由、鉴权、生图队列、worker、积分与存储链路；使用项目内 Node 22.23.4 和 npm 缓存。复用 Docker PostgreSQL 17 镜像建立独立 `image2_local` 库，绑定 `127.0.0.1:55432`，迁移 0000–0009 完成；启动 web、worker、scheduler；浏览器已登录本地管理员并打开 `http://localhost:8888/`。
+- 验收证据：`npm run typecheck` 退出码 0；`npm run test:run` 输出 `Test Files 61 passed (61)`、`Tests 487 passed | 1 skipped (488)`；本地 `/healthz` 204、`/welcome` 200；浏览器工作台显示管理员、积分和生成表单。
+- 本地说明：启动/停止/环境脚本在 Git 本地忽略的 `.local/`，运行说明 `.local/README.md`，账号凭据 `.local/access.txt`；日志与截图在 `.cache/logs/`。数据库卷随 Docker WSL 存在 E 盘；媒体使用 `.local/media`。本次未修改产品逻辑，未访问或部署生产。
+- 下一步：等 owner 新需求。真实生图尚未验证，需配置 Relay Key 或在网页提供自己的 Key；新本地库为空业务数据，仅创建了本地管理员。
 
 ### [2026-07-26] F-074 挑刺评审关闭：任务队列清空
 - 任务来源：owner「不需要评审，我已经评审了，更新文档任务状态为空」

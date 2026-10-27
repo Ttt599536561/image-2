@@ -72,7 +72,7 @@ export async function loadDashboard(): Promise<Dashboard> {
     sql`SELECT
           count(*) FILTER (WHERE status='queued') AS queued,
           count(*) FILTER (WHERE status IN ('claimed','running')) AS running
-        FROM generations` as Promise<Row[]>,
+        FROM generations WHERE status IN ('queued','claimed','running')` as Promise<Row[]>,
     sql`SELECT COALESCE(avg(duration_ms),0)::int AS ms FROM generations WHERE status='succeeded' AND duration_ms IS NOT NULL` as Promise<Row[]>,
     sql`SELECT size, count(*)::int AS n FROM generations WHERE status='succeeded' GROUP BY size ORDER BY n DESC` as Promise<Row[]>,
     sql`SELECT count(*)::int AS total, count(*) FILTER (WHERE has_paid)::int AS paid FROM users` as Promise<Row[]>,

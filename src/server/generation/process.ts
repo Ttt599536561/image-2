@@ -8,7 +8,7 @@ import { getSql } from "../../db/db.server";
 import { alert } from "../alert.server";
 import { incCallIfUnderCap, incMs, markBudgetAlertedOnce } from "../budget.server";
 import { chargeOnSuccess } from "../money/debit.server";
-import { claim, markRunning } from "../money/preempt.server";
+import { claim, claimNext, markRunning, type ClaimedGeneration } from "../money/preempt.server";
 import {
   getStoredImageObject as realGetStoredImageObject,
   getUploadObject as realGetUploadObject,
@@ -34,36 +34,61 @@ function sourceImageUnavailable(): Error & { failureCode: "source_image_unavaila
   });
 }
 
+function diagnostic(generationId: string, stage: string): void {
+  try { console.warn(`[generation] ${generationId} ${stage}`); } catch { /* best effort */ }
+}
+
 /**
  * 消费单个 generation（幂等，可被 worker 重领或 scheduler 重扫多次安全调用）。
  * 返回结果供 worker、兼容 handler、测试和日志判别。
  */
 export async function runGenerationJob(generationId: string, deps: ProcessDeps = {}): Promise<ProcessOutcome> {
+  const tClaim = Date.now();
+  const g = await claim(generationId);
+  return g ? processClaimedGeneration(g, deps, Date.now() - tClaim) : "lost";
+}
+
+/** Only return work that this consumer has atomically claimed. */
+export async function startNextGenerationJob(deps: ProcessDeps = {}): Promise<{ completion: Promise<ProcessOutcome> } | null> {
+  const tClaim = Date.now();
+  const g = await claimNext();
+  return g ? { completion: processClaimedGeneration(g, deps, Date.now() - tClaim) } : null;
+}
+
+async function processClaimedGeneration(g: ClaimedGeneration, deps: ProcessDeps, claimMs: number): Promise<ProcessOutcome> {
+  const generationId = g.id;
   const callRelay = deps.callRelay ?? realCallRelay;
   const putToR2 = deps.putToR2 ?? realPutToR2;
   const getUploadObject = deps.getUploadObject ?? realGetUploadObject;
   const getStoredImageObject = deps.getStoredImageObject ?? realGetStoredImageObject;
   const sql = getSql();
 
-  // ① 抢占（铁律③）：queued→claimed。抢不到（重试/重扫/已终态）→ 立即退，不调中转、不扣费。
-  const g = await claim(generationId);
-  if (!g) return "lost";
-
-  // ② running + started_at；scheduler 使用 deadline_at 做权威超时收口。
-  await markRunning(generationId);
-
   const t0 = Date.now();
+  const timings = { claimMs, queueWaitMs: Math.max(0, t0 - g.createdAt.getTime()), fetchInputMs: 0, relayMs: 0, storageMs: 0, settlementMs: 0 };
+  const timed = async <T>(phase: "fetchInputMs" | "relayMs" | "storageMs" | "settlementMs", operation: () => Promise<T>) => {
+    const started = Date.now();
+    try { return await operation(); } finally { timings[phase] += Date.now() - started; }
+  };
+  const controller = new AbortController();
+  const abort = () => controller.abort(new DOMException("generation deadline exceeded", "AbortError"));
+  const timer = setTimeout(abort, Math.max(0, g.deadlineAt.getTime() - Date.now()));
+  const checkDeadline = () => {
+    if (Date.now() >= g.deadlineAt.getTime()) abort();
+    controller.signal.throwIfAborted();
+  };
+  let outcome: ProcessOutcome = "lost";
   let credential: RelayCredential = { mode: "system" };
   try {
+    // Lost/expired claims must not reach Relay. Scheduler remains the crash recovery owner.
+    if (!(await markRunning(generationId))) return outcome;
+    checkDeadline();
     if (g.credentialMode === "custom") {
       credential = { mode: "custom", apiKey: await loadCustomApiKey(generationId) };
     }
 
     let inputImage: Awaited<ReturnType<typeof realGetUploadObject>> | null = null;
-    let fetchInputMs = 0;
     if (g.inputImageKey && g.sourceImageId) throw sourceImageUnavailable();
     if (g.sourceImageId) {
-      const tf = Date.now();
       const [source] = await sql`
         SELECT i.storage_key
           FROM images i
@@ -72,45 +97,46 @@ export async function runGenerationJob(generationId: string, deps: ProcessDeps =
            AND sg.user_id=${g.userId} AND sg.status='succeeded'`;
       if (!source) throw sourceImageUnavailable();
       try {
-        inputImage = await getStoredImageObject(String(source.storage_key));
+        inputImage = await timed("fetchInputMs", () => getStoredImageObject(String(source.storage_key), controller.signal));
+        checkDeadline();
       } catch {
+        checkDeadline();
         throw sourceImageUnavailable();
       }
-      fetchInputMs = Date.now() - tf;
     }
 
     // 只有 system 消耗本站共享中转预算；custom 使用用户自己的凭据和固定目标。
     if (g.credentialMode === "system" && !(await incCallIfUnderCap())) {
-      if (await markBudgetAlertedOnce()) {
-        await alert("daily_budget_exhausted", {
+      try {
+        if (await markBudgetAlertedOnce()) await alert("daily_budget_exhausted", {
           exhausted: true,
           reason: "hard_cap_hit",
           source: "generation",
           generationId,
         });
-      }
+      } catch { diagnostic(generationId, "budget_alert_failed"); }
       await sql`
         UPDATE generations SET status='failed', error_code='insufficient_quota', error='今日额度已满，请稍后',
           completed_at=now(), duration_ms=(EXTRACT(EPOCH FROM now()-started_at)*1000)::int, updated_at=now()
         WHERE id=${generationId} AND status='running'`;
-      return "budget_exhausted";
+      return outcome = "budget_exhausted";
     }
 
     // ④b 图生图：有参考图 key → 回读字节，传给 callRelay 走 /images/edits multipart（无则文生图）。
     // 回读失败（参考图已被孤儿清理/存储故障，罕见）→ 友好归一为 invalid_request、不扣费（在扣费事务前）。
     if (g.inputImageKey) {
-      const tf = Date.now();
       try {
-        inputImage = await getUploadObject(g.inputImageKey);
+        inputImage = await timed("fetchInputMs", () => getUploadObject(g.inputImageKey!, controller.signal));
+        checkDeadline();
       } catch {
+        checkDeadline();
         throw new RelayError("参考图已失效，请重新上传后再试", 400);
       }
-      fetchInputMs = Date.now() - tf;
     }
 
     // ④ 调中转（Key 只在此从 env 注入；固定 gpt-image-2/n=1/moderation=low）。
-    const tRelay = Date.now();
-    const { images } = await callRelay({
+    checkDeadline();
+    const { images } = await timed("relayMs", () => callRelay({
       prompt: g.prompt,
       size: g.size,
       quality: g.quality,
@@ -118,27 +144,23 @@ export async function runGenerationJob(generationId: string, deps: ProcessDeps =
       inputImage,
       credential,
       deadlineAt: g.deadlineAt,
-    });
-    const relayMs = Date.now() - tRelay;
+    }));
+    checkDeadline();
     if (!images.length) {
       throw Object.assign(new Error("中转响应无有效图片"), { failureCode: "invalid_response" as const });
     }
 
     // ⑤ 落 R2（事务外，结果存临时变量）。
-    const tPut = Date.now();
     let obj: Awaited<ReturnType<typeof realPutToR2>>;
     try {
-      obj = await putToR2(g.userId, generationId, images[0]);
+      obj = await timed("storageMs", () => putToR2(g.userId, generationId, images[0], controller.signal));
+      checkDeadline();
     } catch {
+      checkDeadline();
       throw Object.assign(new Error("图片保存失败，本站未扣积分，请重试"), {
         failureCode: "storage_failed" as const,
       });
     }
-    const putMs = Date.now() - tPut;
-    // 可观测：每张图的耗时拆分（定位瓶颈在中转响应还是落图上传；本机跨境会偏大，线上美西机房快）。
-    console.log(
-      `[gen-timing] ${generationId} ${g.sourceImageId ? "edit" : g.inputImageKey ? "i2i" : "t2i"} fetchInput=${fetchInputMs}ms relay=${relayMs}ms putToR2=${putMs}ms total=${Date.now() - t0}ms`,
-    );
 
     const finalizeInput = {
       generationId,
@@ -151,10 +173,10 @@ export async function runGenerationJob(generationId: string, deps: ProcessDeps =
       sizeBytes: obj.sizeBytes,
     };
     if (g.credentialMode === "custom") {
-      return (await finalizeCustomSuccess(finalizeInput)) === "succeeded" ? "succeeded" : "lost";
+      return outcome = (await timed("settlementMs", () => finalizeCustomSuccess(finalizeInput))) === "succeeded" ? "succeeded" : "lost";
     }
-    const charged = await chargeOnSuccess(finalizeInput);
-    return charged.outcome === "not_running" ? "lost" : "succeeded";
+    const charged = await timed("settlementMs", () => chargeOnSuccess(finalizeInput));
+    return outcome = charged.outcome === "not_running" ? "lost" : "succeeded";
   } catch (err) {
     // ⑦ 失败/超时：脱敏归一后写 failed，不进扣费事务（天然未扣）。
     const secrets = credential.mode === "custom" ? [credential.apiKey] : [];
@@ -168,12 +190,21 @@ export async function runGenerationJob(generationId: string, deps: ProcessDeps =
         duration_ms=(EXTRACT(EPOCH FROM now()-started_at)*1000)::int, updated_at=now()
       WHERE id=${generationId} AND status='running' RETURNING id`;
     if (updated.length > 0) {
-      await sql`INSERT INTO events(type,user_id,payload)
+      try { await sql`INSERT INTO events(type,user_id,payload)
                 VALUES('image_failed',${g.userId},${JSON.stringify({ generationId, reason: code, credentialMode: g.credentialMode })}::jsonb)`;
+      } catch { diagnostic(generationId, "failure_event_failed"); }
     }
-    return updated.length > 0 ? "failed" : "lost";
+    return outcome = updated.length > 0 ? "failed" : "lost";
   } finally {
-    if (g.credentialMode === "custom") await deleteGenerationCredential(generationId);
-    else await incMs(Date.now() - t0);
+    clearTimeout(timer);
+    try {
+      console.log(`[gen-timing] ${JSON.stringify({ generationId, ...timings, totalMs: Date.now() - t0, endToEndMs: Date.now() - g.createdAt.getTime(), outcome })}`);
+    } catch { /* timing must never change settlement */ }
+    try {
+      if (g.credentialMode === "custom") await deleteGenerationCredential(generationId);
+      else await incMs(Date.now() - t0);
+    } catch {
+      diagnostic(generationId, g.credentialMode === "custom" ? "credential_cleanup_failed" : "budget_metrics_failed");
+    }
   }
 }

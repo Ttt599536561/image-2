@@ -506,6 +506,7 @@ test_render_production_env_is_complete_private_and_safe() {
   assert_equal 'pg' "$DATABASE_DRIVER" 'database driver should be pg'
   assert_equal 'local' "$STORAGE_DRIVER" 'storage driver should be local'
   assert_equal 'true' "$CUSTOM_KEY_MODES_ENABLED" 'fresh production installs should enable custom key mode'
+  assert_equal '10' "$WORKER_CONCURRENCY" 'fresh installs should allow ten continuously replenished worker slots'
 }
 
 test_render_production_env_requires_caller_secrets() {

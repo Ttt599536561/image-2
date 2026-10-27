@@ -227,10 +227,13 @@ export function useGeneration(conversationId: string | null, opts: UseGeneration
                 ? {
                     ...old,
                     generations: old.generations.map((g) =>
-                      g.id === gid
+                      g.id === gid && g.status !== "succeeded" && g.status !== "failed"
                         ? {
                             ...g,
                             status: "failed",
+                            // A lost enqueue response does not prove the durable job failed.
+                            // Authoritative detail/status snapshots can recover this local error.
+                            _localEnqueueFailure: true as const,
                             errorCode:
                               err.code === "SOURCE_IMAGE_UNAVAILABLE"
                                 ? "source_image_unavailable"

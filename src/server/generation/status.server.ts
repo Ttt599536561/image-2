@@ -29,7 +29,7 @@ export async function loadGenerationStatuses(
   const rows = await getSql()`SELECT g.id,g.credential_mode,g.deadline_at,g.status,g.started_at,
                                     g.source_image_id,g.error_code,g.error,g.http_status,
                                     g.duration_ms,g.credits_charged_mp,
-                                    i.public_url,i.width,i.height,
+                                    i.id AS image_id,i.public_url,i.width,i.height,i.saved_to_library,
                                     si.id AS source_join_id,si.public_url AS source_public_url,
                                     si.width AS source_width,si.height AS source_height
                              FROM generations g
@@ -56,9 +56,11 @@ export async function loadGenerationStatuses(
         ...identity,
         status: "succeeded" as const,
         image: {
+          id: row.image_id as string,
           publicUrl: row.public_url as string,
           width: row.width == null ? null : Number(row.width),
           height: row.height == null ? null : Number(row.height),
+          savedToLibrary: row.saved_to_library === true,
         },
         creditsChargedMp: Number(row.credits_charged_mp),
         durationMs: Number(row.duration_ms ?? 0),

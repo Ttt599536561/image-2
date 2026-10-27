@@ -16,11 +16,11 @@ export interface CosmicSkeletonProps {
 /**
  * 宇宙星空"生成中"占位（design-system §8）。多层深空银河 + 离散闪烁星点 +
  * 掠星事件 + 角落呼吸光 + 底部暗角；居中标签每秒跳动显示 "生成中 M:SS"。
- * SSR 安全：计时 state 由 Date.now()-startedAt 初始化，仅在 useEffect 内启动 1s interval。
+ * SSR 与首次水合使用同一初值；挂载后再对齐真实计时，避免秒数跨界使 React 重建整棵树。
  * 仅动画 transform/opacity；prefers-reduced-motion 下冻结为静态深空。
  */
 export function CosmicSkeleton({ size, startedAt, className }: CosmicSkeletonProps): JSX.Element {
-  const [elapsedMs, setElapsedMs] = useState<number>(() => Math.max(0, Date.now() - startedAt));
+  const [elapsedMs, setElapsedMs] = useState(0);
 
   useEffect(() => {
     const tick = () => setElapsedMs(Math.max(0, Date.now() - startedAt));

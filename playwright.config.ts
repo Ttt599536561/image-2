@@ -7,7 +7,7 @@
 import { defineConfig, devices } from "@playwright/test";
 import { assertLoopbackTestUrl } from "./scripts/test-env-guard";
 
-const baseURL = assertLoopbackTestUrl(process.env.E2E_BASE_URL || "http://localhost:8888");
+const baseURL = assertLoopbackTestUrl(process.env.E2E_BASE_URL || process.env.BETTER_AUTH_URL || "http://localhost:8888");
 
 export default defineConfig({
   testDir: "tests/e2e",

@@ -9,14 +9,22 @@ export async function loader({ request }: Route.LoaderArgs) {
   try {
     const ctx = await requireUser(request);
     const p = new URL(request.url).searchParams;
+    const page = p.has("page") ? Number(p.get("page")) : undefined;
+    const pageSize = p.has("pageSize") ? Number(p.get("pageSize")) : undefined;
+    if (
+      (page !== undefined && (!Number.isSafeInteger(page) || page < 1)) ||
+      (pageSize !== undefined && (!Number.isSafeInteger(pageSize) || pageSize < 1 || pageSize > 100))
+    ) {
+      return httpError(400, "INVALID_PARAM", "分页参数无效");
+    }
     return Response.json(
       await loadImages(ctx.userId, {
         range: (p.get("range") as ImageRange | null) ?? undefined,
         from: p.get("from") ?? undefined,
         to: p.get("to") ?? undefined,
         q: p.get("q")?.slice(0, 200) || undefined, // P3-S2 按提示词搜索
-        page: p.get("page") ? Number(p.get("page")) : undefined,
-        pageSize: p.get("pageSize") ? Number(p.get("pageSize")) : undefined,
+        page,
+        pageSize,
       }),
     );
   } catch (e) {

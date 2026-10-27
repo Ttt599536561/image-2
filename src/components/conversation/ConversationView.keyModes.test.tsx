@@ -5,6 +5,7 @@ import { type ReactNode } from "react";
 import { createMemoryRouter, RouterProvider, useParams } from "react-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConversationDetail } from "../../contracts/conversation";
+import type { GenerateStatusResponse } from "../../contracts/generate";
 import type { MeResponse } from "../../contracts/me";
 import { ApiError } from "../../lib/api-client";
 import { loadUserApiConfig, persistUserApiConfig } from "../../lib/userApiConfig";
@@ -20,6 +21,7 @@ const mocks = vi.hoisted(() => ({
   statusRefetch: vi.fn(),
   customEnabled: true,
   returnMissing: false,
+  statusItems: [] as GenerateStatusResponse[],
 }));
 
 const userId = "00000000-0000-4000-8000-000000000001";
@@ -72,7 +74,7 @@ vi.mock("../../hooks/useGenerationStatus", () => ({
       enabled: false,
     });
     return {
-      data: { items: [], missingIds: mocks.returnMissing ? ids : [] },
+      data: { items: mocks.statusItems.filter((item) => ids.includes(item.generationId)), missingIds: mocks.returnMissing ? ids : [] },
       dataUpdatedAt: tick.data,
       refetch: mocks.statusRefetch,
     };
@@ -147,7 +149,36 @@ describe("ConversationView key-mode route integration", () => {
     mocks.statusRefetch.mockReset();
     mocks.customEnabled = true;
     mocks.returnMissing = false;
+    mocks.statusItems = [];
     persistUserApiConfig(userId, { mode: "custom", apiKey: "fictional-route-value" });
+  });
+
+  it("shows a committed image immediately and keeps it when an older detail response arrives", async () => {
+    const accepted = deferred<Record<string, unknown>>();
+    mocks.apiPost.mockReturnValueOnce(accepted.promise);
+    const user = userEvent.setup();
+    const { client, router } = renderConversationRoutes();
+    const textarea = await screen.findByRole("textbox");
+    await waitFor(() => expect(textarea).toBeEnabled());
+    await user.type(textarea, "即时图片");
+    await user.click(screen.getByRole("button", { name: "生成" }));
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledOnce());
+    const body = mocks.apiPost.mock.calls[0][1] as { conversationId: string; generationId: string };
+    await waitFor(() => expect(router.state.location.pathname).toBe(`/c/${body.conversationId}`));
+    const stale = client.getQueryData<ConversationDetail>(["conversation", body.conversationId])!;
+    mocks.apiGet.mockResolvedValue(stale);
+    mocks.statusItems = [{
+      generationId: body.generationId, credentialMode: "custom", deadlineAt: stale.generations[0].deadlineAt,
+      sourceImageId: null, sourceImage: null, status: "succeeded", creditsChargedMp: 0, durationMs: 123,
+      image: { id: "00000000-0000-4000-8000-000000000099", publicUrl: "/media/instant.png", width: 1024, height: 1024, savedToLibrary: false },
+    }];
+    await act(async () => { client.setQueryData(["test-status-tick"], 1); });
+    expect((await screen.findAllByRole("img", { name: "即时图片" }))[0]).toHaveAttribute("src", "/media/instant.png");
+    expect(mocks.apiGet).not.toHaveBeenCalled();
+    await act(async () => accepted.resolve({ ...body, status: "queued", credentialMode: "custom", deadlineAt: stale.generations[0].deadlineAt }));
+    await waitFor(() => expect(mocks.apiGet).toHaveBeenCalled());
+    expect(screen.getAllByRole("img", { name: "即时图片" })[0]).toBeVisible();
+    expect(client.getQueryData<ConversationDetail>(["conversation", body.conversationId])!.generations[0].status).toBe("succeeded");
   });
 
   it("keeps the remounted conversation composer locked until the first enqueue reaches 202", async () => {

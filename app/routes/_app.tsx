@@ -5,11 +5,11 @@ import { ShellContext } from "../../src/components/shell/ShellContext";
 import { Sidebar } from "../../src/components/shell/Sidebar";
 import { auth } from "../../src/lib/auth";
 import { requireUserPage } from "../../src/server/page.server";
-import { loadConversations, loadMe } from "../../src/server/reads.server";
+import { loadMe } from "../../src/server/reads.server";
 import { loadProjects } from "../../src/server/projects.server";
 import type { Route } from "./+types/_app";
 
-// 受保护三栏壳布局（08 §9.1）：父 loader 守卫 + 取首屏 me/会话列表（作 TanStack Query initialData）。
+// 受保护三栏壳布局（08 §9.1）：父 loader 守卫 + 取首屏 me/项目列表（作 TanStack Query initialData）。
 // 未登录 → redirect("/login?next=")；封禁 → redirect("/login?reason=banned")。
 // 例外（方案 B，F-072）：未登录访问根路径 "/" → redirect("/welcome") 落地页，
 // 让新访客第一眼看到产品门面而不是登录页；已登录用户访问 "/" 照旧进主对话页。
@@ -20,16 +20,15 @@ export async function loader({ request }: Route.LoaderArgs) {
     if (!s) throw redirect("/welcome");
   }
   const { userId } = await requireUserPage(request);
-  const [me, conversations, projects] = await Promise.all([
+  const [me, projects] = await Promise.all([
     loadMe(userId),
-    loadConversations(userId, 1, 20),
     loadProjects(userId),
   ]);
-  return { me, conversations, projects };
+  return { me, projects };
 }
 
-// ⚡ 性能：me/会话列表的新鲜度由 TanStack Query 负责（mutation onSuccess invalidate 命中 /api/me、
-// /api/conversations 自动刷新），父 loader 无需在每次子路由切换（GET 导航）时重跑这两条跨境 Neon 查询。
+// ⚡ 性能：me/项目列表的新鲜度由 TanStack Query 负责（mutation onSuccess invalidate 命中 /api/me、
+// /api/projects 自动刷新），父 loader 无需在每次子路由切换（GET 导航）时重跑查询。
 // 跨境场景这是「点击慢半拍」的最大单点：切页签/切会话本不会改 me/会话列表。仅非 GET（理论上的 action
 // 提交）时回退默认。首次进入 _app（新匹配）与整页刷新仍照常跑 loader，鉴权不受影响（子路由各自 requireUserPage）。
 export const shouldRevalidate: ShouldRevalidateFunction = ({ formMethod, defaultShouldRevalidate }) => {

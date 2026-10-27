@@ -56,8 +56,27 @@ export async function loadProjects(userId: string): Promise<ProjectListResponse>
 }
 
 async function loadProjectItem(userId: string, projectId: string): Promise<ProjectListItem | null> {
-  const res = await loadProjects(userId);
-  return res.items.find((p) => p.id === projectId) ?? null;
+  const sql = getSql();
+  const [project] = (await sql`
+    SELECT id, name, is_default, sort_order FROM projects
+    WHERE id = ${projectId} AND user_id = ${userId} LIMIT 1`) as Row[];
+  if (!project) return null;
+  const conversations = (await sql`
+    SELECT id, title, sort_order, updated_at FROM conversations
+    WHERE user_id = ${userId} AND project_id = ${projectId}
+    ORDER BY sort_order ASC, updated_at DESC`) as Row[];
+  return {
+    id: project.id as string,
+    name: project.name as string,
+    isDefault: project.is_default as boolean,
+    sortOrder: num(project.sort_order),
+    conversations: conversations.map((c) => ({
+      id: c.id as string,
+      title: c.title as string,
+      sortOrder: num(c.sort_order),
+      updatedAt: iso(c.updated_at),
+    })),
+  };
 }
 
 // ===================== 默认项目（enqueue 同事务调用） =====================
@@ -119,21 +138,24 @@ export async function renameProject(
 
 /** 校验 ids 与期望集合完全一致（不多不少无重复），返回 true 通过。 */
 function sameIdSet(ids: string[], expected: Set<string>): boolean {
-  if (ids.length !== expected.size) return false;
+  if (ids.length !== expected.size || new Set(ids).size !== ids.length) return false;
   return ids.every((id) => expected.has(id));
 }
 
 /** 项目整组重排：ids 必须恰为该用户全部项目；同事务重写 0..n-1。集合不符 → false（路由返 400）。 */
 export async function reorderProjects(userId: string, ids: string[]): Promise<boolean> {
-  const sql = getSql();
-  const existing = (await sql`SELECT id FROM projects WHERE user_id = ${userId}`) as Row[];
-  if (!sameIdSet(ids, new Set(existing.map((r) => r.id as string)))) return false;
-  await tx(async (c) => {
-    for (let i = 0; i < ids.length; i++) {
-      await c.query(`UPDATE projects SET sort_order=$1 WHERE id=$2 AND user_id=$3`, [i, ids[i], userId]);
-    }
+  return tx(async (c) => {
+    const existing = await c.query(`SELECT id FROM projects WHERE user_id=$1 ORDER BY id FOR UPDATE`, [userId]);
+    if (!sameIdSet(ids, new Set(existing.rows.map((r) => r.id as string)))) return false;
+    const result = await c.query(
+      `UPDATE projects p SET sort_order=(ordered.ordinality - 1)::int
+       FROM unnest($1::uuid[]) WITH ORDINALITY AS ordered(id, ordinality)
+       WHERE p.id=ordered.id AND p.user_id=$2`,
+      [ids, userId],
+    );
+    if (result.rowCount !== ids.length) throw new Error("project order changed during update");
+    return true;
   });
-  return true;
 }
 
 /** 项目内会话整组重排：项目须属本人，ids 须恰为该项目全部会话；同事务重写 0..n-1。 */
@@ -142,20 +164,22 @@ export async function reorderProjectConversations(
   projectId: string,
   ids: string[],
 ): Promise<boolean> {
-  const sql = getSql();
-  const own = (await sql`
-    SELECT id FROM projects WHERE id = ${projectId} AND user_id = ${userId}`) as Row[];
-  if (own.length === 0) return false;
-  const existing = (await sql`
-    SELECT id FROM conversations WHERE project_id = ${projectId} AND user_id = ${userId}`) as Row[];
-  if (!sameIdSet(ids, new Set(existing.map((r) => r.id as string)))) return false;
-  await tx(async (c) => {
-    for (let i = 0; i < ids.length; i++) {
-      await c.query(
-        `UPDATE conversations SET sort_order=$1 WHERE id=$2 AND project_id=$3 AND user_id=$4`,
-        [i, ids[i], projectId, userId],
-      );
-    }
+  return tx(async (c) => {
+    // 锁父项目防止校验与更新间新增会话；行锁也让并发排序/删除串行化。
+    const own = await c.query(`SELECT id FROM projects WHERE id=$1 AND user_id=$2 FOR UPDATE`, [projectId, userId]);
+    if (own.rows.length === 0) return false;
+    const existing = await c.query(
+      `SELECT id FROM conversations WHERE project_id=$1 AND user_id=$2 ORDER BY id FOR UPDATE`,
+      [projectId, userId],
+    );
+    if (!sameIdSet(ids, new Set(existing.rows.map((r) => r.id as string)))) return false;
+    const result = await c.query(
+      `UPDATE conversations c SET sort_order=(ordered.ordinality - 1)::int
+       FROM unnest($1::uuid[]) WITH ORDINALITY AS ordered(id, ordinality)
+       WHERE c.id=ordered.id AND c.project_id=$2 AND c.user_id=$3`,
+      [ids, projectId, userId],
+    );
+    if (result.rowCount !== ids.length) throw new Error("conversation order changed during update");
+    return true;
   });
-  return true;
 }

@@ -11,7 +11,6 @@ import type { LedgerResponse, LotsResponse, RedemptionsResponse } from "../contr
 import type { MeResponse } from "../contracts/me";
 import type { NotificationListResponse } from "../contracts/notification";
 import type { PackagesResponse } from "../contracts/package";
-import { getConfigInt } from "./config.server";
 import { getSql } from "../db/db.server";
 import { SEED_INSPIRATIONS } from "./inspirations.server";
 import { deleteManyFromR2 } from "./r2.server";
@@ -30,18 +29,22 @@ export async function loadMe(userId: string): Promise<MeResponse> {
   const sql = getSql();
   const [u] = (await sql`
     SELECT u.id, u.email, u.role, u.max_concurrency, u.has_paid, u.created_at,
-           COALESCE(a.balance_mp, 0) AS balance_mp
+           COALESCE(a.balance_mp, 0) AS balance_mp,
+           exp.mp AS expiring_mp, exp.nearest AS nearest_expires_at,
+           price.key AS price_config_key, price.value_json AS price_value_json
     FROM users u LEFT JOIN credit_accounts a ON a.user_id = u.id
+    LEFT JOIN LATERAL (
+      SELECT COALESCE(SUM(remaining_mp), 0)::text AS mp, MIN(expires_at) AS nearest
+      FROM credit_lots
+      WHERE user_id = u.id AND remaining_mp > 0
+        AND expires_at IS NOT NULL AND expires_at < now() + interval '3 days'
+    ) exp ON true
+    LEFT JOIN app_config price ON price.key = 'price_per_image_mp'
     WHERE u.id = ${userId} LIMIT 1`) as Row[];
   if (!u) throw new Response("用户不存在", { status: 404 });
-  // 3 天内即将过期的剩余毫积分（07 §8.3 SQL，mp 走 string codec）。
-  const [exp] = (await sql`
-    SELECT COALESCE(SUM(remaining_mp), 0)::text AS mp, MIN(expires_at) AS nearest
-    FROM credit_lots
-    WHERE user_id = ${userId} AND remaining_mp > 0
-      AND expires_at IS NOT NULL AND expires_at < now() + interval '3 days'`) as Row[];
-  // 单图价实时下发（后台改 app_config 即时生效；缺省回退默认 70=0.07/张）。
-  const pricePerImageMp = await getConfigInt("price_per_image_mp", 70);
+  // 保留 getConfigInt 的 Number 转换规则；区分缺失行与 JSON null，价格每请求实时读取。
+  const configuredPrice = Number(u.price_value_json);
+  const pricePerImageMp = u.price_config_key != null && Number.isFinite(configuredPrice) ? configuredPrice : 70;
   return {
     user: {
       id: u.id as string,
@@ -54,7 +57,7 @@ export async function loadMe(userId: string): Promise<MeResponse> {
     pricePerImageMp,
     hasPaid: u.has_paid === true,
     customKeyModesEnabled: isCustomKeyModesEnabled(),
-    expiringSoon: { mp: String(exp?.mp ?? "0"), nearestExpiresAt: isoOrNull(exp?.nearest) },
+    expiringSoon: { mp: String(u.expiring_mp ?? "0"), nearestExpiresAt: isoOrNull(u.nearest_expires_at) },
   };
 }
 

@@ -4,7 +4,8 @@ import { randomUUID } from "node:crypto";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { PutResult } from "../../src/server/r2.server";
 import { budgetTodayKey } from "../../src/server/budget.server";
-import { type ProcessDeps, runGenerationJob } from "../../src/server/generation/process";
+import { type ProcessDeps, runGenerationJob, startNextGenerationJob } from "../../src/server/generation/process";
+import { expireDueGenerations } from "../../src/server/generation/deadline.server";
 import { type TestCtx, ensureSeedConfig, newCtx, priceMp } from "./_helpers";
 
 const TINY_PNG_B64 =
@@ -62,6 +63,46 @@ afterEach(async () => {
 });
 
 describe("后台生图编排（runGenerationJob）", () => {
+  it("the queue consumer and by-ID consumer cannot both call the provider for the same job", async () => {
+    const uid = await ctx.createUser({ balanceMp: 140 });
+    await ctx.addLot(uid, 140);
+    const { generationId } = await ctx.createGeneration(uid);
+    let calls = 0;
+    const base = stubDeps();
+    const deps: ProcessDeps = {
+      ...base,
+      callRelay: async (request) => { calls++; return base.callRelay!(request); },
+    };
+    const [next, byId] = await Promise.all([
+      startNextGenerationJob(deps), runGenerationJob(generationId, deps),
+    ]);
+    const results = [next ? await next.completion : "lost", byId];
+    expect(results.sort()).toEqual(["lost", "succeeded"]);
+    expect(calls).toBe(1);
+    expect(await ctx.ledger(uid, "debit")).toHaveLength(1);
+    expect(await ctx.images(generationId)).toHaveLength(1);
+  });
+
+  it("does not publish or charge a storage result after the scheduler makes the job terminal", async () => {
+    const uid = await ctx.createUser({ balanceMp: 140 });
+    await ctx.addLot(uid, 140);
+    const { generationId } = await ctx.createGeneration(uid);
+    const base = stubDeps();
+    const result = await runGenerationJob(generationId, {
+      ...base,
+      putToR2: async (...args) => {
+        await ctx.sql`UPDATE generations SET deadline_at=now()-interval '1 second' WHERE id=${generationId}`;
+        await expireDueGenerations({ generationIds: [generationId] });
+        return base.putToR2!(...args);
+      },
+    });
+    expect(result).toBe("lost");
+    expect((await ctx.gen(generationId))?.status).toBe("failed");
+    expect(await ctx.balanceMp(uid)).toBe(140);
+    expect(await ctx.ledger(uid, "debit")).toHaveLength(0);
+    expect(await ctx.images(generationId)).toHaveLength(0);
+  });
+
   it("queued → 成功：扣单价、images 1 张、gen=succeeded、duration_ms 落库", async () => {
     const uid = await ctx.createUser({ balanceMp: 140 });
     await ctx.addLot(uid, 140, { source: "signup" });

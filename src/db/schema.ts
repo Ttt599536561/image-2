@@ -263,6 +263,9 @@ export const generations = pgTable(
     index("ix_gen_user_time").on(t.userId, t.createdAt.desc()),
     // cron 扫超时/重扫；status 前导列缩小集合
     index("ix_gen_status_time").on(t.status, t.createdAt),
+    index("ix_gen_queued_created_id")
+      .on(t.createdAt, t.id)
+      .where(sql`${t.status} = 'queued'`),
     index("ix_gen_inflight_deadline")
       .on(t.deadlineAt)
       .where(sql`${t.status} IN ('queued','claimed','running')`),
@@ -350,6 +353,7 @@ export const notifications = pgTable(
     uniqueIndex("uq_notif_dedupe").on(t.dedupeKey),
     // 未读列表
     index("ix_notif_user").on(t.userId, t.createdAt.desc()).where(sql`read_at IS NULL`),
+    index("ix_notif_user_all").on(t.userId, t.createdAt.desc()),
   ],
 );
 

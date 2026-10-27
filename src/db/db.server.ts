@@ -12,6 +12,8 @@ import { neon, type NeonQueryFunction, Pool, neonConfig } from "@neondatabase/se
 import { Pool as PgPool } from "pg";
 import ws from "ws";
 import { usesPgDriver } from "./db-driver.server";
+import { pgPoolOptions } from "./pool-options.server";
+import { observePgPool } from "./pool-observer.server";
 
 export { usesPgDriver };
 
@@ -50,20 +52,18 @@ let pgTransactionPool: PgPool | undefined;
 let neonTransactionPool: DbPool | undefined;
 
 function getPgReadPool(): PgPool {
-  pgReadPool ??= new PgPool({
+  pgReadPool ??= observePgPool(new PgPool({
     connectionString: requireEnv("DATABASE_URL"),
-    allowExitOnIdle: true,
-    max: 4,
-  });
+    ...pgPoolOptions("read"),
+  }), "read");
   return pgReadPool;
 }
 
 function getPgTransactionPool(): PgPool {
-  pgTransactionPool ??= new PgPool({
+  pgTransactionPool ??= observePgPool(new PgPool({
     connectionString: requireEnv("DATABASE_URL_UNPOOLED"),
-    allowExitOnIdle: true,
-    max: 4,
-  });
+    ...pgPoolOptions("transaction"),
+  }), "transaction");
   return pgTransactionPool;
 }
 

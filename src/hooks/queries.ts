@@ -1,6 +1,6 @@
 // 客户端读 hooks（08 §9.3）。loader 取首屏 → 同 query key 作 initialData（无 SSR/CSR 抖动）；
 // 兑换/生成/删除成功后 invalidate 对应 key 自动刷新。所有 queryFn 走同源 cookie + Zod 解析（api-client）。
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouteLoaderData } from "react-router";
 import type { loader as appLoader } from "../../app/routes/_app";
 import { LedgerResponse, LotsResponse, RedemptionsResponse } from "../contracts/account";
@@ -13,8 +13,9 @@ import { NotificationListResponse } from "../contracts/notification";
 import { PackagesResponse } from "../contracts/package";
 import { ProjectListResponse } from "../contracts/project";
 import { apiGet } from "../lib/api-client";
+import { reconcileConversationDetail } from "../lib/generationStatusCache";
 
-/** _app 父 loader 数据（me + 会话列表首屏），供子组件作 query initialData。 */
+/** _app 父 loader 数据（me + 项目列表），供子组件作 query initialData。 */
 function useAppLoaderData() {
   return useRouteLoaderData<typeof appLoader>("routes/_app");
 }
@@ -29,13 +30,12 @@ export function useMe() {
 }
 
 export function useConversations(q?: string) {
-  const app = useAppLoaderData();
-  const search = q?.trim() || undefined; // P3-S2 标题搜索（空=完整列表，用 loader initialData）
+  const search = q?.trim() || undefined; // 默认侧栏由 projects 提供完整会话分组，旧列表仅用于搜索。
   return useQuery({
     queryKey: ["conversations", search ?? null],
+    enabled: !!search,
     queryFn: () =>
       apiGet(search ? `/api/conversations?q=${encodeURIComponent(search)}` : "/api/conversations", ConversationListResponse),
-    initialData: search ? undefined : app?.conversations,
   });
 }
 
@@ -50,10 +50,20 @@ export function useProjects() {
 }
 
 export function useConversationDetail(id: string | null, initialData?: ConversationDetail) {
+  const qc = useQueryClient();
   return useQuery({
     queryKey: ["conversation", id],
     enabled: !!id,
-    queryFn: () => apiGet(`/api/conversations/${id}`, ConversationDetail),
+    queryFn: async () => {
+      const incoming = await apiGet(`/api/conversations/${id}`, ConversationDetail);
+      // Preserve newer events/optimistic jobs only when reconciling a fetched snapshot.
+      // setQueryData also carries intentional rollbacks, which must remain removable.
+      return reconcileConversationDetail(
+        qc.getQueryData<ConversationDetail>(["conversation", id]),
+        incoming,
+        qc.getQueryData<string[]>(["generation-active-enqueue-ids"]) ?? [],
+      );
+    },
     initialData,
   });
 }

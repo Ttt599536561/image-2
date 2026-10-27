@@ -53,7 +53,7 @@ describe("self-hosted media response integration", () => {
         height: 1,
       },
       status: "succeeded",
-      image: { publicUrl: MEDIA_URL, width: 1, height: 1 },
+      image: { id: "00000000-0000-4000-a000-000000000099", publicUrl: MEDIA_URL, width: 1, height: 1, savedToLibrary: false },
       creditsChargedMp: 1000,
       durationMs: 500,
     } as const;

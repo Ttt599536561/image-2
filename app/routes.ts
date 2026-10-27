@@ -13,6 +13,7 @@ export default [
   route("api/generate", "routes/api.generate.ts"),
   route("api/generate-background", "routes/api.generate-background.ts"),
   route("api/generate-status", "routes/api.generate-status.ts"),
+  route("api/generate-events", "routes/api.generate-events.ts"),
   route("api/conversations", "routes/api.conversations.ts"),
   route("api/conversations/:id", "routes/api.conversations.$id.ts"),
   // F-074 侧边栏项目分组：项目 CRUD + 项目/项目内会话整组排序。

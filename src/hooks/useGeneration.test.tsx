@@ -96,6 +96,22 @@ describe("useGeneration credential snapshot", () => {
     expect(requestBody).not.toHaveProperty("customApiKey");
   });
 
+  it("keeps a committed completion when the enqueue HTTP response is subsequently lost", async () => {
+    let reject!: (reason: unknown) => void;
+    mocks.apiPost.mockReturnValueOnce(new Promise((_resolve, fail) => { reject = fail; }));
+    const { result, queryClient } = setup();
+    act(() => result.current.submit(params, { mode: "custom", apiKey: "fixture-value" }));
+    await waitFor(() => expect(mocks.apiPost).toHaveBeenCalledOnce());
+    const body = mocks.apiPost.mock.calls[0][1] as { conversationId: string };
+    act(() => queryClient.setQueryData<ConversationDetail>(["conversation", body.conversationId], (old) => ({
+      ...old!, generations: old!.generations.map((turn) => ({ ...turn, status: "succeeded", image: {
+        id: "00000000-0000-4000-8000-000000000099", publicUrl: "/media/completed.png", width: 1, height: 1, savedToLibrary: false,
+      } })),
+    })));
+    await act(async () => reject(new Error("response lost")));
+    expect(queryClient.getQueryData<ConversationDetail>(["conversation", body.conversationId])?.generations[0].status).toBe("succeeded");
+  });
+
   it("sends only the source id while preserving the safe summary in the optimistic turn", async () => {
     const conversationId = "00000000-0000-4000-8000-000000000020";
     const sourceImageId = "00000000-0000-4000-8000-000000000021";

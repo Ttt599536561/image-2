@@ -1,10 +1,27 @@
 // @vitest-environment node
 import { randomUUID } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { GenerateStatusBatchResponse } from "../../contracts/generate";
-import { parseGenerationStatusQuery } from "./status.server";
+import { loadGenerationStatuses, parseGenerationStatusQuery } from "./status.server";
+
+const mocks = vi.hoisted(() => ({ sql: vi.fn(), expire: vi.fn() }));
+vi.mock("../../db/db.server", () => ({ getSql: () => mocks.sql }));
+vi.mock("./deadline.server", () => ({ expireDueGenerations: mocks.expire }));
 
 describe("status query parsing", () => {
+  it("returns committed image identity and library state under an owner constraint", async () => {
+    const generationId = randomUUID(); const userId = randomUUID(); const imageId = randomUUID();
+    mocks.sql.mockResolvedValueOnce([{
+      id: generationId, credential_mode: "system", deadline_at: new Date(), status: "succeeded",
+      image_id: imageId, public_url: "/media/result.png", width: 1024, height: 1024,
+      saved_to_library: true, credits_charged_mp: 70, duration_ms: 5_000,
+    }]);
+    const [status] = await loadGenerationStatuses(userId, [generationId]);
+    expect(status).toMatchObject({ status: "succeeded", image: { id: imageId, savedToLibrary: true } });
+    expect(GenerateStatusBatchResponse.safeParse({ items: [status], missingIds: [] }).success).toBe(true);
+    expect(mocks.sql.mock.calls[0][0].join("?")).toContain("g.user_id=");
+    expect(mocks.sql.mock.calls[0].at(-1)).toBe(userId);
+  });
   it("keeps single-id compatibility and deduplicates a batch", () => {
     const first = randomUUID();
     const second = randomUUID();

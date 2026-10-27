@@ -82,7 +82,12 @@ test.describe("sidebar projects", () => {
     await page.mouse.down();
     await page.waitForTimeout(450); // 超过 350ms 长按阈值
     await page.mouse.move(targetBox!.x + 20, targetBox!.y + 2, { steps: 8 });
+    const conversationOrderResponse = page.waitForResponse((response) =>
+      /\/api\/projects\/[^/]+\/order$/.test(new URL(response.url()).pathname) &&
+      response.request().method() === "POST",
+    );
     await page.mouse.up();
+    expect((await conversationOrderResponse).status()).toBe(200);
     await expect(aside.locator("[data-conv-row]").nth(0).getByText("项目归属测试图")).toBeVisible();
 
     // ⑧ 项目长按拖动：把「默认项目」拖到「副业项目」之上
@@ -95,7 +100,13 @@ test.describe("sidebar projects", () => {
     await page.mouse.down();
     await page.waitForTimeout(450);
     await page.mouse.move(sideBox!.x + 20, sideBox!.y + 2, { steps: 8 });
+    const projectOrderResponse = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === "/api/projects/order" &&
+      response.request().method() === "POST",
+    );
     await page.mouse.up();
+    // DOM 先乐观改序；必须等持久化成功，否则下面 reload 会取消尚未发完的 POST。
+    expect((await projectOrderResponse).status()).toBe(200);
     await expect(aside.locator("[data-project-row]").nth(0).getByText("默认项目")).toBeVisible();
 
     // ⑨ 刷新：项目名、顺序、会话顺序全部保持（服务端持久化）

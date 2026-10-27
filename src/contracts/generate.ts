@@ -167,9 +167,11 @@ export const GenerateStatusResponse = z.discriminatedUnion("status", [
     ...statusIdentity,
     status: z.literal("succeeded"),
     image: z.object({
+      id: z.uuid(),
       publicUrl: PublicMediaUrlSchema,
       width: z.number().int().nullable(),
       height: z.number().int().nullable(),
+      savedToLibrary: z.boolean(),
     }),
     creditsChargedMp: z.number().int().nonnegative(),
     durationMs: z.number().int().nonnegative(),

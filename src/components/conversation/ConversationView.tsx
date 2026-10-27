@@ -37,6 +37,7 @@ import { apiGet, apiPost } from "../../lib/api-client";
 import { PRICE_PER_IMAGE_MP } from "../../lib/credits";
 import { formatCredits } from "../../lib/format";
 import { generationSubmissionBlock, isGenerationPending } from "../../lib/generationMode";
+import { mergeConversationStatuses, reconcileConversationDetail } from "../../lib/generationStatusCache";
 import { copyImageToClipboard, downloadImage, imageFilename } from "../../lib/download";
 import { redactText } from "../../lib/redaction";
 import { useLockBodyScroll } from "../../lib/useLockBodyScroll";
@@ -197,7 +198,7 @@ export function ConversationView({
     submissionBlock === "custom_disabled" ||
     submissionBlock === "system_pending";
 
-  // 终态：刷新会话详情(DB 已落 succeeded/failed) + 余额/资产(成功才扣)。
+  // 状态响应含已提交图片元数据，直接合并详情；余额/资产仍按成功语义刷新。
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const terminalItems = generationStatuses.data?.items.filter(
     (item) => item.status === "succeeded" || item.status === "failed",
@@ -209,10 +210,14 @@ export function ConversationView({
 
   useEffect(() => {
     if (!terminalSignature || !conv?.id) return;
-    qc.invalidateQueries({ queryKey: ["conversation", conv.id] });
     const latestTerminalItems = generationStatuses.data?.items.filter(
       (item) => item.status === "succeeded" || item.status === "failed",
     ) ?? [];
+    // Cancel an older detail request before it can overwrite the terminal event.
+    void qc.cancelQueries({ queryKey: ["conversation", conv.id] });
+    qc.setQueryData<ConversationDetail>(["conversation", conv.id], (current) =>
+      current ? mergeConversationStatuses(current, latestTerminalItems) : current,
+    );
     if (latestTerminalItems.some((item) => item.status === "succeeded")) {
       qc.invalidateQueries({ queryKey: ["assets"] });
     }
@@ -251,7 +256,9 @@ export function ConversationView({
             if (serverTurn) {
               missingCounts.current.delete(id);
               missingRefetched.current.delete(id);
-              qc.setQueryData(["conversation", conversationId], authoritative);
+              qc.setQueryData<ConversationDetail>(["conversation", conversationId], (current) =>
+                reconcileConversationDetail(current, authoritative, qc.getQueryData<string[]>(["generation-active-enqueue-ids"]) ?? []),
+              );
               return;
             }
             setMissingTombstones((current) => {

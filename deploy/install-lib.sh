@@ -556,7 +556,7 @@ render_production_env() {
       RELAY_BASE_URL "$relay_base_url"
       CUSTOM_KEY_JOB_ENCRYPTION_KEY "$encryption_key"
       CUSTOM_KEY_MODES_ENABLED 'true'
-      WORKER_CONCURRENCY '1'
+      WORKER_CONCURRENCY '10'
       TRUST_PROXY 'true'
       UPDATER_CONTROL_ROOT "$updater_control_root"
       UPDATER_CONTROL_GID "$updater_control_gid"

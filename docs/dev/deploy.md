@@ -2,6 +2,8 @@
 
 要求 Debian、Docker Engine、Docker Compose v2、Git、jq 和 systemd。所有命令都从项目根目录执行；首次安装从空 PostgreSQL 和空媒体卷开始，不迁移 Neon、Supabase 或 Netlify 数据。
 
+2026-10-27 本地优化新增 0010/0011 迁移、持续补位 worker 与 SSE。新安装默认单 worker 10 槽，已有环境文件需显式调整；升级注意事项及免费托管限制见 [生图延迟与部署选择](performance-and-hosting.md)。此项尚未发布到下述生产环境。
+
 当前生产基线：腾讯云站点 `https://one-image2.tangguo.xin` 于 2026-07-26 经后台受控更新到 `0.2.9`（由 `0.2.7` 跨版本直升，迁移应用至 `0009_projects`），提交为 `407cdea93fd43377b0889814b933a64ccca134d8`。生产证据统一见 [PROGRESS.md](../PROGRESS.md)。
 
 ## 安装

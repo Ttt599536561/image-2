@@ -106,6 +106,42 @@ afterEach(() => {
 });
 
 describe("Sidebar 项目分组", () => {
+  it("empty search uses projects without fetching a duplicate conversation list", async () => {
+    renderSidebar();
+    await screen.findByText("山间小屋");
+    expect(mocks.apiGet.mock.calls.map(([url]) => url)).not.toContain("/api/conversations");
+  });
+
+  it("fetches debounced search results and restores project rows when cleared", async () => {
+    renderSidebar();
+    await screen.findByText("山间小屋");
+    mocks.apiGet.mockImplementation(async (url: string) => {
+      if (url === "/api/me") return meData();
+      if (url === "/api/projects") return projectsFixture();
+      return { items: [{ id: C1, title: "搜索命中", updatedAt: NOW }], page: 1, pageSize: 20, total: 1 };
+    });
+    fireEvent.change(screen.getByLabelText("搜索对话"), { target: { value: " 山间 " } });
+    await screen.findByText("搜索命中");
+    expect(mocks.apiGet).toHaveBeenCalledWith(`/api/conversations?q=${encodeURIComponent("山间")}`, expect.anything());
+    fireEvent.change(screen.getByLabelText("搜索对话"), { target: { value: "" } });
+    await screen.findByText("山间小屋");
+    expect(mocks.apiGet.mock.calls.map(([url]) => url)).not.toContain("/api/conversations");
+  });
+
+  it("keeps optimistic conversation renames and rolls back rejected requests without the default query", async () => {
+    let reject!: (reason: Error) => void;
+    mocks.apiPatch.mockImplementationOnce(() => new Promise((_resolve, fail) => { reject = fail; }));
+    renderSidebar();
+    await screen.findByText("山间小屋");
+    fireEvent.click(screen.getByLabelText("重命名会话：山间小屋"));
+    fireEvent.change(screen.getByLabelText("会话名称"), { target: { value: "乐观标题" } });
+    fireEvent.keyDown(screen.getByLabelText("会话名称"), { key: "Enter" });
+    await screen.findByText("乐观标题");
+    await act(async () => reject(new Error("request failed")));
+    await screen.findByText("山间小屋");
+    expect(mocks.apiGet.mock.calls.map(([url]) => url)).not.toContain("/api/conversations");
+  });
+
   it("默认项目展开显示会话，非默认项目收起；点击项目行切换展开/收起", async () => {
     renderSidebar();
     expect(await screen.findByText("默认项目")).toBeTruthy();
