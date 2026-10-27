@@ -57,7 +57,7 @@ User confirmed GitHub version and implementation on 2026-10-27. Worktree: `E:/ia
 - [x] Apply migration to disposable test database and inspect EXPLAIN with representative fixtures. Add general notifications(user_id,created_at DESC) index in separate migration `0011_read_performance.sql` if confirmed.
 - [x] Run typecheck, unit, money, E2E, build, no-secret bundle assertions, deploy tests if scripts changed. Inspect failures at their source, compare pre-existing issues where necessary.
 - [x] Review spec compliance then correctness/quality independently; fix findings and rerun affected validation. Record before/after fake-provider timing and exact limits of inference.
-- [ ] Commit accepted implementation on feature branch, integrate into main local working directory while preserving earlier docs, migrate local development DB, restart local web/worker/scheduler and verify browser.
+- [x] Commit accepted implementation on feature branch, integrate into main local working directory while preserving earlier docs, migrate local development DB, restart local web/worker/scheduler and verify browser. Implemented in cce3c75; main typecheck exit 0, healthz 204, browser form interactive.
 
 ## Task 6 — Free deployment recommendation after code validation
 

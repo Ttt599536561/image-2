@@ -41,7 +41,8 @@
 - 验收证据（均退出码0）：`npm run typecheck`；`npm run test:run` 输出 `Test Files 76 passed (76)` / `Tests 584 passed | 1 skipped (585)`；`npm run test:money` 输出 `Test Files 19 passed (19)` / `Tests 98 passed (98)`；`npm run test:e2e` 输出 `8 passed / 1 skipped`；SSE独立重复10次 `10 passed`；`npm run build`；`npm run assert-no-secrets` 扫描144文件PASS；Compose config通过。部署合同测试在隔离Linux/非root环境执行，updater通过、helper27/installer29/backup9/CI smoke通过；auth空库迁移原脚本经Git Bash运行通过。
 - 性能证据：11个固定1秒模拟任务、10槽错峰到达，旧/新排队p95 950ms→0ms、全部完成3000→2050ms；真实PG+本地开发Web+浏览器的10次小图片夹具，从开始提交成功结果到图片元素可见p50 40ms/p95 54ms，状态轮询0、详情重取0。不是上游生图或公网速度；原始日志位于 `.local/performance-worktree/.cache/logs/`。
 - 审查与排坑：独立审查发现并修复乐观回滚复活、网络提交失败无法恢复、测试端口不一致；补任务计时器SSR水合回归；排序E2E现在等保存响应再刷新，避免取消持久化请求。免费服务结论按当日官方文档记录，Oracle新Always Free口径为2 OCPU/12GB，而非旧文章4/24。
-- 下一步：将已验收改动接入本地工作目录并重启检查；选定可用云实例后再部署。当前没有真实上游测试/生产发布/远程推送。
+- 本地集成：实现提交 `cce3c75` 已快进合入主工作目录 main；原接管/对照记录先保存至 Git stash 与 `.cache/integration-backup`，最终文档包含原记录。开发库迁移0010/0011完成，单worker配置10；web/worker/scheduler已重启，healthz204，浏览器登录态及表单交互正常；主目录单独typecheck退出码0。本地PowerShell停止脚本已修正JSON日期解析导致未停止旧进程的问题，旧进程已按PID/路径/启动时间核实并退出。
+- 下一步：选定可用云实例后再部署。当前没有真实上游测试/生产发布/远程推送；验证工作树与E盘依赖缓存保留供复验，不移除数据卷。
 
 ### [2026-10-27] 桌面 0.1.0 源码对比与独立预览
 - 任务来源：owner 要求检查 `C:\Users\Administrator\Desktop\image-2`、与当前版本比较并启动网站。
