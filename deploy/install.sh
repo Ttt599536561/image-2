@@ -715,7 +715,7 @@ validate_loaded_environment() {
     die '本地存储配置无效'
     return 1
   }
-  [[ -n "$BETTER_AUTH_SECRET" && -n "$RELAY_API_KEY" && -n "$CUSTOM_KEY_JOB_ENCRYPTION_KEY" ]] || {
+  [[ -n "$BETTER_AUTH_SECRET" && -n "$CUSTOM_KEY_JOB_ENCRYPTION_KEY" ]] || {
     die '部署环境文件包含空的必需密钥'
     return 1
   }

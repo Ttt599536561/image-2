@@ -21,7 +21,7 @@ sudo bash deploy/install.sh \
   --public-url https://images.example.com
 ```
 
-安装器依次询问系统 Relay API Key、管理员邮箱和管理员密码，其余数据库、认证和 custom Key 加密密钥自动生成。Key 和密码会显示在终端中，请只在可信终端操作并注意滚动记录、录屏和远程操作日志。管理员入口是 `https://images.example.com/admin/login`。
+安装器依次询问系统 Relay API Key、管理员邮箱和管理员密码，其余数据库、认证和 custom Key 加密密钥自动生成。系统 Relay Key 可留空，此时跳过 Key 确认，直接填写管理员信息；部署环境保留 `RELAY_API_KEY=""`，不生成占位 Key。`custom` 可使用用户自己的 Key，使用 `system` 前请登录 `/admin/packages` 的中转站配置填写真实 Key，保存后即时生效。留空配置也支持后续 resume、升级、备份与恢复。Key 和密码会显示在终端中，请只在可信终端操作并注意滚动记录、录屏和远程操作日志。管理员入口是 `https://images.example.com/admin/login`。
 
 新部署默认同时开放两种模式：
 

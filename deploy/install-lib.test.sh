@@ -156,6 +156,22 @@ test_collect_install_inputs_rejects_key_confirmation() {
   assert_not_contains "$output" '请输入管理员邮箱' 'email prompt must not follow rejected key'
 }
 
+test_collect_install_inputs_allows_deferred_relay_key() {
+  local input_file="$TEST_ROOT/collect-deferred-relay.in"
+  local output_file="$TEST_ROOT/collect-deferred-relay.out"
+  printf '%s\n' '' 'admin@example.com' 'valid-password' 'valid-password' y >"$input_file"
+  MODE_LABEL='现有反向代理'
+  collect_install_inputs <"$input_file" >"$output_file" 2>&1 \
+    || fail_assertion 'an empty relay key should allow administrator setup'
+  assert_equal '' "$RELAY_API_KEY" 'deferred relay key must remain empty without a placeholder'
+  assert_equal 'admin@example.com' "$ADMIN_EMAIL" 'empty key must not consume an extra confirmation'
+  local output
+  output="$(<"$output_file")"
+  assert_contains "$output" '可留空' 'relay prompt must explain that configuration can be deferred'
+  assert_contains "$output" '/admin/packages' 'deferred key output must identify the configuration page'
+  assert_not_contains "$output" '确认以上 Key' 'an absent key must not ask for key confirmation'
+}
+
 test_collect_install_inputs_rejects_mismatched_passwords() {
   local input_file="$TEST_ROOT/collect-mismatch.in"
   local output_file="$TEST_ROOT/collect-mismatch.out"
@@ -530,6 +546,31 @@ test_render_production_env_requires_caller_secrets() {
   [[ ! -e "$env_file" ]] || fail_assertion 'failed rendering should not leave a target file'
 }
 
+test_render_production_env_preserves_empty_relay_key() {
+  local env_file="$TEST_ROOT/deferred-relay.env"
+  set_render_fixture_inputs
+  RELAY_API_KEY=''
+  render_production_env "$env_file" || fail_assertion 'empty relay key must be renderable'
+  assert_equal '24' "$(wc -l <"$env_file" | tr -d ' ')" 'deferred key must preserve the complete dotenv contract'
+  assert_contains "$(<"$env_file")" 'RELAY_API_KEY=""' 'render must persist an explicit empty key'
+  RELAY_API_KEY='must-be-cleared'
+  load_deploy_env "$env_file"
+  assert_equal '' "$RELAY_API_KEY" 'loading the empty key must clear any inherited value'
+  assert_equal true "$CUSTOM_KEY_MODES_ENABLED" 'custom mode must remain enabled'
+}
+
+test_deferred_relay_key_still_requires_internal_secrets() {
+  local key
+  for key in POSTGRES_PASSWORD BETTER_AUTH_SECRET CUSTOM_KEY_JOB_ENCRYPTION_KEY; do
+    set_render_fixture_inputs
+    RELAY_API_KEY=''
+    printf -v "$key" '%s' ''
+    if render_production_env "$TEST_ROOT/missing-$key.env" >/dev/null 2>&1; then
+      fail_assertion "deferred relay key must not permit an empty $key"
+    fi
+  done
+}
+
 test_render_production_env_preserves_existing_target_on_write_failure() {
   local env_file="$TEST_ROOT/existing-production.env"
   local original='KNOWN_GOOD_PRODUCTION_CONFIG'
@@ -736,6 +777,7 @@ run_test 'password UTF-8 byte limits' test_validate_password_byte_limits
 run_test 'explicit y/N confirmation' test_confirm_yes_defaults_to_no
 run_test 'visible input prompt sequence' test_collect_install_inputs_visible_sequence
 run_test 'relay key confirmation rejection' test_collect_install_inputs_rejects_key_confirmation
+run_test 'deferred relay key input without placeholder' test_collect_install_inputs_allows_deferred_relay_key
 run_test 'mismatched password rejection' test_collect_install_inputs_rejects_mismatched_passwords
 run_test 'final confirmation rejection' test_collect_install_inputs_rejects_final_confirmation
 run_test 'password absent from redirected output' test_collect_install_inputs_never_redirects_password
@@ -750,6 +792,8 @@ run_test 'base64url random output validation' test_random_base64url_rejects_fail
 run_test 'hex random output validation' test_random_hex_rejects_failed_short_and_malformed_output
 run_test 'private complete production dotenv rendering' test_render_production_env_is_complete_private_and_safe
 run_test 'required generated secrets' test_render_production_env_requires_caller_secrets
+run_test 'explicit empty relay key dotenv round-trip' test_render_production_env_preserves_empty_relay_key
+run_test 'deferred relay retains internal secret requirements' test_deferred_relay_key_still_requires_internal_secrets
 run_test 'atomic render failure preserves target' test_render_production_env_preserves_existing_target_on_write_failure
 run_test 'mktemp failure preserves target' test_render_production_env_handles_mktemp_failure
 run_test 'temporary chmod failure preserves target' test_render_production_env_handles_temp_chmod_failure

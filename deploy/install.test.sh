@@ -472,6 +472,50 @@ test_cli_validation_stops_before_preflight_and_prompts() {
   done
 }
 
+test_fresh_install_accepts_deferred_relay_key() {
+  make_fixture fresh-deferred-relay
+  local input_file="$CASE_ROOT/input"
+  printf '%s\n' '' 'admin@example.com' 'valid-password' 'valid-password' y >"$input_file"
+  run_install "$input_file" --existing-proxy --public-url https://images.example.com --port 18081
+  assert_equal 0 "$RUN_STATUS" 'fresh installation must accept a deferred relay key'
+  assert_contains "$(<"$CASE_ROOT/deploy/.env.production")" 'RELAY_API_KEY=""' 'fresh install must not invent a relay key'
+  assert_contains "$(<"$CASE_ROOT/deploy/.env.production")" 'CUSTOM_KEY_MODES_ENABLED="true"' 'custom must be enabled with its generated encryption secret'
+  assert_contains "$(<"$CASE_ROOT/deploy/install.state")" 'STAGE="complete"' 'deferred relay install must complete'
+}
+
+test_resume_and_upgrade_preserve_deferred_relay_key() {
+  make_fixture resume-upgrade-deferred-relay
+  run_success_proxy_install
+  sed -i 's/^RELAY_API_KEY=.*/RELAY_API_KEY=""/' "$CASE_ROOT/deploy/.env.production"
+  local env_hash
+  env_hash="$(sha256sum "$CASE_ROOT/deploy/.env.production" | awk '{print $1}')"
+  run_without_input --resume
+  assert_equal 0 "$RUN_STATUS" 'resume must accept an explicitly empty relay key'
+  write_fake_upgrade_backup
+  run_without_input --upgrade
+  assert_equal 0 "$RUN_STATUS" 'upgrade must accept an explicitly empty relay key'
+  assert_equal "$env_hash" "$(sha256sum "$CASE_ROOT/deploy/.env.production" | awk '{print $1}')" \
+    'resume and upgrade must preserve the empty key and all internal secrets'
+}
+
+test_deferred_relay_does_not_relax_required_environment() {
+  local key
+  for key in POSTGRES_PASSWORD BETTER_AUTH_SECRET CUSTOM_KEY_JOB_ENCRYPTION_KEY RELAY_API_KEY; do
+    make_fixture "deferred-required-$key"
+    run_success_proxy_install
+    sed -i 's/^RELAY_API_KEY=.*/RELAY_API_KEY=""/' "$CASE_ROOT/deploy/.env.production"
+    if [[ "$key" == RELAY_API_KEY ]]; then
+      sed -i '/^RELAY_API_KEY=/d' "$CASE_ROOT/deploy/.env.production"
+    else
+      sed -i "s/^$key=.*/$key=\"\"/" "$CASE_ROOT/deploy/.env.production"
+    fi
+    : >"$FAKE_STATE/docker.log"
+    run_without_input --resume
+    [[ "$RUN_STATUS" -ne 0 ]] || fail_assertion "resume must reject invalid required field $key"
+    assert_not_contains "$(<"$FAKE_STATE/docker.log")" ' up ' 'invalid required fields must fail before starting services'
+  done
+}
+
 test_preflight_rejects_platform_disk_and_repo_before_prompts() {
   local output
 
@@ -1332,6 +1376,9 @@ test_upgrade_pre_migration_failure_restores_exact_original_writers() {
 }
 
 run_test 'CLI validation before preflight and prompts' test_cli_validation_stops_before_preflight_and_prompts
+run_test 'fresh install with deferred relay key' test_fresh_install_accepts_deferred_relay_key
+run_test 'resume and upgrade with deferred relay key' test_resume_and_upgrade_preserve_deferred_relay_key
+run_test 'deferred relay preserves required environment guards' test_deferred_relay_does_not_relax_required_environment
 run_test 'platform, disk, Docker, and repository preflight' test_preflight_rejects_platform_disk_and_repo_before_prompts
 run_test 'standard os-release symlink preflight' test_preflight_accepts_os_release_symlink
 run_test 'domain and 80/443 validation before prompts' test_domain_validation_and_ports_stop_before_prompts

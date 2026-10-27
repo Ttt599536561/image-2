@@ -635,6 +635,31 @@ test_restore_accepts_disabled_custom_kill_switch_and_rejects_invalid_values() {
     'invalid custom mode must be rejected before starting services'
 }
 
+test_restore_accepts_deferred_relay_and_preserves_required_secrets() {
+  local key directory input
+  for key in none POSTGRES_PASSWORD BETTER_AUTH_SECRET CUSTOM_KEY_JOB_ENCRYPTION_KEY RELAY_API_KEY; do
+    make_fixture "restore-deferred-$key"
+    sed -i 's/^RELAY_API_KEY=.*/RELAY_API_KEY=""/' "$CASE_ROOT/deploy/.env.production"
+    if [[ "$key" == RELAY_API_KEY ]]; then
+      sed -i '/^RELAY_API_KEY=/d' "$CASE_ROOT/deploy/.env.production"
+    elif [[ "$key" != none ]]; then
+      sed -i "s/^$key=.*/$key=\"\"/" "$CASE_ROOT/deploy/.env.production"
+    fi
+    directory="$(make_restore_fixture)"
+    input="$CASE_ROOT/confirm.in"
+    printf 'RESTORE ai-image-workshop\n' >"$input"
+    : >"$FAKE_STATE/docker.log"
+    run_restore "$input" "$directory"
+    if [[ "$key" == none ]]; then
+      assert_equal 0 "$RUN_STATUS" 'restore must accept an explicitly empty relay key'
+      assert_contains "$(<"$CASE_ROOT/deploy/.env.production")" 'RELAY_API_KEY=""' 'restore must not replace the deferred key'
+    else
+      [[ "$RUN_STATUS" -ne 0 ]] || fail_assertion "restore must reject invalid required field $key"
+      assert_not_contains "$(<"$FAKE_STATE/docker.log")" ' up ' 'invalid required fields must fail before starting services'
+    fi
+  done
+}
+
 run_test 'backup artifacts, exact quiescing, retention, and secrets' test_backup_artifacts_quiescing_and_retention
 run_test 'backup failure and signal restore exact services' test_backup_failure_and_signal_restore_exact_services
 run_test 'backup probe failure has no mutation' test_backup_probe_failure_has_no_mutation
@@ -644,6 +669,7 @@ run_test 'restore checksum and path guards precede Docker' test_restore_checksum
 run_test 'restore running, confirmation, and empty-volume guards' test_restore_running_confirmation_and_empty_volume_guards
 run_test 'restore success order and secret isolation' test_restore_successful_order_and_secret_isolation
 run_test 'restore custom kill switch validation' test_restore_accepts_disabled_custom_kill_switch_and_rejects_invalid_values
+run_test 'restore deferred relay and required secret validation' test_restore_accepts_deferred_relay_and_preserves_required_secrets
 
 if ((FAIL_COUNT > 0)); then
   printf '%d backup/restore test(s) failed\n' "$FAIL_COUNT" >&2

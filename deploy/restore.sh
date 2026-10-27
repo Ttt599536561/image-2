@@ -119,7 +119,7 @@ validate_loaded_environment() {
   local expected_url="postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}"
   [[ "$DATABASE_DRIVER" == 'pg' && "$DATABASE_URL" == "$expected_url" && "$DATABASE_URL_UNPOOLED" == "$expected_url" ]] || die 'invalid database URL'
   [[ "$STORAGE_DRIVER" == 'local' && "$LOCAL_STORAGE_ROOT" == '/app/data/media' ]] || die 'invalid storage configuration'
-  [[ -n "$BETTER_AUTH_SECRET" && -n "$RELAY_API_KEY" && -n "$CUSTOM_KEY_JOB_ENCRYPTION_KEY" ]] || die 'required secret is empty'
+  [[ -n "$BETTER_AUTH_SECRET" && -n "$CUSTOM_KEY_JOB_ENCRYPTION_KEY" ]] || die 'required secret is empty'
   [[ "$CUSTOM_KEY_MODES_ENABLED" == 'true' || "$CUSTOM_KEY_MODES_ENABLED" == 'false' ]] || die 'invalid custom key mode setting'
   [[ "$TRUST_PROXY" == 'true' ]] || die 'invalid application security settings'
   [[ "$WORKER_CONCURRENCY" =~ ^[1-9][0-9]*$ ]] || die 'invalid worker concurrency'

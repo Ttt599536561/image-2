@@ -375,20 +375,24 @@ collect_install_inputs() {
   ADMIN_PASSWORD=''
   ADMIN_PASSWORD_CONFIRM=''
 
-  printf '请输入系统 Relay API Key：'
+  printf '请输入系统 Relay API Key（可留空，稍后在后台配置）：'
   IFS= read -r RELAY_API_KEY || {
     die '未读取到系统 Relay API Key'
     return 1
   }
-  [[ -n "$RELAY_API_KEY" && "$RELAY_API_KEY" != *$'\r'* ]] || {
-    die '系统 Relay API Key 不能为空或包含回车'
+  [[ "$RELAY_API_KEY" != *$'\r'* ]] || {
+    die '系统 Relay API Key 不能包含回车'
     return 1
   }
-  printf '\n系统 Relay API Key（完整）：%s\n' "$RELAY_API_KEY"
-  if ! confirm_yes '确认以上 Key'; then
-    printf '\n'
-    die '已取消：系统 Relay API Key 未确认'
-    return 1
+  if [[ -n "$RELAY_API_KEY" ]]; then
+    printf '\n系统 Relay API Key（完整）：%s\n' "$RELAY_API_KEY"
+    if ! confirm_yes '确认以上 Key'; then
+      printf '\n'
+      die '已取消：系统 Relay API Key 未确认'
+      return 1
+    fi
+  else
+    printf '\n系统 Relay Key 暂未配置；custom 可使用用户自己的 Key。使用 system 前请在 /admin/packages 配置中转 Key。\n'
   fi
 
   printf '\n请输入管理员邮箱：'
@@ -456,10 +460,6 @@ render_production_env() {
   }
   [[ -n "$auth_secret" ]] || {
     die '缺少 BETTER_AUTH_SECRET'
-    return 1
-  }
-  [[ -n "$relay_key" ]] || {
-    die '缺少 RELAY_API_KEY'
     return 1
   }
   [[ -n "$encryption_key" ]] || {
