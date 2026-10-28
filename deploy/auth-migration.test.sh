@@ -85,6 +85,64 @@ role_rows="$(docker exec "$CONTAINER" psql -U postgres -d auth_migration_test -A
   exit 1
 }
 
+# Exercise the installer's real function against PostgreSQL, including psql's
+# variable handling. Only load this function from the trusted checkout, not main.
+(
+  source <(sed 's/\r$//' "$ROOT/deploy/install.sh" | sed -n '/^verify_admin_roles() {$/,/^}$/p')
+  declare -F verify_admin_roles >/dev/null
+  die() { printf '%s\n' "$*" >&2; return 1; }
+  compose() {
+    [[ "${1-} ${2-} ${3-}" == 'exec -T postgres' ]] || return 1
+    shift 3
+    docker exec -i "$CONTAINER" "$@"
+  }
+  POSTGRES_USER=postgres
+  POSTGRES_DB=auth_migration_test
+  ADMIN_EMAIL=admin@example.test
+  verify_admin_roles || {
+    printf 'installer must verify both seeded administrator roles using real psql\n' >&2
+    exit 1
+  }
+
+  ADMIN_EMAIL=missing@example.test
+  if verify_admin_roles 2>/dev/null; then
+    printf 'installer must reject an administrator absent from both tables\n' >&2
+    exit 1
+  fi
+
+  # Apostrophes must remain data, including strings that resemble SQL syntax.
+  ADMIN_EMAIL="o'connor@example.test"
+  SEED_ADMIN_EMAIL="$ADMIN_EMAIL" SEED_ADMIN_PASSWORD=quoted-email-password \
+    node --import tsx scripts/seed-admin.ts >/dev/null
+  verify_admin_roles || {
+    printf 'installer must safely verify an administrator email containing an apostrophe\n' >&2
+    exit 1
+  }
+  ADMIN_EMAIL="' OR true; --@example.test"
+  if verify_admin_roles 2>/dev/null; then
+    printf 'installer must not treat an email as SQL syntax\n' >&2
+    exit 1
+  fi
+
+  ADMIN_EMAIL=admin@example.test
+  docker exec "$CONTAINER" psql -U postgres -d auth_migration_test -v ON_ERROR_STOP=1 -c \
+    "UPDATE users SET role='user' WHERE email='admin@example.test'" >/dev/null
+  if verify_admin_roles 2>/dev/null; then
+    printf 'installer must reject a user with only the Better Auth administrator role\n' >&2
+    exit 1
+  fi
+  docker exec "$CONTAINER" psql -U postgres -d auth_migration_test -v ON_ERROR_STOP=1 -c \
+    "UPDATE users SET role='admin' WHERE email='admin@example.test'; UPDATE \"user\" SET role='user' WHERE email='admin@example.test'" >/dev/null
+  if verify_admin_roles 2>/dev/null; then
+    printf 'installer must reject a user with only the business administrator role\n' >&2
+    exit 1
+  fi
+  docker exec "$CONTAINER" psql -U postgres -d auth_migration_test -v ON_ERROR_STOP=1 -c \
+    "UPDATE \"user\" SET role='admin' WHERE email='admin@example.test'" >/dev/null
+  verify_admin_roles
+)
+printf 'installer administrator role verification PostgreSQL regression passed\n'
+
 # JavaScript reads these values from process.env.
 # shellcheck disable=SC2016
 EXPECTED_PASSWORD=replacement-password REJECTED_PASSWORD=initial-password node --import tsx -e '

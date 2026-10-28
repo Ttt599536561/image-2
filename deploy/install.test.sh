@@ -191,6 +191,9 @@ if [[ " $* " == *' psql '* ]]; then
     exit 71
   fi
   [[ -z "${SEED_ADMIN_EMAIL-}" && -z "${SEED_ADMIN_PASSWORD-}" ]] || exit 69
+  admin_role_query="$(cat)"
+  [[ "$admin_role_query" == *":'admin_email'"* ]] || exit 70
+  printf '%s\n' "$admin_role_query" >"$FAKE_STATE/admin-role-query.sql"
   printf 'seed-environment-cleared\n' >"$FAKE_STATE/seed-env-cleared"
   if [[ -f "$FAKE_STATE/roles" ]]; then
     cat "$FAKE_STATE/roles"

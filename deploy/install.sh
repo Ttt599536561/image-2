@@ -1054,8 +1054,9 @@ verify_admin_roles() {
   role_output="$(compose exec -T postgres psql \
     -U "$POSTGRES_USER" \
     -d "$POSTGRES_DB" \
+    -v ON_ERROR_STOP=1 \
     -v "admin_email=$ADMIN_EMAIL" \
-    -Atc "$query")" || {
+    -At <<<"$query")" || {
     die '无法验证管理员角色'
     return 1
   }
