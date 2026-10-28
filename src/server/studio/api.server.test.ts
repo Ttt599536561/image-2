@@ -133,14 +133,14 @@ describe("anonymous API", () => {
     expect(mock.sql.mock.calls.at(-1)![0].join("?")).toContain("user_id=");
     expect(mock.sql.mock.calls.at(-1)).toContain("owner");
   });
-  it("accepts a multipart reference upload taking longer than 15 seconds", async () => {
+  it("accepts the complete original multipart image after both the old 2-minute and Node 5-minute limits", async () => {
     const multipart = await referenceMultipart();
     useBodyDeadlineClock();
-    const { request, cancelled } = delayedBodyRequest("uploads", multipart.contentType, multipart.bytes, 20_000);
+    const { request, cancelled } = delayedBodyRequest("uploads", multipart.contentType, multipart.bytes, 19 * 60_000);
     const storageKey = `uploads/owner/2026/10/${id}.png`;
     mock.upload.mockResolvedValue({ storageKey });
     const responsePromise = studioUploadsAction(request);
-    await vi.advanceTimersByTimeAsync(20_000);
+    await vi.advanceTimersByTimeAsync(19 * 60_000);
     const response = await responsePromise;
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ inputImageKey: storageKey });
@@ -148,13 +148,13 @@ describe("anonymous API", () => {
     expect(cancelled).not.toHaveBeenCalled();
     expect(mock.enqueue).not.toHaveBeenCalled();
   });
-  it("cancels an unfinished multipart upload at 120 seconds without storing it", async () => {
+  it("cancels an unfinished multipart upload at exactly 20 minutes without storing it", async () => {
     const multipart = await referenceMultipart();
     useBodyDeadlineClock();
-    const { request, cancelled } = delayedBodyRequest("uploads", multipart.contentType, multipart.bytes, 130_000);
+    const { request, cancelled } = delayedBodyRequest("uploads", multipart.contentType, multipart.bytes, 21 * 60_000);
     let settled = false;
     const responsePromise = studioUploadsAction(request).then((response) => { settled = true; return response; });
-    await vi.advanceTimersByTimeAsync(119_999);
+    await vi.advanceTimersByTimeAsync(20 * 60_000 - 1);
     expect(settled).toBe(false);
     expect(cancelled).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(1);

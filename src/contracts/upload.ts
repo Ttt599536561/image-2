@@ -4,6 +4,9 @@ import { z } from "zod";
 // 允许的参考图类型 + 大小上限（前端预校验 + 后端权威校验同值）。
 // 4MB 是应用级固定上限；更大图片可在未来改为 presigned 直传。
 export const UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
+// Whole-image transfer budget; the browser leaves one minute for storage and response.
+export const STUDIO_UPLOAD_BODY_TIMEOUT_MS = 20 * 60 * 1000;
+export const STUDIO_UPLOAD_CLIENT_TIMEOUT_MS = 21 * 60 * 1000;
 export const UPLOAD_ACCEPT = ["image/png", "image/jpeg", "image/webp"] as const;
 export type UploadMime = (typeof UPLOAD_ACCEPT)[number];
 // content-type → 文件扩展名（落 key 用）。

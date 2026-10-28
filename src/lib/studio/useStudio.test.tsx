@@ -4,7 +4,7 @@ import type { StudioHistoryEntry } from "./history";
 import { useStudio } from "./useStudio";
 
 const upload = vi.hoisted(() => vi.fn<(file: File) => Promise<string>>());
-// Transport retries/integrity are covered in resumable-upload.test; these tests isolate task orchestration.
+// Whole-file uploads, deadlines and no automatic retries are covered in api.test; these tests isolate task orchestration.
 vi.mock("./api", async (original) => ({ ...await original<typeof import("./api")>(), uploadReference: upload }));
 const history = vi.hoisted(() => ({ records: [] as StudioHistoryEntry[], writes: [] as StudioHistoryEntry[][], failWrites: false }));
 vi.mock("./history", async (original) => {

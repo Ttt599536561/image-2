@@ -1,7 +1,7 @@
 // @vitest-environment node
 import { createHash } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { uploadReference } from "./api";
+import { uploadResumableReference as uploadReference } from "./resumable-upload";
 
 const BASE = "/api/studio/uploads/resumable";
 const CHUNK = 65_536;
@@ -225,10 +225,4 @@ describe("resumable reference upload", () => {
     await expect(uploadReference(file(20))).rejects.toThrow();
   });
 
-  it("validates files before hashing or making requests", async () => {
-    const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
-    await expect(uploadReference(new File([], "empty.png", { type: "image/png" }))).rejects.toThrow("为空");
-    await expect(uploadReference(file(4 * 1024 * 1024 + 1))).rejects.toThrow("4 MiB");
-    expect(fetch).not.toHaveBeenCalled();
-  });
 });

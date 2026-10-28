@@ -4,7 +4,7 @@
 
 ## 当前生产事实
 
-- 当前代码版本为 `0.3.3`；部署主机为 `45.207.199.3` 的 `/opt/ai-image-workshop`，
+- 当前代码版本为 `0.3.4`；部署主机为 `45.207.199.3` 的 `/opt/ai-image-workshop`，
   站点为 `https://one-image2.tangguo.xin`。实际运行提交和最新验收以 `docs/PROGRESS.md` 为准。
   按owner确认使用全新数据库，未迁移旧账号/积分/图片；旧腾讯云站点保留作回退。
 - Debian Docker Compose：Caddy/现有代理 -> `web`，并运行 `worker`、单例 `scheduler`。
@@ -63,4 +63,4 @@
 - [技术索引](docs/dev/README.md)
 - [产品契约](tasks/prd-user-api-key-modes.md)
 
-当前改造见 `tasks/2026-10-28-chunk-upload.md`（64KiB分片、有界重试和原图SHA校验）；提交基线见 `tasks/2026-10-28-studio-submission.md`；布局基线见 `tasks/2026-10-28-studio-refinement.md`；匿名基线见 `tasks/2026-10-28-anonymous-studio.md`。旧账户/营销/计费规格仅用于回归及回退，不应恢复其公开入口。
+当前改造见 `tasks/2026-10-29-whole-image-upload.md`（整图单次上传、失败直接返回、20分钟收图预算；不自动分片或重试）。旧分片实现见 `tasks/2026-10-28-chunk-upload.md`，仅保留旧页面兼容及暂存清理；提交基线见 `tasks/2026-10-28-studio-submission.md`；布局基线见 `tasks/2026-10-28-studio-refinement.md`；匿名基线见 `tasks/2026-10-28-anonymous-studio.md`。旧账户/营销/计费规格仅用于回归及回退，不应恢复其公开入口。

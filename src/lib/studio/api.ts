@@ -1,5 +1,5 @@
 import type { StudioAccepted, StudioGenerateRequest, StudioSessionInfo, StudioStatusBatch } from "../../contracts/studio";
-import { uploadResumableReference } from "./resumable-upload";
+import { STUDIO_UPLOAD_CLIENT_TIMEOUT_MS, UploadResponse } from "../../contracts/upload";
 
 export class StudioApiError extends Error {
   constructor(message: string, public status: number) { super(message); }
@@ -29,7 +29,31 @@ export function validateReferenceImage(file: File): string | null {
 export async function uploadReference(file: File): Promise<string> {
   const invalid = validateReferenceImage(file);
   if (invalid) throw new Error(invalid);
-  return uploadResumableReference(file);
+  const body = new FormData();
+  body.append("file", file);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), STUDIO_UPLOAD_CLIENT_TIMEOUT_MS);
+  try {
+    const response = await fetch("/api/studio/uploads", {
+      method: "POST", credentials: "same-origin", body, signal: controller.signal,
+    });
+    if (!response.ok) {
+      // The HTTP status is final; do not wait for a potentially stalled error body.
+      controller.abort();
+      throw new StudioApiError(`请求未完成（${response.status}）`, response.status);
+    }
+    // Keep the same deadline active until the entire success receipt is read.
+    const receipt = UploadResponse.safeParse(await response.json());
+    if (!receipt.success) throw new Error("上传响应无效，请重试此任务。");
+    const key = receipt.data.inputImageKey;
+    if (!key.startsWith("uploads/") || /[\\\s\u0000-\u001f]/.test(key) ||
+      !key.split("/").every((part) => part && part !== "." && part !== "..")) {
+      throw new Error("上传响应无效，请重试此任务。");
+    }
+    return key;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 export async function getStudioStatus(ids: string[]): Promise<StudioStatusBatch> {
   return readResponse(await fetch(`/api/studio/status?ids=${encodeURIComponent(ids.join(","))}`, { credentials: "same-origin", cache: "no-store" }));
