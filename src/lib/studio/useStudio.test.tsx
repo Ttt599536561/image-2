@@ -3,6 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StudioHistoryEntry } from "./history";
 import { useStudio } from "./useStudio";
 
+const upload = vi.hoisted(() => vi.fn<(file: File) => Promise<string>>());
+// Transport retries/integrity are covered in resumable-upload.test; these tests isolate task orchestration.
+vi.mock("./api", async (original) => ({ ...await original<typeof import("./api")>(), uploadReference: upload }));
 const history = vi.hoisted(() => ({ records: [] as StudioHistoryEntry[], writes: [] as StudioHistoryEntry[][], failWrites: false }));
 vi.mock("./history", async (original) => {
   const actual = await original<typeof import("./history")>();
@@ -17,16 +20,16 @@ vi.mock("./history", async (original) => {
 });
 
 const session = { ok: true, defaults: { baseUrl: "https://api.tangguo.xin/v1", model: "gpt-image-2" }, limits: { maxPromptLength: 4000, maxUploadBytes: 4194304, maxInflight: 10, maxReferenceImages: 4 } };
-beforeEach(() => { localStorage.clear(); history.records = []; history.writes = []; history.failWrites = false; });
+beforeEach(() => { localStorage.clear(); history.records = []; history.writes = []; history.failWrites = false; upload.mockReset(); });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("studio workflow", () => {
   it("shows and persists a task before uploads finish without polling or exposing the private snapshot", async () => {
-    let finishUpload: ((response: Response) => void) | undefined;
+    let finishUpload: ((key: string) => void) | undefined;
+    upload.mockImplementation(() => new Promise<string>((resolve) => { finishUpload = resolve; }));
     const statusCalls: string[] = []; const requests: Record<string, unknown>[] = [];
     vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
       if (url === "/api/studio/session") return Response.json(session);
-      if (url === "/api/studio/uploads") return new Promise<Response>((resolve) => { finishUpload = resolve; });
       if (url === "/api/studio/generate") {
         requests.push(JSON.parse(String(init?.body)));
         return Response.json({ generationId: requests[0].generationId, conversationId: "conversation", status: "queued", deadlineAt: "date" }, { status: 202 });
@@ -51,7 +54,7 @@ describe("studio workflow", () => {
     expect(JSON.stringify(history.writes)).not.toMatch(/original-secret|private-reference|original.png|apiKey|inputImageKeys|references/);
     act(() => { window.dispatchEvent(new Event("focus")); files.splice(0); result.current.updateConnection({ baseUrl: session.defaults.baseUrl, apiKey: "changed-secret", rememberKey: false }); });
     expect(statusCalls).toEqual([]);
-    await act(async () => { finishUpload!(Response.json({ inputImageKey: "studio/session/uploads/original.png" })); });
+    await act(async () => { finishUpload!("studio/session/uploads/original.png"); });
     await waitFor(() => expect(result.current.busy).toBe(false));
     expect(requests).toEqual([expect.objectContaining({ generationId: result.current.entries[0].generationId, apiKey: "original-secret", ...params, inputImageKeys: ["studio/session/uploads/original.png"] })]);
     expect(result.current.entries).toHaveLength(1);
@@ -99,12 +102,12 @@ describe("studio workflow", () => {
   });
 
   it("does not send a generation or another upload after the page unmounts", async () => {
-    let finishUpload: ((response: Response) => void) | undefined;
+    let finishUpload: ((key: string) => void) | undefined;
+    upload.mockImplementation(() => new Promise<string>((resolve) => { finishUpload = resolve; }));
     const calls: string[] = [];
     vi.stubGlobal("fetch", async (url: string) => {
       calls.push(url);
       if (url === "/api/studio/session") return Response.json(session);
-      if (url === "/api/studio/uploads") return new Promise<Response>((resolve) => { finishUpload = resolve; });
       throw new Error(`Unexpected request: ${url}`);
     });
     const { result, unmount } = renderHook(() => useStudio());
@@ -112,20 +115,21 @@ describe("studio workflow", () => {
     act(() => result.current.updateConnection({ baseUrl: session.defaults.baseUrl, apiKey: "fixture", rememberKey: false }));
     act(() => { void result.current.generate({ prompt: "cat", size: "auto" }, [1, 2].map((n) => new File(["x"], `${n}.png`, { type: "image/png" }))); });
     unmount();
-    await act(async () => { finishUpload!(Response.json({ inputImageKey: "studio/session/uploads/1.png" })); });
-    expect(calls).toEqual(["/api/studio/session", "/api/studio/uploads"]);
+    await act(async () => { finishUpload!("studio/session/uploads/1.png"); });
+    expect(calls).toEqual(["/api/studio/session"]);
+    expect(upload).toHaveBeenCalledTimes(1);
   });
 
   it("ignores stale missingIds for a local preparation and cannot retry it as a text-only task", async () => {
     let statusEvent: ((event: MessageEvent) => void) | undefined;
-    let finishUpload: ((response: Response) => void) | undefined;
+    let finishUpload: ((key: string) => void) | undefined;
+    upload.mockImplementation(() => new Promise<string>((resolve) => { finishUpload = resolve; }));
     const submits: Record<string, unknown>[] = [];
     history.records = [{ generationId: "a3cb3433-0b76-4c9a-942a-6792c977fd32", createdAt: Date.now(), params: { prompt: "earlier cat", size: "auto" }, status: "running", deadlineAt: "" }];
     vi.stubGlobal("EventSource", class { addEventListener(_name: string, callback: (event: MessageEvent) => void) { statusEvent = callback; } close() {} });
     vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
       if (url === "/api/studio/session") return Response.json(session);
       if (url.startsWith("/api/studio/status")) return Response.json({ items: [], missingIds: [] });
-      if (url === "/api/studio/uploads") return new Promise<Response>((resolve) => { finishUpload = resolve; });
       submits.push(JSON.parse(String(init?.body)));
       return Response.json({ generationId: submits[0].generationId, conversationId: "conversation", status: "queued", deadlineAt: "date" }, { status: 202 });
     });
@@ -138,7 +142,7 @@ describe("studio workflow", () => {
     await act(async () => { statusEvent!(new MessageEvent("status", { data: JSON.stringify({ items: [], missingIds: [id] }) })); await result.current.retry(id); });
     expect(result.current.entries[0]).toMatchObject({ generationId: id, status: "queued", localPreparation: true });
     expect(submits).toEqual([]);
-    await act(async () => { finishUpload!(Response.json({ inputImageKey: "studio/session/uploads/cat.png" })); });
+    await act(async () => { finishUpload!("studio/session/uploads/cat.png"); });
     await waitFor(() => expect(result.current.busy).toBe(false));
     expect(submits).toEqual([expect.objectContaining({ generationId: id, inputImageKeys: ["studio/session/uploads/cat.png"] })]);
   });
@@ -162,13 +166,13 @@ describe("studio workflow", () => {
   it("keeps an accepted task active when a missing snapshot from before acceptance arrives after a slow upload", async () => {
     let now = Date.now();
     vi.spyOn(Date, "now").mockImplementation(() => now);
-    let finishUpload: ((response: Response) => void) | undefined;
+    let finishUpload: ((key: string) => void) | undefined;
+    upload.mockImplementation(() => new Promise<string>((resolve) => { finishUpload = resolve; }));
     let finishAcceptance: ((response: Response) => void) | undefined;
     let finishMissingStatus: ((response: Response) => void) | undefined;
     let id = ""; let statusCalls = 0;
     vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
       if (url === "/api/studio/session") return Response.json(session);
-      if (url === "/api/studio/uploads") return new Promise<Response>((resolve) => { finishUpload = resolve; });
       if (url === "/api/studio/generate") {
         id = JSON.parse(String(init?.body)).generationId;
         return new Promise<Response>((resolve) => { finishAcceptance = resolve; });
@@ -184,7 +188,7 @@ describe("studio workflow", () => {
     act(() => result.current.updateConnection({ baseUrl: session.defaults.baseUrl, apiKey: "fixture", rememberKey: false }));
     await act(async () => { await result.current.generate({ prompt: "cat", size: "auto" }, [new File(["x"], "cat.png", { type: "image/png" })]); });
     now += 31_000;
-    await act(async () => { finishUpload!(Response.json({ inputImageKey: "studio/session/uploads/cat.png" })); });
+    await act(async () => { finishUpload!("studio/session/uploads/cat.png"); });
     await waitFor(() => expect(finishMissingStatus).toBeDefined());
     await act(async () => { finishAcceptance!(Response.json({ generationId: id, conversationId: "conversation", status: "queued", deadlineAt: new Date(now + 600_000).toISOString() }, { status: 202 })); });
     await waitFor(() => expect(result.current.busy).toBe(false));
@@ -232,12 +236,9 @@ describe("studio workflow", () => {
 
   it.each(["network", "429"])("uploads four ordered references and retries the original model and ids after %s without uploading again", async (failure) => {
     const uploads: string[] = []; const requests: Record<string, unknown>[] = [];
+    upload.mockImplementation(async (file) => { uploads.push(file.name); return `studio/session/uploads/${uploads.length}.png`; });
     vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
       if (url === "/api/studio/session") return Response.json(session);
-      if (url === "/api/studio/uploads") {
-        const file = (init?.body as FormData).get("file") as File; uploads.push(file.name);
-        return Response.json({ inputImageKey: `studio/session/uploads/${uploads.length}.png` });
-      }
       if (url === "/api/studio/generate") {
         requests.push(JSON.parse(String(init?.body)));
         if (requests.length === 1) {
@@ -269,12 +270,13 @@ describe("studio workflow", () => {
 
   it("retains a failed preparation and retries the original complete ordered image request on the same task", async () => {
     let count = 0; const submits: Record<string, unknown>[] = []; const uploads: string[] = [];
+    upload.mockImplementation(async (file) => {
+      uploads.push(file.name);
+      if (++count === 2) throw new Error("upload retries exhausted");
+      return `studio/session/uploads/${file.name}`;
+    });
     vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
       if (url === "/api/studio/session") return Response.json(session);
-      if (url === "/api/studio/uploads") {
-        const file = (init?.body as FormData).get("file") as File; uploads.push(file.name);
-        return ++count === 2 ? Response.json({ error: "upload failed" }, { status: 503 }) : Response.json({ inputImageKey: `studio/session/uploads/${file.name}` });
-      }
       if (url === "/api/studio/generate") {
         submits.push(JSON.parse(String(init?.body)));
         return Response.json({ generationId: submits[0].generationId, conversationId: "conversation", status: "queued", deadlineAt: "date" }, { status: 202 });

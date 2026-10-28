@@ -2,6 +2,7 @@ import { closeDbPools } from "../src/db/db.server";
 import timeoutRescan from "../netlify/functions/cron-timeout-rescan";
 import credentialCleanup from "../netlify/functions/cron-clean-generation-credentials";
 import cleanImages from "../netlify/functions/cron-clean-images";
+import { cleanupStudioUploads } from "../src/server/studio/resumable-upload.server";
 
 const completed = new Map<string, number>();
 let stopping = false;
@@ -28,6 +29,10 @@ async function tick(now = new Date()) {
   const minuteExpiry = nowMs + 2 * 60_000;
   const dayExpiry = nowMs + 2 * 24 * 60 * 60_000;
   await run("timeout-rescan", minuteSlot, minuteExpiry, timeoutRescan);
+  await run("upload-cleanup", minuteSlot, minuteExpiry, async () => {
+    await cleanupStudioUploads();
+    return new Response(null, { status: 204 });
+  });
   if (now.getUTCMinutes() % 5 === 0) await run("credential-cleanup", minuteSlot, minuteExpiry, credentialCleanup);
   const hm = `${String(now.getUTCHours()).padStart(2, "0")}:${String(now.getUTCMinutes()).padStart(2, "0")}`;
   const day = now.toISOString().slice(0, 10);

@@ -1,4 +1,5 @@
 import type { StudioAccepted, StudioGenerateRequest, StudioSessionInfo, StudioStatusBatch } from "../../contracts/studio";
+import { uploadResumableReference } from "./resumable-upload";
 
 export class StudioApiError extends Error {
   constructor(message: string, public status: number) { super(message); }
@@ -28,9 +29,7 @@ export function validateReferenceImage(file: File): string | null {
 export async function uploadReference(file: File): Promise<string> {
   const invalid = validateReferenceImage(file);
   if (invalid) throw new Error(invalid);
-  const form = new FormData(); form.set("file", file);
-  const result = await readResponse<{ inputImageKey: string }>(await fetch("/api/studio/uploads", { method: "POST", credentials: "same-origin", body: form }));
-  return result.inputImageKey;
+  return uploadResumableReference(file);
 }
 export async function getStudioStatus(ids: string[]): Promise<StudioStatusBatch> {
   return readResponse(await fetch(`/api/studio/status?ids=${encodeURIComponent(ids.join(","))}`, { credentials: "same-origin", cache: "no-store" }));

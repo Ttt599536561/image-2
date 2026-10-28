@@ -1,9 +1,44 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { crc32, deflateSync } from "node:zlib";
 import type { Locator, Page } from "@playwright/test";
 import { completeJob, configureConnection, expect, expectNoMoney, firstSseStatus, fixtureBaseUrl, fixtureKey, history, openStudio, ownerOf, pool, postJob, referenceFiles, requestBody, selectOption, submitFromUi, test, tinyPng } from "./studio-fixture";
 
 const references = (page: Page) => page.getByRole("img", { name: /^参考图片 \d$/ });
 const modelSelect = (page: Page) => page.getByRole("combobox", { name: "生成模型", exact: true });
+
+async function submitReferencesFromUi(page: Page, prompt: string) {
+  await page.getByLabel("画面描述").fill(prompt);
+  // Upload preparation includes multiple bounded network round trips before generation starts.
+  const response = page.waitForResponse((item) => new URL(item.url()).pathname === "/api/studio/generate" && item.request().method() === "POST", { timeout: 60_000 });
+  await page.getByRole("button", { name: "开始生成" }).click();
+  const accepted = await response;
+  expect(accepted.status(), await accepted.text()).toBe(202);
+  return accepted.json();
+}
+
+// Valid synthetic PNG at the original failing screenshot size; no private image fixture is used.
+function screenshotFixture(): Buffer {
+  const width = 768; const height = 592;
+  const pixels = Buffer.alloc((width * 3 + 1) * height);
+  let seed = 0x18eaf21;
+  for (let y = 0; y < height; y++) for (let x = 1; x <= width * 3; x++) {
+    seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
+    pixels[y * (width * 3 + 1) + x] = seed >>> 24;
+  }
+  const chunk = (name: string, data: Buffer) => {
+    const typeAndData = Buffer.concat([Buffer.from(name), data]);
+    const header = Buffer.alloc(4); header.writeUInt32BE(data.length);
+    const checksum = Buffer.alloc(4); checksum.writeUInt32BE(crc32(typeAndData));
+    return Buffer.concat([header, typeAndData, checksum]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width); ihdr.writeUInt32BE(height, 4); ihdr[8] = 8; ihdr[9] = 2;
+  const prefix = Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", ihdr), chunk("IDAT", deflateSync(pixels))]);
+  const end = chunk("IEND", Buffer.alloc(0));
+  const text = Buffer.alloc(1_371_573 - prefix.length - end.length - 12, 120);
+  text.write("fixture\0");
+  return Buffer.concat([prefix, chunk("tEXt", text), end]);
+}
 
 test("@smoke anonymous entry and explicit key retention", async ({ page }) => {
   const owner = await openStudio(page);
@@ -83,14 +118,14 @@ test("reference upload and editing a completed image use real stored bytes", asy
   await configureConnection(page);
   await page.getByLabel("上传参考图片").setInputFiles({ name: "reference.png", mimeType: "image/png", buffer: tinyPng });
   await expect(references(page)).toHaveCount(1);
-  const first = await submitFromUi(page, "参考图换成水彩风格");
+  const first = await submitReferencesFromUi(page, "参考图换成水彩风格");
   const initial = (await pool.query("SELECT input_image_key,input_image_keys FROM generations WHERE id=$1", [first.generationId])).rows[0];
   expect((initial.input_image_keys ?? [initial.input_image_key])[0]).toMatch(new RegExp(`^uploads/${owner}/`));
   await completeJob(first.generationId, { reference: true });
   await expect(page.getByRole("button", { name: "以图编辑" })).toBeVisible();
   await page.getByRole("button", { name: "以图编辑" }).click();
   await expect(references(page)).toHaveCount(1);
-  const second = await submitFromUi(page, "保留构图，添加落日");
+  const second = await submitReferencesFromUi(page, "保留构图，添加落日");
   await completeJob(second.generationId, { reference: true, prompt: "保留构图，添加落日" });
   await expect.poll(async () => (await history(page)).filter((entry) => entry.blobSize > 0).length).toBe(2);
   await expectNoMoney(owner);
@@ -107,7 +142,7 @@ test("submitted task is visible before reference uploads finish and completes wi
   const heldUploads = new Promise<void>((resolve) => { releaseUploads = resolve; });
   let uploadCalls = 0;
   const generationRequests: Record<string, unknown>[] = [];
-  await page.route("**/api/studio/uploads", async (route) => {
+  await page.route("**/api/studio/uploads/resumable", async (route) => {
     uploadCalls += 1;
     await heldUploads;
     await route.continue();
@@ -138,7 +173,7 @@ test("submitted task is visible before reference uploads finish and completes wi
     await testInfo.attach("submitted-before-upload-mobile", { body: await page.screenshot({ path: testInfo.outputPath("immediate-submitted-mobile.png") }), contentType: "image/png" });
     await page.setViewportSize({ width: 1280, height: 720 });
   } finally { releaseUploads(); }
-  await expect.poll(() => generationRequests.length).toBe(1);
+  await expect.poll(() => generationRequests.length, { timeout: 60_000 }).toBe(1);
   expect(generationRequests[0].generationId).toBe(generationId);
   expect(generationRequests[0].inputImageKeys).toHaveLength(4);
   await expect.poll(async () => (await pool.query("SELECT id FROM generations WHERE id=$1", [generationId])).rowCount).toBe(1);
@@ -160,9 +195,9 @@ test("failed reference upload keeps its task and retries the original ID with ev
   const prompt = "第二张上传失败后重试原来的四图任务";
   let uploadCalls = 0;
   const generationRequests: Record<string, unknown>[] = [];
-  await page.route("**/api/studio/uploads", async (route) => {
+  await page.route("**/api/studio/uploads/resumable", async (route) => {
     uploadCalls += 1;
-    if (uploadCalls === 2) await route.fulfill({ status: 408, contentType: "application/json", body: JSON.stringify({ error: "参考图片请求超时，请重试。" }) });
+    if (uploadCalls >= 2 && uploadCalls <= 4) await route.fulfill({ status: 408, contentType: "application/json", body: JSON.stringify({ error: "参考图片请求超时，请重试。" }) });
     else await route.continue();
   });
   page.on("request", (request) => {
@@ -175,7 +210,7 @@ test("failed reference upload keeps its task and retries the original ID with ev
   await expect(page.getByRole("button", { name: "重试任务", exact: true })).toBeEnabled();
   await expect.poll(async () => (await history(page)).map((entry) => entry.status)).toEqual(["failed"]);
   const generationId = (await history(page))[0].generationId;
-  expect(uploadCalls).toBe(2);
+  expect(uploadCalls).toBe(4);
   expect(generationRequests).toHaveLength(0);
   expect((await pool.query("SELECT id FROM generations WHERE user_id=$1", [owner])).rowCount).toBe(0);
   await testInfo.attach("failed-upload-task", { body: await page.screenshot({ path: testInfo.outputPath("failed-upload-task.png") }), contentType: "image/png" });
@@ -188,7 +223,7 @@ test("failed reference upload keeps its task and retries the original ID with ev
   await page.getByPlaceholder("输入你的 API Key").fill("replacement-fixture-key-must-not-reach-relay");
   await page.getByRole("button", { name: "完成，开始创作" }).click();
   await page.getByRole("button", { name: "重试任务", exact: true }).click();
-  await expect.poll(() => generationRequests.length).toBe(1);
+  await expect.poll(() => generationRequests.length, { timeout: 60_000 }).toBe(1);
   expect(generationRequests[0]).toMatchObject({ generationId, prompt, model: "gpt-image-2.5-sunburst", apiKey: fixtureKey });
   expect(generationRequests[0].inputImageKeys).toHaveLength(4);
   expect(generationRequests[0].inputImageKey).toBeUndefined();
@@ -199,6 +234,67 @@ test("failed reference upload keeps its task and retries the original ID with ev
   await expect.poll(async () => (await history(page)).map(({ generationId: id, status }) => ({ id, status }))).toEqual([{ id: generationId, status: "succeeded" }]);
   expect((await pool.query("SELECT id FROM generations WHERE user_id=$1", [owner])).rows).toEqual([{ id: generationId }]);
   expect(generationRequests).toHaveLength(1);
+  await expectNoMoney(owner);
+});
+
+test("pasted 1.37 MB screenshot recovers a lost accepted chunk response and generates exactly once", async ({ page }, testInfo) => {
+  const owner = await openStudio(page);
+  await configureConnection(page);
+  const bytes = screenshotFixture();
+  expect(bytes.length).toBe(1_371_573);
+  const sha256 = createHash("sha256").update(bytes).digest("hex");
+  const clipboard = await page.evaluateHandle((base64) => {
+    const data = new DataTransfer();
+    const bytes = Uint8Array.from(atob(base64), (character) => character.charCodeAt(0));
+    data.items.add(new File([bytes], "screenshot.png", { type: "image/png" }));
+    return data;
+  }, bytes.toString("base64"));
+  await page.getByLabel("画面描述").evaluate((element, clipboardData) => element.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, clipboardData })), clipboard);
+  await clipboard.dispose();
+  await expect(references(page)).toHaveCount(1);
+  await expect.poll(() => references(page).evaluate((image) => (image as HTMLImageElement).naturalWidth)).toBe(768);
+  const creates: Record<string, unknown>[] = [];
+  const generationRequests: Record<string, unknown>[] = [];
+  const repeatedChunks: { url: string; hash: string }[] = [];
+  page.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (path === "/api/studio/uploads/resumable") creates.push(request.postDataJSON());
+    if (path === "/api/studio/generate") generationRequests.push(request.postDataJSON());
+  });
+  await page.route(/\/api\/studio\/uploads\/resumable\/[^/]+\/2$/, async (route) => {
+    const request = route.request();
+    const chunk = request.postDataBuffer()!;
+    repeatedChunks.push({ url: request.url(), hash: createHash("sha256").update(chunk).digest("hex") });
+    const accepted = await route.fetch();
+    expect(accepted.status()).toBe(200);
+    expect(await accepted.json()).toEqual({ nextIndex: 3 });
+    const uploadId = new URL(request.url()).pathname.split("/").at(-2)!;
+    const stored = await pool.query("SELECT bytes FROM studio_upload_chunks WHERE upload_id=$1 AND chunk_index=2", [uploadId]);
+    expect(stored.rows).toHaveLength(1);
+    expect(stored.rows[0].bytes).toEqual(chunk);
+    if (repeatedChunks.length === 1) await route.abort("connectionreset");
+    else await route.fulfill({ response: accepted });
+  });
+  const prompt = "粘贴截图遇到断连后继续完成原任务";
+  const accepted = await submitReferencesFromUi(page, prompt);
+  expect(creates).toHaveLength(1);
+  expect(creates[0]).toMatchObject({ size: bytes.length, mime: "image/png", sha256 });
+  expect(repeatedChunks).toHaveLength(2);
+  expect(repeatedChunks[1]).toEqual(repeatedChunks[0]);
+  expect(generationRequests).toHaveLength(1);
+  expect(generationRequests[0].generationId).toBe(accepted.generationId);
+  const keys = generationRequests[0].inputImageKeys as string[];
+  expect(keys).toHaveLength(1);
+  const storedImage = await page.request.get(`/media/${keys[0]}`);
+  expect(storedImage.status()).toBe(200);
+  expect(createHash("sha256").update(await storedImage.body()).digest("hex")).toBe(sha256);
+  await completeJob(accepted.generationId, { images: [bytes], prompt });
+  await expect(page.getByRole("button", { name: "放大查看生成图片" })).toBeVisible();
+  await expect(page.getByRole("button", { name: `已完成：${prompt}`, exact: true })).toHaveCount(1);
+  await expect.poll(async () => (await history(page)).map(({ generationId, status }) => ({ generationId, status }))).toEqual([{ generationId: accepted.generationId, status: "succeeded" }]);
+  expect((await pool.query("SELECT id FROM generations WHERE user_id=$1", [owner])).rows).toEqual([{ id: accepted.generationId }]);
+  expect(generationRequests).toHaveLength(1);
+  await testInfo.attach("pasted-upload-recovered", { body: JSON.stringify({ bytes: bytes.length, sha256, chunkReplayCount: repeatedChunks.length, generationRequests: generationRequests.length }), contentType: "application/json" });
   await expectNoMoney(owner);
 });
 
@@ -270,6 +366,8 @@ test("network uncertainty retries only on request with the same generation ID", 
   });
   await page.getByLabel("画面描述").fill("网络中断恢复测试");
   await page.getByRole("button", { name: "开始生成" }).click();
+  // Four references now require create/chunk/complete round trips before the generation request.
+  await expect.poll(() => requests.length, { timeout: 60_000 }).toBe(1);
   await expect(page.getByRole("button", { name: "确认并重试" })).toBeVisible();
   expect(requests).toHaveLength(1);
   expect(requests[0].model).toBe("gpt-image-2.5-sunburst");
@@ -442,8 +540,8 @@ test("four references keep byte order; fifth is refused and removing the middle 
   await expect(references(page)).toHaveCount(3);
   await page.getByLabel("上传参考图片").setInputFiles(referenceFiles[4]);
   await expect(references(page)).toHaveCount(4);
-  const request = page.waitForRequest((item) => new URL(item.url()).pathname === "/api/studio/generate");
-  const accepted = await submitFromUi(page, "四张参考图按顺序融合");
+  const request = page.waitForRequest((item) => new URL(item.url()).pathname === "/api/studio/generate", { timeout: 60_000 });
+  const accepted = await submitReferencesFromUi(page, "四张参考图按顺序融合");
   const payload = (await request).postDataJSON();
   expect(payload.inputImageKeys).toHaveLength(4);
   expect(payload.inputImageKey).toBeUndefined();

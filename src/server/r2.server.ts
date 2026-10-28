@@ -7,7 +7,7 @@
 // 🔴 红线：存储凭据全在服务端 env，构建期断言不进 bundle（00 §1.4）；storage_key 末尾随机段是唯一软隔离；
 //    落图在「扣费事务外」先做、结果存临时变量，再开扣费事务（03 §4.3 / 06 §7.3）。
 
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
   DeleteObjectCommand,
   DeleteObjectsCommand,
@@ -299,6 +299,35 @@ export async function putUserUpload(args: {
   const storageKey = buildUploadKey(args.userId, args.ext);
   await putObject(storageKey, args.bytes, args.contentType, args.signal);
   return { storageKey, publicUrl: publicUrl(storageKey) };
+}
+
+/** Immutable session destination: recover only an already published identical object. */
+export async function putUserUploadAtKey(args: {
+  storageKey: string; bytes: Uint8Array; contentType: string; sha256: string; signal?: AbortSignal;
+}): Promise<void> {
+  args.signal?.throwIfAborted();
+  if (createHash("sha256").update(args.bytes).digest("hex") !== args.sha256) throw new Error("upload digest mismatch");
+  try {
+    if (isLocalStorageEnabled()) {
+      await writeLocalStorageObject(args.storageKey, args.bytes, args.signal);
+    } else {
+      await getR2Client().send(new PutObjectCommand({
+        Bucket: env("STORAGE_BUCKET"), Key: args.storageKey, Body: args.bytes,
+        ContentType: args.contentType, CacheControl: "private, no-store", IfNoneMatch: "*",
+      }), { abortSignal: args.signal });
+    }
+  } catch (error) {
+    const existing = error instanceof Error && (
+      ("code" in error && error.code === "EEXIST") ||
+      ("$metadata" in error && (error.$metadata as { httpStatusCode?: number }).httpStatusCode === 412)
+    );
+    if (!existing) throw error;
+    const stored = await getStoredImageObject(args.storageKey, args.signal);
+    if (stored.bytes.byteLength !== args.bytes.byteLength || createHash("sha256").update(stored.bytes).digest("hex") !== args.sha256) {
+      throw new Error("stored upload conflict");
+    }
+  }
+  args.signal?.throwIfAborted();
 }
 
 /** 服务端按已校验的 storage key 回读图片字节；不依赖公链，也不接受浏览器 URL。 */

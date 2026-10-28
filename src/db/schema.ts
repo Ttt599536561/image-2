@@ -13,10 +13,12 @@ import {
   bigint,
   boolean,
   check,
+  customType,
   index,
   integer,
   jsonb,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -61,6 +63,44 @@ export const studioRateLimits = pgTable("studio_rate_limits", {
   hits: integer("hits").notNull(),
   expiresAt: timestamp("expires_at", tz).notNull(),
 }, (t) => [check("studio_rate_limits_bucket_hash_check", sql`length(${t.bucketHash})=64`), check("studio_rate_limits_hits_check", sql`${t.hits}>0`), index("ix_studio_rate_limits_expires").on(t.expiresAt)]);
+
+export const studioUploadSessions = pgTable("studio_upload_sessions", {
+  id: uuid("id").primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  ipHash: text("ip_hash").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  mime: text("mime").notNull(),
+  sha256: text("sha256").notNull(),
+  storageKey: text("storage_key").notNull().unique(),
+  status: text("status").notNull().default("receiving"),
+  nextIndex: integer("next_index").notNull().default(0),
+  finalizingUntil: timestamp("finalizing_until", tz),
+  finalizationToken: uuid("finalization_token"),
+  createdAt: timestamp("created_at", tz).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", tz).notNull(),
+}, (t) => [
+  check("studio_upload_sessions_ip_hash_check", sql`length(${t.ipHash})=64`),
+  check("studio_upload_sessions_size_bytes_check", sql`${t.sizeBytes} BETWEEN 1 AND 4194304`),
+  check("studio_upload_sessions_mime_check", sql`${t.mime} IN ('image/png','image/jpeg','image/webp')`),
+  check("studio_upload_sessions_sha256_check", sql`${t.sha256} ~ '^[a-f0-9]{64}$'`),
+  check("studio_upload_sessions_status_check", sql`${t.status} IN ('receiving','finalizing','complete')`),
+  check("studio_upload_sessions_next_index_check", sql`${t.nextIndex} BETWEEN 0 AND 64`),
+  index("ix_studio_upload_owner").on(t.userId).where(sql`${t.status}<>'complete'`),
+  index("ix_studio_upload_ip").on(t.ipHash).where(sql`${t.status}<>'complete'`),
+  index("ix_studio_upload_expiry").on(t.expiresAt),
+]);
+const bytea = customType<{ data: Buffer }>({ dataType: () => "bytea" });
+export const studioUploadChunks = pgTable("studio_upload_chunks", {
+  uploadId: uuid("upload_id").notNull().references(() => studioUploadSessions.id, { onDelete: "cascade" }),
+  chunkIndex: integer("chunk_index").notNull(),
+  bytes: bytea("bytes").notNull(),
+  sha256: text("sha256").notNull(),
+}, (t) => [
+  primaryKey({ columns: [t.uploadId, t.chunkIndex] }),
+  check("studio_upload_chunks_chunk_index_check", sql`${t.chunkIndex} BETWEEN 0 AND 63`),
+  check("studio_upload_chunks_bytes_check", sql`octet_length(${t.bytes}) BETWEEN 1 AND 65536`),
+  check("studio_upload_chunks_sha256_check", sql`${t.sha256} ~ '^[a-f0-9]{64}$'`),
+]);
 
 export const creditAccounts = pgTable(
   "credit_accounts",
