@@ -6,10 +6,10 @@
 
 ## 当前状态速览
 
-> 最后更新：2026-10-28（新服务器安装完成，等待 DNS 切换与公网 HTTPS 验收）
+> 最后更新：2026-10-28（DNS 已切换，新服务器公网 HTTPS 与管理员验收完成）
 
 - 现在做到哪：
-  - 新机：`45.207.199.3` 的 `/opt/ai-image-workshop` 已部署 `ca55891`（产品版本仍为 `0.2.9`）。按 owner 确认使用全新数据库、不迁移旧账号/积分/图片；12 个迁移、管理员账号、Web/worker/scheduler/PostgreSQL/Caddy 及宿主自动更新器已就绪。内部登录与后台 API 验收通过；公网 DNS 在 2026-10-28 15:18 北京时间仍指向旧机 `49.51.35.163`，尚不能视为公网切换完成。
+  - 当前生产：`45.207.199.3` 的 `/opt/ai-image-workshop` 运行 `ca55891`（产品版本仍为 `0.2.9`），域名 `https://one-image2.tangguo.xin` 已切换至新机。按 owner 确认使用全新数据库、不迁移旧账号/积分/图片；12 个迁移、管理员账号、Web/worker/scheduler/PostgreSQL/Caddy 及宿主自动更新器已就绪。2026-10-28 公共 DNS、新 IP 可信 HTTPS、浏览器首页及正式域名管理员登录/后台 API 均验收通过。
   - 代码线：本地 main 已完成 /welcome 公开落地页、三轮视觉改版
     （F-070/F-071）、方案 B（F-072：根路径即门面）、F-073（管理后台
     手动配置未登录首页画廊）、v0.2.8 文案两条（资产库 7 天提示 + 兑换码
@@ -22,7 +22,7 @@
     0.2.0 → 0.2.7）曾连续修复三个宿主环境潜伏缺陷（jq 1.6 校验、
     /root/.docker 只读、UMask=0077 镜像权限），对应 v0.2.4/v0.2.5/v0.2.7
     三个补丁发布。
-- 下一步做什么：在 DNSPod 将 `one-image2.tangguo.xin` 现有 A 记录从 `49.51.35.163` 改为 `45.207.199.3`，随后检查 Caddy 证书和公网 HTTPS。旧站保留作回退。系统 Relay Key 仍为空，owner 可在新站后台配置；custom 模式已启用。本次未调用真实生图或扣费接口。
+- 下一步做什么：本次部署与域名切换任务已完成。旧站保留作回退。系统 Relay Key 仍为空，owner 可在新站后台配置；custom 模式已启用。真实生图尚未验收，本次未调用生图或扣费接口。
 - 已知风险/坑：
   - e2e key-modes 在本机已从"偶发超时"变为高频失败：2026-07-25 对照实验
     显示**无改动的基线（494e819）同样失败**（断言 已完成 toHaveCount(2) → 0），
@@ -35,6 +35,13 @@
     不要去手动 chmod 生产树（deploy/backups 必须保持私有）。
 
 ## 会话日志（新条目追加在最上面，必须按此格式）
+
+### [2026-10-28] DNS 切换与公网 HTTPS 验收完成
+- 任务来源：owner 已在 DNSPod 将 `one-image2` A 记录改为 `45.207.199.3`，要求继续检查 HTTPS 和网站访问。
+- 完成了什么：Cloudflare 与 Google 公共 DNS 均确认新 IP；Caddy 此前因旧解析失败处于600秒退避，重启仅 Caddy 后即成功签发正式 Let's Encrypt 证书，未修改业务服务或数据库。证书 SAN 为 `one-image2.tangguo.xin`，有效期至2027-01-26 14:34:35北京时间，证书链及主机名验证通过。
+- 验收证据：本机直连新 IP（curl `--resolve`，未禁用TLS校验）`/healthz`204、`/welcome`200、`/admin/login`200，remote_ip=`45.207.199.3`、ssl_verify_result=0，全部退出0；HTTP308到同域HTTPS。服务器普通DNS访问同样指向新IP且health204。正式HTTPS域名的13项认证/路由检查通过，含匿名后台401、管理员登录200、会话200、页面与配置/更新器/Relay API200、登出200；运行时SHA仍为ca55891。内置浏览器已打开正式首页，截图 `.cache/logs/deployment/public-site-https.png`。
+- 限制与本机网络：本机Clash TUN将域名映射到198.18.0.135；正常浏览器/普通curl可访问，强绑物理网卡同时访问fake-IP会超时，不能据此判定网站故障。新IP直连和服务器端普通DNS探测已排除旧站响应混淆。尚未调用真实生图；系统Relay Key仍待owner后台填写。
+- 证据与下一步：`.cache/logs/deployment/public-auth-verification.json` 保存正式HTTPS登录验证；本轮公网探测摘要及浏览器截图同目录。部署、解析和HTTPS任务完成，旧腾讯云站点保持原样，管理员凭据继续保存在本机 `.local/deployment/admin-access.json`。
 
 ### [2026-10-28] 恢复中断部署：新机安装与管理员验收完成，待 DNS 切换
 - 任务来源：owner 要求接续「拉取并启动 image-2 项目」中断聊天；此前已授权推送 GitHub、部署 `45.207.199.3`，明确不保留旧数据，管理员邮箱 `599536561@qq.com`。

@@ -4,15 +4,16 @@
 
 ## 当前生产事实
 
-- 当前产品版本为 `0.2.9`；腾讯云生产环境运行提交
-  `407cdea93fd43377b0889814b933a64ccca134d8`，站点为
-  `https://one-image2.tangguo.xin`。
+- 当前产品版本为 `0.2.9`；生产已于2026-10-28切换到 `45.207.199.3`
+  的 `/opt/ai-image-workshop`，运行提交 `ca55891faf1d422360d06ace5e1b5f981cb9a0c0`，
+  站点为 `https://one-image2.tangguo.xin`；公网HTTPS及管理员登录验收通过。
+  按owner确认使用全新数据库，未迁移旧账号/积分/图片；旧腾讯云站点保留作回退。
 - Debian Docker Compose：Caddy/现有代理 -> `web`，并运行 `worker`、单例 `scheduler`。
 - PostgreSQL 17 在私有 Compose 网络中，数据卷为 `postgres_data`；宿主机不发布 `5432`。
 - 媒体默认存 `media_data:/app/data/media`，数据库保存相对地址 `/media/<key>`。
 - 容器内 Web 使用 `3000`；宿主机已有 `3000` 不冲突。现有代理模式只绑定空闲的 `127.0.0.1` 端口。
 - 安装从空数据开始，不迁移 Neon/Supabase/Netlify 数据。Neon 与 S3 仅是可选驱动。
-- 安装器只收集 Relay Key、管理员邮箱、可见管理员密码；内部密钥自动生成。管理员入口 `/admin/login`。部署完成即开放 system/custom，用户可在浏览器保存自己的 Key。
+- 安装器收集可留空的 Relay Key、管理员邮箱、可见管理员密码；内部密钥自动生成。管理员入口 `/admin/login`。新机系统Relay Key尚未配置，需管理员在后台填写后使用system模式；custom模式已开启，用户可在浏览器保存自己的Key。
 - 安装、resume、升级、备份、恢复及空栈持久化 smoke 已实现并验证；现有产品与工程需求全部收口。
 - 未登录访问 `/` 会 302 到公开落地页 `/welcome`；后台 `/admin/landing-gallery` 可手动配置未登录首页画廊（CRUD/排序/上下架，无配置回退灵感库）。
 - 管理后台更新入口为 `/admin/system-update`；宿主机
