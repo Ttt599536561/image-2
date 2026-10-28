@@ -6,12 +6,12 @@
 
 ## 当前状态速览
 
-> 最后更新：2026-10-28（0.3.1本地验收完成，待更新；现网0.3.0/f894508）
+> 最后更新：2026-10-28（0.3.1已上线，生产运行89a9dcb）
 
 - 现在做到哪：
-  - 0.3.1代码：F-078紧凑控制区、双模型、固定URL、美化选择器和4参考图已完成本地验收及独立审查；正在推送/更新，实际生产状态仍见下一条。
+  - 0.3.1：F-078紧凑控制区、双模型、固定URL、美化选择器和4参考图已完成验收、独立审查、GitHub CI及生产更新。
   - 0.3.0：F-077无需普通账户的URL＋Key工作台已完成本地验收、独立审查、GitHub CI和生产更新；三栏大结果区、IndexedDB历史、匿名会话隔离、SSRF防护和旧计费入口退役均已上线。
-  - 当前生产：`45.207.199.3` 的 `/opt/ai-image-workshop` 运行 `f894508b8700f905843bca3893a313e4b0b30b55`（`0.3.0`），域名 `https://one-image2.tangguo.xin`。13个迁移、Web/worker/scheduler/PostgreSQL/Caddy及宿主更新器正常；首页200、health204、匿名cookie与缺Key400、旧计费/注册API404、管理员运维登录均验证通过。此为main部署，未额外创建GitHub稳定版tag。
+  - 当前生产：`45.207.199.3` 的 `/opt/ai-image-workshop` 运行 `89a9dcb7b1804b58e29b1446019360fc63c62aff`（`0.3.1`），域名 `https://one-image2.tangguo.xin`。14个迁移、五服务正常；首页200、health204、固定URL、两模型菜单、4图配置、缺Key400均验证通过。此为main部署，未额外创建GitHub稳定版tag。
   - 代码线：本地 main 已完成 /welcome 公开落地页、三轮视觉改版
     （F-070/F-071）、方案 B（F-072：根路径即门面）、F-073（管理后台
     手动配置未登录首页画廊）、v0.2.8 文案两条（资产库 7 天提示 + 兑换码
@@ -24,7 +24,7 @@
     0.2.0 → 0.2.7）曾连续修复三个宿主环境潜伏缺陷（jq 1.6 校验、
     /root/.docker 只读、UMask=0077 镜像权限），对应 v0.2.4/v0.2.5/v0.2.7
     三个补丁发布。
-- 下一步做什么：推送0.3.1、等待CI、备份并应用0013迁移更新现网。生成验收仅用本地fake relay，不使用生产或其他用途Key、不发真实付费生成；管理员凭据仅用于其登录验证。
+- 下一步做什么：本次六项改造与上线完成，等待owner体验。生成验收仅用本地fake relay，未使用生产或其他用途Key、未发真实付费生成；账号实际模型权限和额度需由用户自己的服务决定。
 - 已知风险/坑：
   - e2e key-modes 在本机已从"偶发超时"变为高频失败：2026-07-25 对照实验
     显示**无改动的基线（494e819）同样失败**（断言 已完成 toHaveCount(2) → 0），
@@ -37,6 +37,13 @@
     不要去手动 chmod 生产树（deploy/backups 必须保持私有）。
 
 ## 会话日志（新条目追加在最上面，必须按此格式）
+
+### [2026-10-28] 0.3.1紧凑双模型四图工作台：生产更新完成
+- 任务来源：完成owner本轮六项要求及沿用已授权发布流程。
+- 发布：实现 `89a9dcb` 已快进main并推送；[CI #50](https://github.com/Ttt599536561/image-2/actions/runs/40670458359)全绿，97单测文件/774项通过，Docker和真实空栈smoke通过。服务器预构建后执行受控upgrade，0013迁移应用，upgrade.state complete/status0；五服务正常，Web/PG healthy。
+- 生产验收：运行时0.3.1/89a9dcb；HTTPS首页200、health204、固定baseUrl、maxReferenceImages=4、缺Key请求400；旧套餐接口404、注册跳回首页。浏览器实际打开两模型菜单，列表可聚焦，固定URL字段readOnly，四图计数可见；截图 `.cache/logs/deployment/refinement-production-desktop.jpg`。没有提交带有效Key的生成请求，也没有读取上游Key。
+- 回退与证据：旧镜像 `ai-image-workshop:rollback-0.3.0-f894508` 保留，当前 `ai-image-workshop:0.3.1-89a9dcb`。备份 `deploy/backups/20261028T102051Z` 的database/media/manifest校验和全OK，更新前私有配置 `deploy/backups/studio-0.3.1-before.env`。主目录 `.cache/logs/deployment/refinement-upgrade.log` 和 `refinement-production-verification.json` 保留上线证据；本地及CI完整测试见上一条记录和工作树日志。
+- 下一步：工作完成。默认模型保持gpt-image-2，用户可主动选择gpt-image-2.5-sunburst。单张参考图仍4MiB；旧异域保存Key不自动改投固定服务，需重新填写。
 
 ### [2026-10-28] F-078紧凑布局、双模型与四参考图：本地验收完成
 - 任务来源：owner六项改进要求：缩小结果区、控制台无需内部纵向滚动、两指定模型可选、URL固定、美化质量/背景选择器、全面检查UI交互、支持4张参考图。
