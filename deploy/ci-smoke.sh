@@ -29,6 +29,7 @@ BETTER_AUTH_SECRET_VALUE=''
 ENCRYPTION_KEY_VALUE=''
 COMPOSE_CLEANUP_ALLOWED=0
 SMOKE_ASSERTIONS_PASSED=0
+MEDIA_FIXTURE=''
 COMPOSE_COMMAND=()
 CLEANUP_COMPOSE_COMMAND=()
 
@@ -307,10 +308,52 @@ assert_admin_roles() {
   [[ "$business_role" == admin && "$auth_role" == admin ]] || die 'administrator role verification failed'
 }
 
+create_media_fixture() {
+  # Keep only synthetic smoke cookies in this process, never in logs or files.
+  MEDIA_FIXTURE="$(timeout --signal=KILL 30 "${COMPOSE_COMMAND[@]}" exec -T web \
+    node --import tsx --input-type=module <<'NODE'
+const base = 'http://127.0.0.1:3000';
+const cookies = [];
+for (let i = 0; i < 2; i += 1) {
+  const response = await fetch(`${base}/api/studio/session`, { signal: AbortSignal.timeout(10000) });
+  if (response.status !== 200) throw new Error(`studio bootstrap failed: ${response.status}`);
+  const cookie = response.headers.getSetCookie().map(value => value.split(';')[0]).find(value => value.startsWith('studio_session='));
+  if (!cookie) throw new Error('studio cookie missing');
+  cookies.push(cookie);
+  await response.arrayBuffer();
+}
+const { requireStudioSession } = await import('./src/server/studio/session.server.ts');
+const { closeDbPools } = await import('./src/db/db.server.ts');
+const { userId } = await requireStudioSession(new Request(base, { headers: { cookie: cookies[0] } }));
+const key = `${userId}/ci/persist.png`;
+const storage = await import('./src/server/local-storage.server.ts');
+await storage.writeLocalStorageObject(key, new Uint8Array([1,2,3]));
+await closeDbPools();
+console.log(JSON.stringify({ cookies, path: `/media/${key}` }));
+NODE
+  )" || return 1
+  [[ -n "$MEDIA_FIXTURE" ]] || die 'studio media fixture was not created'
+}
+
 assert_media_bytes() {
-  curl --noproxy '*' --fail --silent --show-error --connect-timeout 2 --max-time 10 \
-    "http://127.0.0.1:${WEB_HOST_PORT_VALUE}/media/ci/persist.png" | \
-    cmp - <(printf '\001\002\003')
+  # Verify real HTTP ownership both before and after container recreation.
+  printf '%s' "$MEDIA_FIXTURE" | timeout --signal=KILL 30 "${COMPOSE_COMMAND[@]}" exec -T web \
+    node --input-type=module -e '
+      let input = ""; for await (const chunk of process.stdin) input += chunk;
+      const fixture = JSON.parse(input);
+      for (const [cookie, expected] of [[fixture.cookies[0], 200], [fixture.cookies[1], 404], [null, 404]]) {
+        const response = await fetch("http://127.0.0.1:3000" + fixture.path, {
+          headers: cookie ? { cookie } : {}, signal: AbortSignal.timeout(10000), redirect: "error",
+        });
+        if (response.status !== expected) throw new Error(`media ownership expected ${expected}, got ${response.status}`);
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        if (expected === 200) {
+          if (bytes.length !== 3 || bytes.some((value, index) => value !== index + 1)) throw new Error("media bytes changed");
+          if (response.headers.get("cache-control") !== "private, no-store") throw new Error("private media cache policy missing");
+        }
+      }
+      console.log("studio owned media persistence and cross-session denial passed");
+    '
 }
 
 assert_exact_running_services() {
@@ -431,9 +474,7 @@ main() {
   assert_custom_mode_enabled
   assert_updater_mount_boundary
 
-  timeout --signal=KILL 30 "${COMPOSE_COMMAND[@]}" exec -T web \
-    node --import tsx --input-type=module -e \
-    "const m=await import('./src/server/local-storage.server.ts'); await m.writeLocalStorageObject('ci/persist.png',new Uint8Array([1,2,3]));"
+  create_media_fixture
   assert_media_bytes
   timeout --signal=KILL 240 "${COMPOSE_COMMAND[@]}" up -d --force-recreate \
     --wait --wait-timeout 180 web worker scheduler
