@@ -6,6 +6,8 @@ import { isActive, pickParams, pruneHistory, readHistory, writeHistory, type Stu
 import { appendReferences } from "./references";
 
 const STORAGE_WARNING = "此浏览器未能保存历史。当前结果仍可查看和下载，请及时下载原图。";
+const INTERRUPTED_PREPARATION = { code: "preparation_interrupted", message: "任务在送达服务前已中断，请重新选择参考图并提交。" };
+type Preparation = { request: StudioGenerateRequest; references: File[]; keys: string[] };
 export function useStudio() {
   const [connection, setConnection] = useState<StudioConnection>({ ...DEFAULT_CONNECTION });
   const [entries, setEntries] = useState<StudioHistoryEntry[]>([]);
@@ -20,6 +22,8 @@ export function useStudio() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Retry requests are held in memory only; credentials never enter history.
   const retryRequests = useRef(new Map<string, StudioGenerateRequest>());
+  const preparations = useRef(new Map<string, Preparation>());
+  const recoveryDeadlines = useRef(new Map<string, number>());
   const [retryIds, setRetryIds] = useState<string[]>([]);
   const downloading = useRef(new Set<string>());
   const saveQueue = useRef(Promise.resolve());
@@ -27,6 +31,11 @@ export function useStudio() {
 
   const commit = useCallback((update: (current: StudioHistoryEntry[]) => StudioHistoryEntry[]) => {
     const next = pruneHistory(update(entriesRef.current));
+    const retained = new Set(next.map((entry) => entry.generationId));
+    for (const id of preparations.current.keys()) if (!retained.has(id)) preparations.current.delete(id);
+    for (const id of retryRequests.current.keys()) if (!retained.has(id)) retryRequests.current.delete(id);
+    for (const id of recoveryDeadlines.current.keys()) if (!retained.has(id)) recoveryDeadlines.current.delete(id);
+    setRetryIds((ids) => ids.every((id) => retained.has(id)) ? ids : ids.filter((id) => retained.has(id)));
     entriesRef.current = next;
     setEntries(next);
     saveQueue.current = saveQueue.current.catch(() => {}).then(() => writeHistory(next)).catch(() => {
@@ -39,13 +48,16 @@ export function useStudio() {
     try { setConnection(loadConnection(window.localStorage)); } catch { setNotice("无法读取连接设置；Key 只在当前页面使用。"); }
     void readHistory().then((saved) => {
       if (!mounted.current) return;
-      entriesRef.current = saved;
-      setEntries(saved);
+      // Active local markers are checked with the server first: a reload can race acceptance.
+      const restored = saved.map((entry) => entry.localPreparation && !isActive(entry) ? { ...entry, localPreparation: undefined, error: INTERRUPTED_PREPARATION } : entry);
+      // A POST from the previous page may still be committing after its first status miss.
+      for (const entry of restored) if (isActive(entry) && !Number.isFinite(Date.parse(entry.deadlineAt))) recoveryDeadlines.current.set(entry.generationId, Date.now() + 30_000);
+      commit(() => restored);
       setSelectedId(saved[0]?.generationId ?? null);
-    }).catch(() => setNotice(STORAGE_WARNING)).finally(() => setReady(true));
-    void getStudioSession().then(setSession).catch(() => setError("连接工作台失败，请检查网络后重连。"));
-    return () => { mounted.current = false; };
-  }, []);
+    }).catch(() => { if (mounted.current) setNotice(STORAGE_WARNING); }).finally(() => { if (mounted.current) setReady(true); });
+    void getStudioSession().then((info) => { if (mounted.current) setSession(info); }).catch(() => { if (mounted.current) setError("连接工作台失败，请检查网络后重连。"); });
+    return () => { mounted.current = false; preparations.current.clear(); retryRequests.current.clear(); recoveryDeadlines.current.clear(); };
+  }, [commit]);
 
   const updateConnection = useCallback((next: StudioConnection) => {
     const fixed = { ...next, baseUrl: DEFAULT_CONNECTION.baseUrl };
@@ -55,24 +67,35 @@ export function useStudio() {
   }, []);
 
   const receive = useCallback((batch: StudioStatusBatch) => {
-    if (!Array.isArray(batch.items) || !Array.isArray(batch.missingIds)) return;
+    if (!mounted.current || !Array.isArray(batch.items) || !Array.isArray(batch.missingIds)) return;
     commit((current) => current.map((entry) => {
+      if (entry.localPreparation && preparations.current.has(entry.generationId)) return entry;
       const update = batch.items.find((item) => item.generationId === entry.generationId);
       if (update) {
-        retryRequests.current.delete(entry.generationId);
+        const temporaryFailure = entry.status === "failed" && retryRequests.current.has(entry.generationId);
         const rank = { queued: 0, claimed: 1, running: 2, succeeded: 3, failed: 3 };
-        if (rank[update.status] < rank[entry.status] || (!isActive(entry) && update.status !== entry.status)) return entry;
-        return { ...entry, ...update };
+        if (!temporaryFailure && (rank[update.status] < rank[entry.status] || (!isActive(entry) && update.status !== entry.status))) return entry;
+        retryRequests.current.delete(entry.generationId);
+        recoveryDeadlines.current.delete(entry.generationId);
+        return { ...entry, ...update, error: update.error, localPreparation: undefined };
       }
-      if (batch.missingIds.includes(entry.generationId) && !retryRequests.current.has(entry.generationId) && Date.now() - entry.createdAt > 30_000 && isActive(entry)) {
+      const recoveryDeadline = recoveryDeadlines.current.get(entry.generationId);
+      if (recoveryDeadline !== undefined && batch.missingIds.includes(entry.generationId) && isActive(entry)) {
+        if (Date.now() < recoveryDeadline) return entry;
+        recoveryDeadlines.current.delete(entry.generationId);
+        return { ...entry, localPreparation: undefined, status: "failed", error: INTERRUPTED_PREPARATION };
+      }
+      // A pre-acceptance poll/SSE snapshot may arrive after the POST confirms this task.
+      // Trust the server's confirmed lifetime until its deadline instead of that stale miss.
+      if (batch.missingIds.includes(entry.generationId) && !retryRequests.current.has(entry.generationId) && !(Date.parse(entry.deadlineAt) > Date.now()) && Date.now() - entry.createdAt > 30_000 && isActive(entry)) {
         return { ...entry, status: "failed", error: { code: "task_unavailable", message: "此任务已不可查询，可能已过期或浏览器会话已清除。" } };
       }
       return entry;
     }));
-    setRetryIds([...retryRequests.current.keys()]);
+    setRetryIds((ids) => ids.filter((id) => retryRequests.current.has(id) || preparations.current.has(id)));
   }, [commit]);
 
-  const activeIds = entries.filter(isActive).map((entry) => entry.generationId).sort().join(",");
+  const activeIds = entries.filter((entry) => (isActive(entry) || (entry.status === "failed" && retryRequests.current.has(entry.generationId))) && (!entry.localPreparation || !preparations.current.has(entry.generationId))).map((entry) => entry.generationId).sort().join(",");
   useEffect(() => {
     if (!activeIds || !session) return;
     let stopped = false;
@@ -92,6 +115,7 @@ export function useStudio() {
     if (typeof EventSource !== "undefined") {
       stream = new EventSource(`/api/studio/events?ids=${encodeURIComponent(activeIds)}`);
       stream.addEventListener("status", (event) => {
+        if (stopped) return;
         try { receive(JSON.parse((event as MessageEvent).data)); setStreamOffline(false); } catch { /* Polling recovers invalid or interrupted events. */ }
       });
       stream.onerror = () => setStreamOffline(true);
@@ -115,22 +139,55 @@ export function useStudio() {
     retryRequests.current.set(request.generationId, request);
     try {
       const accepted = await submitGeneration(request);
+      if (!mounted.current) return false;
       retryRequests.current.delete(request.generationId);
       commit((current) => current.map((entry) => entry.generationId === request.generationId ? { ...entry, conversationId: accepted.conversationId, deadlineAt: accepted.deadlineAt } : entry));
       setError("");
       return true;
     } catch (cause) {
+      if (!mounted.current) return false;
+      // Polling may already have confirmed or completed the task while the POST failed.
+      if (!retryRequests.current.has(request.generationId)) return true;
       if (cause instanceof StudioApiError && cause.status < 500) {
-        retryRequests.current.delete(request.generationId);
+        if (cause.status === 429) setRetryIds((ids) => [...new Set([...ids, request.generationId])]);
+        else retryRequests.current.delete(request.generationId);
         const message = cause.message;
         commit((current) => current.map((entry) => entry.generationId === request.generationId ? { ...entry, status: "failed", error: { code: "request_rejected", message } } : entry));
         setError(message);
       } else {
         setError("网络中断，尚未确认任务是否受理。可点击“确认并重试”，将使用同一任务 ID，避免重复生成。");
+        setRetryIds((ids) => [...new Set([...ids, request.generationId])]);
       }
       return false;
-    } finally { setRetryIds([...retryRequests.current.keys()]); }
+    } finally { if (mounted.current) setRetryIds((ids) => ids.filter((id) => retryRequests.current.has(id) || preparations.current.has(id))); }
   }, [commit]);
+
+  const prepareAndSend = useCallback(async (id: string) => {
+    const preparation = preparations.current.get(id);
+    if (!preparation) return;
+    try {
+      // Completed uploads survive a retry; remaining files keep their original order.
+      while (preparation.keys.length < preparation.references.length) {
+        const key = await uploadReference(preparation.references[preparation.keys.length]);
+        if (!mounted.current) return;
+        preparation.keys.push(key);
+      }
+      if (!mounted.current) return;
+      const request = { ...preparation.request, ...(preparation.keys.length ? { inputImageKeys: [...preparation.keys] } : {}) };
+      retryRequests.current.set(id, request);
+      preparations.current.delete(id);
+      commit((current) => current.map((entry) => entry.generationId === id ? { ...entry, localPreparation: undefined } : entry));
+      await send(request);
+    } catch {
+      if (!mounted.current) return;
+      const error = { code: "preparation_failed", message: "任务暂未完成，请重试此任务。" };
+      commit((current) => current.map((entry) => entry.generationId === id ? { ...entry, status: "failed", error } : entry));
+      setRetryIds((ids) => [...new Set([...ids, id])]);
+    } finally {
+      submitting.current = false;
+      if (mounted.current) setBusy(false);
+    }
+  }, [commit, send]);
 
   const generate = useCallback(async (params: StudioParams, references: File[]): Promise<boolean> => {
     if (submitting.current || !ready || !session) return false;
@@ -142,29 +199,29 @@ export function useStudio() {
       return false;
     }
     submitting.current = true; setBusy(true); setError("");
-    try {
-      const request = parsed.data;
-      if (references.length) {
-        const keys: string[] = [];
-        // At most four sequential uploads preserve order and stop at the first failure.
-        for (const reference of references) keys.push(await uploadReference(reference));
-        request.inputImageKeys = keys;
-      }
-      const entry: StudioHistoryEntry = { generationId: request.generationId, params: pickParams(request), createdAt: Date.now(), deadlineAt: "", status: "queued" };
-      // Keep the request before exposing its id to polling; it may not be accepted yet.
-      retryRequests.current.set(request.generationId, request);
-      commit((current) => [entry, ...current]);
-      setSelectedId(entry.generationId);
-      return await send(request);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "参考图上传失败，请重试。"); return false; }
-    finally { submitting.current = false; setBusy(false); }
-  }, [connection, ready, session, commit, send]);
+    const request = parsed.data;
+    const entry: StudioHistoryEntry = { generationId: request.generationId, params: pickParams(request), createdAt: Date.now(), deadlineAt: "", status: "queued", localPreparation: true };
+    preparations.current.set(entry.generationId, { request, references: [...references], keys: [] });
+    commit((current) => [entry, ...current]);
+    setSelectedId(entry.generationId);
+    void prepareAndSend(entry.generationId);
+    return true;
+  }, [connection, ready, session, commit, prepareAndSend]);
 
   const retry = async (id: string) => {
     const request = retryRequests.current.get(id);
-    if (!request || submitting.current) return;
+    const preparation = preparations.current.get(id);
+    if ((!request && !preparation) || submitting.current) return;
     submitting.current = true; setBusy(true);
-    try { await send(request); } finally { submitting.current = false; setBusy(false); }
+    setError("");
+    setRetryIds((ids) => ids.filter((retryId) => retryId !== id));
+    if (preparation) {
+      commit((current) => current.map((entry) => entry.generationId === id ? { ...entry, status: "queued", error: undefined } : entry));
+      await prepareAndSend(id);
+    } else {
+      commit((current) => current.map((entry) => entry.generationId === id && entry.status === "failed" ? { ...entry, status: "queued", error: undefined } : entry));
+      try { await send(request!); } finally { submitting.current = false; if (mounted.current) setBusy(false); }
+    }
   };
   const clearHistory = () => {
     commit((current) => current.filter(isActive));

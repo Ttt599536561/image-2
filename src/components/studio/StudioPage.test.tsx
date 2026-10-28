@@ -3,15 +3,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StudioHistoryEntry } from "../../lib/studio/history";
 import { StudioPage } from "./StudioPage";
 
-const fixture = vi.hoisted(() => ({ entry: null as StudioHistoryEntry | null, prepare: vi.fn(), info: vi.fn(), error: vi.fn() }));
+const fixture = vi.hoisted(() => ({ entry: null as StudioHistoryEntry | null, prepare: vi.fn(), info: vi.fn(), error: vi.fn(), generate: vi.fn(), success: vi.fn() }));
 vi.mock("../../lib/studio/referenceCopy", () => ({ prepareReferenceCopy: fixture.prepare }));
 vi.mock("../../lib/theme", () => ({ useThemeMode: () => ({ theme: "light", toggle: vi.fn() }) }));
-vi.mock("../Toast/ToastProvider", () => ({ useToast: () => ({ info: fixture.info, error: fixture.error, success: vi.fn() }) }));
+vi.mock("../Toast/ToastProvider", () => ({ useToast: () => ({ info: fixture.info, error: fixture.error, success: fixture.success }) }));
 vi.mock("../Lightbox/LightboxProvider", () => ({ useLightbox: () => ({ open: vi.fn() }) }));
 vi.mock("../../lib/studio/useStudio", () => ({ useStudio: () => ({
   connection: { baseUrl: "https://example.com/v1", apiKey: "fixture", rememberKey: false },
   entries: [fixture.entry!], selectedId: fixture.entry!.generationId, ready: true, session: {}, busy: false,
-  retryIds: [], setSelectedId: vi.fn(), updateConnection: vi.fn(), clearHistory: vi.fn(), generate: vi.fn(),
+  retryIds: [], setSelectedId: vi.fn(), updateConnection: vi.fn(), clearHistory: vi.fn(), generate: fixture.generate,
 }) }));
 
 beforeEach(() => {
@@ -22,6 +22,18 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("editing a generated image", () => {
+  it("clears submitted references as soon as the hook accepts the local task", async () => {
+    fixture.generate.mockResolvedValue(true);
+    vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
+    render(<StudioPage />);
+    const file = new File(["image"], "submitted.png", { type: "image/png" });
+    fireEvent.change(screen.getByLabelText("上传参考图片"), { target: { files: [file] } });
+    fireEvent.change(screen.getByRole("textbox", { name: "画面描述" }), { target: { value: "cat" } });
+    fireEvent.click(screen.getByRole("button", { name: /开始生成/ }));
+    await waitFor(() => expect(fixture.success).toHaveBeenCalledWith("任务已提交"));
+    expect(fixture.generate).toHaveBeenCalledWith(expect.objectContaining({ prompt: "cat" }), [file]);
+    expect(screen.queryByText("submitted.png")).not.toBeInTheDocument();
+  });
   it("appends selections, supports individual removal, and rejects overflow without losing images", async () => {
     render(<StudioPage />);
     const input = screen.getByLabelText("上传参考图片");

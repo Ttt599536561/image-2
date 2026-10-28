@@ -72,10 +72,12 @@ export function StudioPage() {
     }
   };
   const generate = async () => {
-    const accepted = await studio.generate(params, references);
+    const submittedReferences = referencesRef.current;
+    const accepted = await studio.generate(params, submittedReferences);
     setView("create");
     if (accepted) {
-      setPanelOpen(false); toast.success("任务已受理，可以继续创建下一张");
+      if (referencesRef.current === submittedReferences) updateReferences([]);
+      setPanelOpen(false); toast.success("任务已提交");
       if (window.matchMedia("(max-width: 900px)").matches) window.scrollTo({ top: 0, behavior: "smooth" });
     }
   };

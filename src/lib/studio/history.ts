@@ -5,6 +5,8 @@ export interface StudioHistoryEntry extends StudioJobStatus {
   params: StudioParams;
   blob?: Blob;
   conversationId?: string;
+  /** Only this marker is persisted; pending credentials and reference files stay in memory. */
+  localPreparation?: true;
 }
 export const HISTORY_LIMITS = { maxEntries: 50, maxBytes: 200 * 1024 * 1024 };
 export function isActive(entry: StudioHistoryEntry): boolean {
@@ -18,6 +20,7 @@ export function historySnapshot(entry: StudioHistoryEntry): StudioHistoryEntry {
   return {
     generationId: entry.generationId, createdAt: entry.createdAt, params: pickParams(entry.params),
     status: entry.status, deadlineAt: entry.deadlineAt,
+    ...(entry.localPreparation ? { localPreparation: true } : {}),
     ...(entry.conversationId ? { conversationId: entry.conversationId } : {}),
     ...(entry.startedAt ? { startedAt: entry.startedAt } : {}),
     ...(entry.durationMs !== undefined ? { durationMs: entry.durationMs } : {}),

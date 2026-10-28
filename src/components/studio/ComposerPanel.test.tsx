@@ -3,6 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 import { ComposerPanel } from "./ComposerPanel";
 
 describe("studio composer keyboard submission", () => {
+  it("describes accepted background work without showing upload or submission steps", () => {
+    render(<ComposerPanel params={{ prompt: "cat", size: "auto" }} onParams={vi.fn()} references={[]} onReferences={vi.fn()} onRemoveReference={vi.fn()} onGenerate={vi.fn()} busy enabled hasConnection connectionLabel="example.com" onConnection={vi.fn()} />);
+    expect(screen.getByRole("button", { name: /正在处理/ })).toBeDisabled();
+    expect(screen.queryByText(/上传并提交中|正在提交/)).not.toBeInTheDocument();
+  });
   it("uses modifier Enter only and does not submit during IME composition", () => {
     const generate = vi.fn();
     render(<ComposerPanel params={{ prompt: "一只猫", size: "auto", quality: "auto", background: "auto" }} onParams={vi.fn()} references={[]} onReferences={vi.fn()} onRemoveReference={vi.fn()} onGenerate={generate} busy={false} enabled hasConnection connectionLabel="example.com" onConnection={vi.fn()} />);

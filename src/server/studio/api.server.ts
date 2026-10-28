@@ -102,7 +102,8 @@ export async function studioUploadsAction(request: Request): Promise<Response> {
     const { userId } = await limitedOwner(request, "upload");
     const contentType = request.headers.get("content-type") ?? "";
     if (!/^multipart\/form-data;/i.test(contentType)) throw httpError(415, "INVALID_PARAM", "请上传图片文件");
-    const bytes = await readLimitedBody(request, UPLOAD_MAX_BYTES + 64 * 1024);
+    // Reference images need a longer transfer budget than small generation JSON bodies.
+    const bytes = await readLimitedBody(request, UPLOAD_MAX_BYTES + 64 * 1024, 120_000);
     let form: FormData;
     try { form = await new Response(new Uint8Array(bytes), { headers: { "Content-Type": contentType } }).formData(); }
     catch { throw httpError(400, "INVALID_PARAM", "上传内容无效"); }

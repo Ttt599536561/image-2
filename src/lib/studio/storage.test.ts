@@ -38,6 +38,11 @@ function record(id: string, createdAt: number, status: StudioHistoryEntry["statu
   return { generationId: id, createdAt, status, params: { prompt: id, size: "auto", quality: "auto" }, deadlineAt: new Date(createdAt + 600000).toISOString() };
 }
 describe("device history", () => {
+  it("persists only a preparation marker, excluding pending files and request credentials", () => {
+    const saved = historySnapshot({ ...record("preparing", 1, "queued"), localPreparation: true, references: [new File(["secret pixels"], "private.png")], request: { apiKey: "secret-key", inputImageKeys: ["private-key"] } } as unknown as StudioHistoryEntry);
+    expect(saved).toHaveProperty("localPreparation", true);
+    expect(JSON.stringify(saved)).not.toMatch(/secret|private|references|request|apiKey|inputImageKeys/);
+  });
   it("whitelists generation parameters and strips credentials from nested and root fields", () => {
     const saved = historySnapshot({ ...record("one", 1), apiKey: "root-secret", baseUrl: "private-url", params: { prompt: "a cat", size: "auto", apiKey: "nested-secret", baseUrl: "private-url" } } as unknown as StudioHistoryEntry);
     expect(JSON.stringify(saved)).not.toMatch(/secret|baseUrl|apiKey/);

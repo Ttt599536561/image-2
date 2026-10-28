@@ -15,8 +15,41 @@ const id = "00000000-0000-4000-8000-000000000001";
 const other = "00000000-0000-4000-8000-000000000002";
 const input = { baseUrl: "https://api.tangguo.xin/v1", apiKey: "private-key", prompt: "tree", size: "1024x1024", generationId: id };
 const req = (body: unknown) => new Request("https://studio.example/api/studio/generate", { method: "POST", headers: { origin: "https://studio.example", "content-type": "application/json" }, body: JSON.stringify(body) });
+function useBodyDeadlineClock(): void {
+  vi.useFakeTimers();
+  // Node's native AbortSignal.timeout does not use the fake timer clock.
+  vi.spyOn(AbortSignal, "timeout").mockImplementation((milliseconds) => {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(new DOMException("Timed out", "TimeoutError")), milliseconds);
+    return controller.signal;
+  });
+}
+function delayedBodyRequest(path: string, contentType: string, bytes: Uint8Array, delayMs: number) {
+  let timer: ReturnType<typeof setTimeout>;
+  const cancelled = vi.fn(() => clearTimeout(timer));
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const split = Math.floor(bytes.length / 2);
+      controller.enqueue(bytes.slice(0, split));
+      timer = setTimeout(() => { controller.enqueue(bytes.slice(split)); controller.close(); }, delayMs);
+    },
+    cancel: cancelled,
+  });
+  const request = new Request(`https://studio.example/api/studio/${path}`, {
+    method: "POST", headers: { origin: "https://studio.example", "content-type": contentType, "content-length": String(bytes.length) },
+    body, duplex: "half",
+  } as RequestInit);
+  return { request, cancelled };
+}
+async function referenceMultipart() {
+  const image = new Uint8Array(Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jM1sAAAAASUVORK5CYII=", "base64"));
+  const form = new FormData(); form.set("file", new File([image], "reference.png", { type: "image/png" }));
+  const encoded = new Response(form);
+  return { image, bytes: new Uint8Array(await encoded.arrayBuffer()), contentType: encoded.headers.get("content-type")! };
+}
+
 describe("anonymous API", () => {
-  afterEach(() => vi.useRealTimers());
+  afterEach(() => { vi.restoreAllMocks(); vi.clearAllTimers(); vi.useRealTimers(); });
   beforeEach(() => {
     mock.auth.mockReset().mockResolvedValue({ userId: "owner", maxConcurrency: 10 });
     mock.session.mockReset().mockResolvedValue({ userId: "owner", cookie: "studio_session=opaque; HttpOnly" });
@@ -99,6 +132,48 @@ describe("anonymous API", () => {
     expect(response.headers.get("cache-control")).toContain("private");
     expect(mock.sql.mock.calls.at(-1)![0].join("?")).toContain("user_id=");
     expect(mock.sql.mock.calls.at(-1)).toContain("owner");
+  });
+  it("accepts a multipart reference upload taking longer than 15 seconds", async () => {
+    const multipart = await referenceMultipart();
+    useBodyDeadlineClock();
+    const { request, cancelled } = delayedBodyRequest("uploads", multipart.contentType, multipart.bytes, 20_000);
+    const storageKey = `uploads/owner/2026/10/${id}.png`;
+    mock.upload.mockResolvedValue({ storageKey });
+    const responsePromise = studioUploadsAction(request);
+    await vi.advanceTimersByTimeAsync(20_000);
+    const response = await responsePromise;
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ inputImageKey: storageKey });
+    expect(mock.upload).toHaveBeenCalledWith(expect.objectContaining({ userId: "owner", bytes: multipart.image, contentType: "image/png" }));
+    expect(cancelled).not.toHaveBeenCalled();
+    expect(mock.enqueue).not.toHaveBeenCalled();
+  });
+  it("cancels an unfinished multipart upload at 120 seconds without storing it", async () => {
+    const multipart = await referenceMultipart();
+    useBodyDeadlineClock();
+    const { request, cancelled } = delayedBodyRequest("uploads", multipart.contentType, multipart.bytes, 130_000);
+    let settled = false;
+    const responsePromise = studioUploadsAction(request).then((response) => { settled = true; return response; });
+    await vi.advanceTimersByTimeAsync(119_999);
+    expect(settled).toBe(false);
+    expect(cancelled).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect((await responsePromise).status).toBe(408);
+    expect(cancelled).toHaveBeenCalledOnce();
+    expect(mock.upload).not.toHaveBeenCalled();
+    expect(mock.enqueue).not.toHaveBeenCalled();
+  });
+  it("keeps the generation JSON body deadline at 15 seconds", async () => {
+    useBodyDeadlineClock();
+    const { request, cancelled } = delayedBodyRequest("generate", "application/json", new TextEncoder().encode(JSON.stringify(input)), 16_000);
+    let settled = false;
+    const responsePromise = studioGenerateAction(request).then((response) => { settled = true; return response; });
+    await vi.advanceTimersByTimeAsync(14_999);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect((await responsePromise).status).toBe(408);
+    expect(cancelled).toHaveBeenCalledOnce();
+    expect(mock.enqueue).not.toHaveBeenCalled();
   });
   it("rejects oversize multipart body and spoofed image content", async () => {
     const form = new FormData(); form.set("file", new File(["plain text"], "x.png", { type: "image/png" }));

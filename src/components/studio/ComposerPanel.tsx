@@ -49,7 +49,7 @@ export function ComposerPanel(props: Props) {
       </div>
     </div>
     <div className={styles.composerFooter}>
-      <button type="submit" className={styles.generateButton} aria-busy={busy} disabled={busy || !enabled || !params.prompt.trim()}>{busy ? <LoaderCircle size={17} className={styles.spinner} /> : <Sparkles size={17} />}{busy ? references.length ? "上传并提交中…" : "正在提交…" : hasConnection ? "开始生成" : "连接服务后开始"}<span>↵</span></button>
+      <button type="submit" className={styles.generateButton} aria-busy={busy} disabled={busy || !enabled || !params.prompt.trim()}>{busy ? <LoaderCircle size={17} className={styles.spinner} /> : <Sparkles size={17} />}{busy ? "正在处理…" : hasConnection ? "开始生成" : "连接服务后开始"}<span>↵</span></button>
       <p>Ctrl / ⌘ + Enter 生成 <span>·</span> Enter 换行</p>
     </div>
   </form>;

@@ -44,7 +44,7 @@ test("@smoke real queue, refresh recovery, SSE, local Blob, preview, download, r
   const accepted = await submitFromUi(page, prompt);
   await expect.poll(async () => (await history(page))[0]?.status).toBe("queued");
   await page.reload();
-  await expect(page.getByRole("heading", { name: "灵感已就位，等待生成" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "任务已提交", exact: true })).toBeVisible();
   expect((await firstSseStatus(page, accepted.generationId)).items[0].status).toBe("queued");
   // Disable only recovery polling after its initial queued snapshot. Completion must arrive over real SSE.
   await page.route("**/api/studio/status?*", (route) => route.abort("failed"));
@@ -93,6 +93,112 @@ test("reference upload and editing a completed image use real stored bytes", asy
   const second = await submitFromUi(page, "保留构图，添加落日");
   await completeJob(second.generationId, { reference: true, prompt: "保留构图，添加落日" });
   await expect.poll(async () => (await history(page)).filter((entry) => entry.blobSize > 0).length).toBe(2);
+  await expectNoMoney(owner);
+});
+
+test("submitted task is visible before reference uploads finish and completes with the same ID", async ({ page }, testInfo) => {
+  const owner = await openStudio(page);
+  await configureConnection(page);
+  await selectOption(page, "生成模型", "gpt-image-2.5-sunburst");
+  await page.getByLabel("上传参考图片").setInputFiles(referenceFiles.slice(0, 4));
+  await expect(references(page)).toHaveCount(4);
+  const prompt = "后台上传四张参考图，任务立即可见";
+  let releaseUploads!: () => void;
+  const heldUploads = new Promise<void>((resolve) => { releaseUploads = resolve; });
+  let uploadCalls = 0;
+  const generationRequests: Record<string, unknown>[] = [];
+  await page.route("**/api/studio/uploads", async (route) => {
+    uploadCalls += 1;
+    await heldUploads;
+    await route.continue();
+  });
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/studio/generate") generationRequests.push(request.postDataJSON());
+  });
+  await page.getByLabel("画面描述").fill(prompt);
+  await page.getByRole("button", { name: "开始生成" }).click();
+  let generationId = "";
+  try {
+    await expect.poll(() => uploadCalls).toBe(1);
+    await expect(page.getByRole("heading", { name: "任务已提交", exact: true })).toBeVisible({ timeout: 3_000 });
+    const card = page.getByRole("region", { name: "生成结果" }).getByRole("button", { name: new RegExp(`：${prompt}$`) });
+    await expect(card).toHaveCount(1);
+    await expect(card).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByText(/上传中|上传并提交中/)).toHaveCount(0);
+    await expect.poll(async () => (await history(page)).length).toBe(1);
+    const localTask = (await history(page))[0];
+    generationId = localTask.generationId;
+    expect(localTask.status).toBe("queued");
+    expect(localTask.snapshot).not.toMatch(/apiKey|fixture-key|fixture-1|baseUrl/);
+    expect(generationRequests).toHaveLength(0);
+    expect((await pool.query("SELECT id FROM generations WHERE user_id=$1", [owner])).rowCount).toBe(0);
+    await testInfo.attach("submitted-before-upload", { body: await page.screenshot({ path: testInfo.outputPath("immediate-submitted-desktop.png") }), contentType: "image/png" });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(page.getByRole("heading", { name: "任务已提交", exact: true })).toBeInViewport();
+    await testInfo.attach("submitted-before-upload-mobile", { body: await page.screenshot({ path: testInfo.outputPath("immediate-submitted-mobile.png") }), contentType: "image/png" });
+    await page.setViewportSize({ width: 1280, height: 720 });
+  } finally { releaseUploads(); }
+  await expect.poll(() => generationRequests.length).toBe(1);
+  expect(generationRequests[0].generationId).toBe(generationId);
+  expect(generationRequests[0].inputImageKeys).toHaveLength(4);
+  await expect.poll(async () => (await pool.query("SELECT id FROM generations WHERE id=$1", [generationId])).rowCount).toBe(1);
+  await completeJob(generationId, { model: "gpt-image-2.5-sunburst", images: referenceFiles.slice(0, 4).map((file) => file.buffer), prompt });
+  await expect(page.getByRole("button", { name: "放大查看生成图片" })).toBeVisible();
+  await expect(page.getByRole("button", { name: `已完成：${prompt}`, exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(async () => (await history(page)).map(({ generationId: id, status }) => ({ id, status }))).toEqual([{ id: generationId, status: "succeeded" }]);
+  expect(uploadCalls).toBe(4);
+  expect(generationRequests).toHaveLength(1);
+  await expectNoMoney(owner);
+});
+
+test("failed reference upload keeps its task and retries the original ID with every reference in order", async ({ page }, testInfo) => {
+  const owner = await openStudio(page);
+  await configureConnection(page);
+  await selectOption(page, "生成模型", "gpt-image-2.5-sunburst");
+  await page.getByLabel("上传参考图片").setInputFiles(referenceFiles.slice(0, 4));
+  await expect(references(page)).toHaveCount(4);
+  const prompt = "第二张上传失败后重试原来的四图任务";
+  let uploadCalls = 0;
+  const generationRequests: Record<string, unknown>[] = [];
+  await page.route("**/api/studio/uploads", async (route) => {
+    uploadCalls += 1;
+    if (uploadCalls === 2) await route.fulfill({ status: 408, contentType: "application/json", body: JSON.stringify({ error: "参考图片请求超时，请重试。" }) });
+    else await route.continue();
+  });
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/studio/generate") generationRequests.push(request.postDataJSON());
+  });
+  await page.getByLabel("画面描述").fill(prompt);
+  await page.getByRole("button", { name: "开始生成" }).click();
+  await expect(page.getByRole("heading", { name: "这次生成未能完成" })).toBeVisible();
+  await expect(page.getByRole("button", { name: `生成失败：${prompt}`, exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "重试任务", exact: true })).toBeEnabled();
+  await expect.poll(async () => (await history(page)).map((entry) => entry.status)).toEqual(["failed"]);
+  const generationId = (await history(page))[0].generationId;
+  expect(uploadCalls).toBe(2);
+  expect(generationRequests).toHaveLength(0);
+  expect((await pool.query("SELECT id FROM generations WHERE user_id=$1", [owner])).rowCount).toBe(0);
+  await testInfo.attach("failed-upload-task", { body: await page.screenshot({ path: testInfo.outputPath("failed-upload-task.png") }), contentType: "image/png" });
+  // New form edits and a different Key must not change the failed task's in-memory snapshot.
+  await selectOption(page, "生成模型", "gpt-image-2");
+  await page.getByLabel("上传参考图片").setInputFiles(referenceFiles[4]);
+  await expect(references(page)).toHaveCount(1);
+  await page.getByLabel("画面描述").fill("新表单与原任务无关");
+  await page.getByRole("navigation").getByRole("button", { name: "连接设置", exact: true }).click();
+  await page.getByPlaceholder("输入你的 API Key").fill("replacement-fixture-key-must-not-reach-relay");
+  await page.getByRole("button", { name: "完成，开始创作" }).click();
+  await page.getByRole("button", { name: "重试任务", exact: true }).click();
+  await expect.poll(() => generationRequests.length).toBe(1);
+  expect(generationRequests[0]).toMatchObject({ generationId, prompt, model: "gpt-image-2.5-sunburst", apiKey: fixtureKey });
+  expect(generationRequests[0].inputImageKeys).toHaveLength(4);
+  expect(generationRequests[0].inputImageKey).toBeUndefined();
+  await expect.poll(async () => (await pool.query("SELECT id FROM generations WHERE id=$1", [generationId])).rowCount).toBe(1);
+  await completeJob(generationId, { model: "gpt-image-2.5-sunburst", images: referenceFiles.slice(0, 4).map((file) => file.buffer), prompt });
+  await expect(page.getByRole("button", { name: "放大查看生成图片" })).toBeVisible();
+  await expect(page.getByRole("button", { name: `已完成：${prompt}`, exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect.poll(async () => (await history(page)).map(({ generationId: id, status }) => ({ id, status }))).toEqual([{ id: generationId, status: "succeeded" }]);
+  expect((await pool.query("SELECT id FROM generations WHERE user_id=$1", [owner])).rows).toEqual([{ id: generationId }]);
+  expect(generationRequests).toHaveLength(1);
   await expectNoMoney(owner);
 });
 
@@ -171,6 +277,8 @@ test("network uncertainty retries only on request with the same generation ID", 
   await expect(page.getByRole("alert")).toContainText("网络中断");
   // Changes made after an uncertain submission cannot alter its frozen retry payload.
   await selectOption(page, "生成模型", "gpt-image-2");
+  await page.getByLabel("上传参考图片").setInputFiles(referenceFiles.slice(0, 4));
+  await expect(references(page)).toHaveCount(4);
   await page.getByRole("button", { name: "移除参考图片 2", exact: true }).click();
   await page.getByLabel("画面描述").fill("这段修改不应进入重试任务");
   await page.getByRole("button", { name: "确认并重试" }).click();
@@ -200,7 +308,7 @@ test("slow submissions block duplicates; Enter edits, Ctrl+Enter submits, IME do
   await prompt.dispatchEvent("keydown", { key: "Enter", ctrlKey: true, isComposing: true });
   expect(calls).toBe(0);
   await prompt.press("Control+Enter");
-  await expect(page.getByRole("button", { name: "正在提交…" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "正在处理…" })).toBeDisabled();
   await prompt.press("Control+Enter");
   expect(calls).toBe(1);
   release();
