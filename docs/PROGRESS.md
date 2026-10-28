@@ -6,11 +6,11 @@
 
 ## 当前状态速览
 
-> 最后更新：2026-10-28（0.3.0匿名工作台本地验收完成，正在发布；现网此前为ca55891）
+> 最后更新：2026-10-28（0.3.0匿名工作台已上线，生产运行f894508）
 
 - 现在做到哪：
-  - 0.3.0代码：F-077无需普通账户的URL＋Key工作台已完成本地验收和独立审查；三栏大结果区、IndexedDB历史、匿名会话隔离、SSRF防护和旧计费入口退役。待GitHub CI与新机镜像更新，验收数据见下方最新日志。
-  - 当前生产：`45.207.199.3` 的 `/opt/ai-image-workshop` 运行 `ca55891`（产品版本仍为 `0.2.9`），域名 `https://one-image2.tangguo.xin` 已切换至新机。按 owner 确认使用全新数据库、不迁移旧账号/积分/图片；12 个迁移、管理员账号、Web/worker/scheduler/PostgreSQL/Caddy 及宿主自动更新器已就绪。2026-10-28 公共 DNS、新 IP 可信 HTTPS、浏览器首页及正式域名管理员登录/后台 API 均验收通过。
+  - 0.3.0：F-077无需普通账户的URL＋Key工作台已完成本地验收、独立审查、GitHub CI和生产更新；三栏大结果区、IndexedDB历史、匿名会话隔离、SSRF防护和旧计费入口退役均已上线。
+  - 当前生产：`45.207.199.3` 的 `/opt/ai-image-workshop` 运行 `f894508b8700f905843bca3893a313e4b0b30b55`（`0.3.0`），域名 `https://one-image2.tangguo.xin`。13个迁移、Web/worker/scheduler/PostgreSQL/Caddy及宿主更新器正常；首页200、health204、匿名cookie与缺Key400、旧计费/注册API404、管理员运维登录均验证通过。此为main部署，未额外创建GitHub稳定版tag。
   - 代码线：本地 main 已完成 /welcome 公开落地页、三轮视觉改版
     （F-070/F-071）、方案 B（F-072：根路径即门面）、F-073（管理后台
     手动配置未登录首页画廊）、v0.2.8 文案两条（资产库 7 天提示 + 兑换码
@@ -23,7 +23,7 @@
     0.2.0 → 0.2.7）曾连续修复三个宿主环境潜伏缺陷（jq 1.6 校验、
     /root/.docker 只读、UMask=0077 镜像权限），对应 v0.2.4/v0.2.5/v0.2.7
     三个补丁发布。
-- 下一步做什么：将0.3.0推送GitHub并等待CI，备份新机后应用0012迁移、重建镜像并验证正式域名匿名工作台。新工作台不使用站长Relay Key，用户填写自己的URL＋Key；真实上游生图未调用。
+- 下一步做什么：本次改造与上线完成，等待owner使用自己的URL＋Key体验。真实上游生图未调用；完整生成链路通过本地relay夹具验证。旧站长Relay Key不参与工作台，后台只保留运维。
 - 已知风险/坑：
   - e2e key-modes 在本机已从"偶发超时"变为高频失败：2026-07-25 对照实验
     显示**无改动的基线（494e819）同样失败**（断言 已完成 toHaveCount(2) → 0），
@@ -36,6 +36,14 @@
     不要去手动 chmod 生产树（deploy/backups 必须保持私有）。
 
 ## 会话日志（新条目追加在最上面，必须按此格式）
+
+### [2026-10-28] 0.3.0匿名工作台生产更新完成
+- 任务来源：承接owner已授权的F-077开发、GitHub推送和服务器镜像替换。
+- 发布与修复：主实现 `3973aec` 已快进main；首次CI仅空栈媒体探针失败（旧探针未带会话，预期被新版404）。补丁 `f894508` 改为真实创建两个匿名会话、owner路径文件，重建前后均验证owner读原字节/private缓存、另一会话和无会话404；没有放宽产品鉴权。[CI #48](https://github.com/Ttt599536561/image-2/actions/runs/40660966706)全部通过，93单测文件/721项通过，真实空栈smoke完成。
+- 生产更新：预先构建新镜像以缩短停机；保留 `ai-image-workshop:rollback-0.2.9-20261028`，受控备份在 `deploy/backups/20261028T090714Z`，database/media/manifest校验和均OK。另有私有配置快照 `deploy/backups/studio-0.3.0-config.env`。只重建Caddy以更新文件挂载与私有媒体代理，再执行installer --upgrade；0012迁移成功，upgrade.state complete/status0，五服务运行，Web/PG healthy。当前镜像标签 `ai-image-workshop:0.3.0-f894508`。
+- 公网验收：正式HTTPS `/`200且直接渲染工作台，health204，welcome/login/register/billing跳回首页；旧packages/me/admin config及POSTredeem/generate/signup均404。新session为Secure/HttpOnly/SameSite=Lax；缺Key生成400，没有入队或请求上游；管理员仅运维登录和system-update接口200，测试会话已登出。匿名余额账户/积分批次数均0，待执行任务0。强制新IP的TLS验证结果0；浏览器已打开新版并保存桌面截图。
+- 验证记录：主目录 `.cache/logs/deployment/studio-production-verification.json`、`studio-upgrade.log`、`studio-production-desktop.jpg`；开发工作树完整E2E9项、money104项、构建及审查记录保留供复验。新流程仅保留当前浏览器历史（50条/200MiB），服务器图片临时7日；重要作品需用户下载。
+- 下一步：本次工作完成；线上未进行真实付费生图测试。现有安装器结尾的system/custom显示是兼容旧版的提示，不能用作公开能力判断；新公开路由只有URL＋Key工作台。
 
 ### [2026-10-28] F-077 无账户URL＋Key工作台：本地验收完成
 - 任务来源：owner要求去掉普通登录注册、套餐积分和首页海报，改为URL＋Key生图；左侧菜单/参数、右侧大结果区，并明确授权推送GitHub、重建镜像更新现有服务器。owner确认历史保留当前浏览器。
