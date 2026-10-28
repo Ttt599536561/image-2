@@ -12,7 +12,7 @@
 `PUT /api/studio/uploads/resumable/:id/:index` raw application/octet-stream → `{nextIndex}`; same bytes at same index are idempotent, conflicting bytes 409.
 `POST /api/studio/uploads/resumable/:id/complete` no request payload → `{inputImageKey}`; completion is idempotent.
 
-Creation freezes UUID, size, mime, hash and destination key; cookie determines owner. TTL10min; limits4/owner,8/IP,40/global with capacity including uncleared expired chunks. Fixed-size chunks except last; maximum64. Three attempts total with abortable deadlines and bounded Retry-After. Completion uses receiving/finalizing/complete state and stable key verified on recovery.
+Creation freezes UUID, size, mime, hash and destination key; cookie determines owner. TTL20min (public4MiB test exhausted the initial10min); limits4/owner,8/IP,40/global with capacity including uncleared expired chunks. Fixed-size chunks except last; maximum64. Three attempts total with abortable deadlines and bounded Retry-After. Completion uses receiving/finalizing/complete state and stable key verified on recovery.
 
 ## Tasks and checks
 

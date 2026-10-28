@@ -2,7 +2,7 @@ import { z } from "zod";
 import { UPLOAD_ACCEPT, UPLOAD_MAX_BYTES } from "./upload";
 
 export const STUDIO_UPLOAD_CHUNK_BYTES = 64 * 1024;
-export const STUDIO_UPLOAD_TTL_MS = 10 * 60 * 1000;
+export const STUDIO_UPLOAD_TTL_MS = 20 * 60 * 1000;
 export const StudioUploadCreateRequest = z.strictObject({
   uploadId: z.uuid(),
   size: z.number().int().min(1).max(UPLOAD_MAX_BYTES),

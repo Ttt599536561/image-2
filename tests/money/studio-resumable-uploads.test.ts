@@ -30,6 +30,19 @@ describe("bounded resumable uploads on PostgreSQL", () => {
     expect(await ctx.sql`SELECT id FROM studio_upload_sessions WHERE user_id=${owner}`).toHaveLength(1);
     await expect(createStudioUpload(owner, "127.0.0.1", { ...metadata, size: metadata.size + 1 })).rejects.toMatchObject({ status: 409 });
   });
+  it("continues and completes a slow transfer after ten minutes without extending its absolute expiry", async () => {
+    const metadata = input();
+    const created = await createStudioUpload(owner, "127.0.0.1", metadata);
+    // Advance the session's age without waiting in real time. Its original TTL remains unchanged.
+    await ctx.sql`UPDATE studio_upload_sessions
+      SET created_at=created_at-interval '10 minutes 1 second', expires_at=expires_at-interval '10 minutes 1 second'
+      WHERE id=${metadata.uploadId}`;
+    await expect(writeStudioUploadChunk(owner, metadata.uploadId, 0, png)).resolves.toEqual({ nextIndex: 1 });
+    const replay = await createStudioUpload(owner, "127.0.0.1", metadata);
+    expect(replay.expiresAt).toBe(new Date(Date.parse(created.expiresAt) - 601_000).toISOString());
+    const result = await completeStudioUpload(owner, metadata.uploadId); storedKeys.add(result.inputImageKey);
+    expect(digest((await storage.getUploadObject(result.inputImageKey)).bytes)).toBe(metadata.sha256);
+  });
   it("serializes duplicate chunks, rejects conflict and gaps, and resumes at the first missing index", async () => {
     const bytes = Buffer.concat([png, Buffer.alloc(CHUNK)]), metadata = input(bytes);
     await createStudioUpload(owner, "127.0.0.1", metadata);
