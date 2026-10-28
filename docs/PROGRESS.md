@@ -6,22 +6,23 @@
 
 ## 当前状态速览
 
-> 最后更新：2026-10-27（F-076 后端低延迟优化本地验收；生产信息仍为 2026-07-26 历史记录）
+> 最后更新：2026-10-28（新服务器安装完成，等待 DNS 切换与公网 HTTPS 验收）
 
 - 现在做到哪：
+  - 新机：`45.207.199.3` 的 `/opt/ai-image-workshop` 已部署 `ca55891`（产品版本仍为 `0.2.9`）。按 owner 确认使用全新数据库、不迁移旧账号/积分/图片；12 个迁移、管理员账号、Web/worker/scheduler/PostgreSQL/Caddy 及宿主自动更新器已就绪。内部登录与后台 API 验收通过；公网 DNS 在 2026-10-28 15:18 北京时间仍指向旧机 `49.51.35.163`，尚不能视为公网切换完成。
   - 代码线：本地 main 已完成 /welcome 公开落地页、三轮视觉改版
     （F-070/F-071）、方案 B（F-072：根路径即门面）、F-073（管理后台
     手动配置未登录首页画廊）、v0.2.8 文案两条（资产库 7 天提示 + 兑换码
     获取链接），以及 **F-074/F-075 侧边栏项目分组会话与长按拖动排序**
     （0777353，已随 v0.2.9 上线）。2026-10-27 基于 e9f41c6 完成 F-076：持续补位 worker、原子抢占、存储 deadline、提交通知/SSE、即时结果合并与读路径优化，本地已验收。
-  - 发布线：**生产已跑 v0.2.9**（2026-07-26 第二次受控更新，
+  - 旧机历史发布线：**生产已跑 v0.2.9**（2026-07-26 第二次受控更新，
     0.2.7 → 0.2.9 跨版本直升：v0.2.8 文案两条 + F-074/F-075 侧边栏
     项目分组；迁移 0009 已应用，存量会话自动归档默认项目；公网
     /healthz 204、/welcome 200）。首次受控更新（2026-07-25，
     0.2.0 → 0.2.7）曾连续修复三个宿主环境潜伏缺陷（jq 1.6 校验、
     /root/.docker 只读、UMask=0077 镜像权限），对应 v0.2.4/v0.2.5/v0.2.7
     三个补丁发布。
-- 下一步做什么：按 `docs/dev/performance-and-hosting.md` 选定可用服务器及区域后部署；未推送远程、未访问生产、未调用收费 Relay。优先评估 Oracle Always Free A1 的当前配额与实际可用性，不能承诺免费云的容量/延迟。
+- 下一步做什么：在 DNSPod 将 `one-image2.tangguo.xin` 现有 A 记录从 `49.51.35.163` 改为 `45.207.199.3`，随后检查 Caddy 证书和公网 HTTPS。旧站保留作回退。系统 Relay Key 仍为空，owner 可在新站后台配置；custom 模式已启用。本次未调用真实生图或扣费接口。
 - 已知风险/坑：
   - e2e key-modes 在本机已从"偶发超时"变为高频失败：2026-07-25 对照实验
     显示**无改动的基线（494e819）同样失败**（断言 已完成 toHaveCount(2) → 0），
@@ -34,6 +35,14 @@
     不要去手动 chmod 生产树（deploy/backups 必须保持私有）。
 
 ## 会话日志（新条目追加在最上面，必须按此格式）
+
+### [2026-10-28] 恢复中断部署：新机安装与管理员验收完成，待 DNS 切换
+- 任务来源：owner 要求接续「拉取并启动 image-2 项目」中断聊天；此前已授权推送 GitHub、部署 `45.207.199.3`，明确不保留旧数据，管理员邮箱 `599536561@qq.com`。
+- 完成了什么：复核旧断点 `admin_seeded`，保留数据库和管理员；管理员角色校验修复 `6d7bece` 已存在。发现上一轮 Better Auth `1.7.7` 依赖草稿，完成独立审查与复验后提交 `ca55891` 并推送 main，修复新披露公告导致的 high/critical 审计失败；没有业务代码或 schema 改动。新机通过 Git 拉取、构建镜像、`bash deploy/install.sh --resume` 完成安装；安装状态 `complete`，五个服务正常，Web/PG healthy，自动更新 path enabled/active。
+- 验收证据：本轮 `npm run typecheck`、`npm run test:run`、`npm run build`、`npm run assert-no-secrets`、`npm audit --audit-level=high` 均退出 0；单测 `76 passed / 584 passed | 1 skipped`，产物扫描145文件通过；认证空库/旧库迁移脚本退出0，独立测试库管理员 API smoke 18项通过。已核对同代码/lock 的既有资金98项、E2E 8通过/1跳过日志。GitHub [CI #44](https://github.com/Ttt599536561/image-2/actions/runs/40648757911) 全绿，包含 Docker 与空栈部署测试。
+- 新机证据：运行时 SHA 为 `ca55891faf1d422360d06ace5e1b5f981cb9a0c0`，worker concurrency=10，custom enabled；内部 `/healthz` 204、`/welcome` 和 `/admin/login` 200、匿名后台API401、管理员登录/会话/后台/配置/更新器API均200，验收会话已登出。公网新IP的80端口返回正确HTTPS 308跳转；旧机 `/healthz` 仍204。认证账号重复数为0；升级前数据库快照已留在新机 `deploy/backups/` 并验证归档可读。
+- 本地与证据位置：主目录依赖已同步1.7.7，8888服务正常；首次冷编译约41秒，启动后过早10秒探测曾超时，随后页面与健康检查正常，无业务代码修复。复验摘要在 `.local/deployment-worktree/.cache/logs/better-auth-reverification-summary.json`；远程构建与登录验收在 `.cache/logs/deployment/`；本地健康摘要 `.cache/logs/local-health-after-auth-upgrade.json`。临时测试账户/容器/脚本已清理，保留可复用依赖缓存和工作树。
+- 边界与下一步：新站管理员凭据仅在本机 `.local/deployment/admin-access.json`，不入Git；系统Relay Key尚未配置，真实生图未验证。运行时安装审计0漏洞；开发工具链仍有4个moderate项，不阻断high门禁，未强制降级drizzle-kit。浏览器自动化因无法可靠识别Chrome网址被工具安全检查停止，已请owner手动修改DNS；等待解析后完成证书与公网验证。
 
 ### [2026-10-27] F-076 后端低延迟优化：本地验收完成
 - 任务来源：owner 决定继续 GitHub 版本，要求先优化生图后端，再核对快速免费部署服务；目标约十个同时生图任务。
