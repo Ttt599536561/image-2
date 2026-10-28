@@ -2,10 +2,13 @@ import { lookup } from "node:dns/promises";
 import { request as httpsRequest } from "node:https";
 import { isIP, type LookupFunction } from "node:net";
 import type { IncomingHttpHeaders, IncomingMessage } from "node:http";
+import { MAX_STUDIO_REFERENCE_IMAGES } from "../../contracts/studio";
+import { UPLOAD_MAX_BYTES } from "../../contracts/upload";
 
 export const MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 export const MAX_RELAY_RESPONSE_BYTES = Math.ceil(MAX_IMAGE_BYTES / 3) * 4 + 1024 * 1024;
 const MAX_REQUEST_BYTES = 5 * 1024 * 1024;
+export const MAX_STUDIO_REQUEST_BYTES = MAX_STUDIO_REFERENCE_IMAGES * UPLOAD_MAX_BYTES + 64 * 1024;
 
 export class SafeHttpError extends Error {
   constructor(message = "仅支持公网 HTTPS 服务地址", readonly failureCode = "invalid_request") {
@@ -117,6 +120,7 @@ export interface SafeHttpsOptions {
   signal?: AbortSignal;
   deadlineAtMs: number;
   maxResponseBytes: number;
+  maxRequestBytes?: number;
 }
 export interface SafeHttpsResponse { status: number; headers: IncomingHttpHeaders; body: Buffer }
 
@@ -131,22 +135,23 @@ export async function safeHttpsRequest(value: string, options: SafeHttpsOptions)
     const url = publicHttpsUrl(value);
     const target = await resolvePublicTarget(url, controller.signal);
     const headers = { ...options.headers, "Accept-Encoding": "identity" };
+    const maxRequestBytes = Math.min(options.maxRequestBytes ?? MAX_REQUEST_BYTES, MAX_STUDIO_REQUEST_BYTES);
     let body: Buffer | undefined;
     if (options.body instanceof FormData) {
       let size = 0;
       for (const [name, value] of options.body.entries()) {
         size += Buffer.byteLength(name) + (typeof value === "string" ? Buffer.byteLength(value) : value.size) + 1024;
       }
-      if (size > MAX_REQUEST_BYTES) throw new SafeHttpError("request body too large");
+      if (size > maxRequestBytes) throw new SafeHttpError("request body too large");
       const encoded = new Response(options.body);
       body = Buffer.from(await abortable(encoded.arrayBuffer(), controller.signal));
       Object.assign(headers, { "Content-Type": encoded.headers.get("content-type")! });
     } else if (options.body !== undefined) {
-      if (Buffer.byteLength(options.body) > MAX_REQUEST_BYTES) throw new SafeHttpError("request body too large");
+      if (Buffer.byteLength(options.body) > maxRequestBytes) throw new SafeHttpError("request body too large");
       body = Buffer.from(options.body);
     }
     if (body) {
-      if (body.length > MAX_REQUEST_BYTES) throw new SafeHttpError("request body too large");
+      if (body.length > maxRequestBytes) throw new SafeHttpError("request body too large");
       Object.assign(headers, { "Content-Length": String(body.length) });
     }
     if (controller.signal.aborted) throw abortError();

@@ -1,7 +1,7 @@
 // ★server-only：中转调用封装（铁律④：Key 只在此处从 env 注入）。真相源 04 §5.3。
 // 复用 v1 imageGeneration.ts 的 build/parse；脱敏复用 redaction.ts。
 //
-// 🔴 红线：Key 只从 process.env.RELAY_API_KEY；固定 model=gpt-image-2 / n=1 / moderation=low；
+// 🔴 红线：Key 只在服务端注入；模型使用已冻结的允许值，固定 n=1 / moderation=low；
 //    AbortError(软超时) 不退避重试（请求已发出、防对中转重复下单）；F-429（HTTP200+error body）守卫；
 //    回外层的报错文案先脱敏。
 
@@ -16,7 +16,8 @@ import { redactText } from "../lib/redaction";
 import { getConfigString } from "./config.server";
 import { CUSTOM_RELAY_BASE_URL } from "./generation/credential.server";
 import { UPLOAD_MAX_BYTES } from "../contracts/upload";
-import { MAX_RELAY_RESPONSE_BYTES, normalizeStudioBaseUrl, safeHttpsRequest } from "./studio/safe-http.server";
+import { DEFAULT_STUDIO_BASE_URL, MAX_STUDIO_REFERENCE_IMAGES, STUDIO_MODEL, STUDIO_MODELS, type StudioModel } from "../contracts/studio";
+import { MAX_RELAY_RESPONSE_BYTES, MAX_STUDIO_REQUEST_BYTES, safeHttpsRequest } from "./studio/safe-http.server";
 
 export type RelayCredential = { mode: "system" } | { mode: "custom"; apiKey: string; baseUrl?: string };
 
@@ -65,7 +66,8 @@ async function relayTarget(
   credential: RelayCredential,
 ): Promise<{ mode: CredentialMode; key: string; bases: string[] }> {
   if (credential.mode === "custom") {
-    return { mode: "custom", key: credential.apiKey, bases: [credential.baseUrl === undefined ? CUSTOM_RELAY_BASE_URL : normalizeStudioBaseUrl(credential.baseUrl)] };
+    if (credential.baseUrl !== undefined && credential.baseUrl !== DEFAULT_STUDIO_BASE_URL) throw new RelayError("图片服务地址无效", 400);
+    return { mode: "custom", key: credential.apiKey, bases: [CUSTOM_RELAY_BASE_URL] };
   }
   return { mode: "system", key: await relayKey(), bases: await relayBases() };
 }
@@ -109,18 +111,20 @@ function isRetriable(err: unknown): boolean {
 /** 参考图（④b 图生图）：管线回读的字节 + content-type + 文件名（multipart `image` 字段用）。 */
 export type RelayInputImage = { bytes: Uint8Array; contentType: string; filename: string };
 
-// 图生图 multipart body（gpt-image-2 /images/edits）。字段集 model/prompt/size/n/image + 非「auto」的
-// quality/background 均经 ④a 探测实测中转 200 接受（relay-edits-probe.ts 含 quality=high+background=opaque 一组）。
+// 图生图 /images/edits：单图保留 image，多图按官方协议重复 image[]，顺序与字节不变。
+// https://developers.openai.com/api/reference/resources/images/methods/edit
+// 多图与 sunburst 仅通过本地夹具验收，不表示已验证某个真实上游账户的权限或额度。
 // 不设 Content-Type（fetch 按 FormData 自动加 boundary）。每次发送新建（避免流复用问题）。
 function buildEditsForm(req: {
   prompt: string;
+  model?: string;
   size: string;
   quality?: string | null;
   background?: string | null;
-  inputImage: RelayInputImage;
+  inputImages: RelayInputImage[];
 }): FormData {
   const fd = new FormData();
-  fd.append("model", "gpt-image-2");
+  fd.append("model", req.model ?? STUDIO_MODEL);
   fd.append("prompt", req.prompt);
   fd.append("size", toRelaySize(req.size));
   fd.append("n", "1");
@@ -130,20 +134,22 @@ function buildEditsForm(req: {
   fd.append("response_format", "b64_json");
   if (req.quality && req.quality !== "auto") fd.append("quality", req.quality);
   if (req.background && req.background !== "auto") fd.append("background", req.background);
-  fd.append(
-    "image",
-    new Blob([new Uint8Array(req.inputImage.bytes)], { type: req.inputImage.contentType }),
-    req.inputImage.filename,
+  for (const image of req.inputImages) fd.append(
+    req.inputImages.length > 1 ? "image[]" : "image",
+    new Blob([new Uint8Array(image.bytes)], { type: image.contentType }),
+    image.filename,
   );
   return fd;
 }
 
 export interface CallRelayRequest {
   prompt: string;
+  model?: string;
   size: string;
   quality?: string | null;
   background?: string | null;
   inputImage?: RelayInputImage | null; // ④b：有值 → 走 /images/edits multipart（图生图），无 → JSON 文生图
+  inputImages?: RelayInputImage[];
   credential: RelayCredential;
   deadlineAt: Date;
 }
@@ -157,14 +163,15 @@ function studioProviderError(status: number): RelayError {
   return new RelayError(messages[status] ?? "图片服务暂时不可用，请稍后重试", status);
 }
 
-async function callStudioRelay(req: CallRelayRequest, key: string, base: string, jsonBody: string | null): Promise<{ images: RelayImage[] }> {
-  if (req.inputImage && req.inputImage.bytes.byteLength > UPLOAD_MAX_BYTES) throw new RelayError("参考图超过 4MiB 限制", 400);
-  const response = await safeHttpsRequest(buildImageGenerationUrl(base, req.inputImage ? "/images/edits" : undefined), {
+async function callStudioRelay(req: CallRelayRequest, key: string, jsonBody: string | null, inputImages: RelayInputImage[]): Promise<{ images: RelayImage[] }> {
+  const isEdit = inputImages.length > 0;
+  const response = await safeHttpsRequest(buildImageGenerationUrl(DEFAULT_STUDIO_BASE_URL, isEdit ? "/images/edits" : undefined), {
     method: "POST",
-    headers: req.inputImage ? { Authorization: `Bearer ${key}` } : { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: req.inputImage ? buildEditsForm({ ...req, inputImage: req.inputImage }) : jsonBody!,
+    headers: isEdit ? { Authorization: `Bearer ${key}` } : { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: isEdit ? buildEditsForm({ ...req, inputImages }) : jsonBody!,
     deadlineAtMs: req.deadlineAt.getTime() - 30_000,
     maxResponseBytes: MAX_RELAY_RESPONSE_BYTES,
+    maxRequestBytes: MAX_STUDIO_REQUEST_BYTES,
   });
   if (response.status < 200 || response.status >= 300) throw studioProviderError(response.status);
   let raw: Record<string, unknown>;
@@ -182,18 +189,23 @@ async function callStudioRelay(req: CallRelayRequest, key: string, base: string,
 }
 
 export async function callRelay(req: CallRelayRequest): Promise<{ images: RelayImage[] }> {
+  if (req.model !== undefined && !STUDIO_MODELS.includes(req.model as StudioModel)) throw new RelayError("模型无效", 400);
+  if (req.inputImages !== undefined && req.inputImage) throw new RelayError("来源图片参数冲突", 400);
+  const inputImages = req.inputImages ?? (req.inputImage ? [req.inputImage] : []);
+  if (!Array.isArray(inputImages) || inputImages.length > MAX_STUDIO_REFERENCE_IMAGES || (req.inputImages && !inputImages.length)) throw new RelayError("参考图数量无效", 400);
+  if (inputImages.some((image) => image.bytes.byteLength > UPLOAD_MAX_BYTES)) throw new RelayError("参考图超过 4MiB 限制", 400);
   const { key, bases } = await relayTarget(req.credential);
   if (relayTimeoutMs(req.deadlineAt.getTime()) <= 0) {
     throw new DOMException("provider deadline exceeded", "AbortError");
   }
-  const isEdit = !!req.inputImage;
+  const isEdit = inputImages.length > 0;
   const endpoint = isEdit ? "/images/edits" : undefined; // undefined → 默认 /images/generations
   // JSON 文生图 body 不变（一次构造可复用）；图生图 multipart 每次新建（见 buildEditsForm）。
   const jsonBody = isEdit
     ? null
     : JSON.stringify({
         ...buildImageGenerationPayload({
-          model: "gpt-image-2",
+          model: req.model ?? STUDIO_MODEL,
           prompt: req.prompt,
           size: toRelaySize(req.size), // 「auto」→ 1024x1024（中转不接受 auto，见 toRelaySize）
           quality: req.quality ?? "auto",
@@ -209,7 +221,7 @@ export async function callRelay(req: CallRelayRequest): Promise<{ images: RelayI
 
   if (req.credential.mode === "custom" && req.credential.baseUrl !== undefined) {
     // One request only: a timeout or provider failure must never place a second paid order.
-    return callStudioRelay(req, key, bases[0], jsonBody);
+    return callStudioRelay(req, key, jsonBody, inputImages);
   }
 
   let lastErr: unknown;
@@ -231,11 +243,11 @@ export async function callRelay(req: CallRelayRequest): Promise<{ images: RelayI
         body: isEdit
           ? buildEditsForm({
               prompt: req.prompt,
+              model: req.model,
               size: req.size,
               quality: req.quality,
               background: req.background,
-              // biome-ignore lint/style/noNonNullAssertion: isEdit 蕴含 inputImage 非空
-              inputImage: req.inputImage!,
+              inputImages,
             })
           : (jsonBody as string),
       });

@@ -1,4 +1,4 @@
-import type { StudioJobStatus, StudioParams } from "../../contracts/studio";
+import { STUDIO_MODEL, type StudioJobStatus, type StudioParams } from "../../contracts/studio";
 
 export interface StudioHistoryEntry extends StudioJobStatus {
   createdAt: number;
@@ -11,7 +11,7 @@ export function isActive(entry: StudioHistoryEntry): boolean {
   return entry.status === "queued" || entry.status === "claimed" || entry.status === "running";
 }
 export function pickParams(params: StudioParams): StudioParams {
-  return { prompt: params.prompt, size: params.size, ...(params.quality ? { quality: params.quality } : {}), ...(params.background ? { background: params.background } : {}) };
+  return { prompt: params.prompt, size: params.size, model: params.model ?? STUDIO_MODEL, ...(params.quality ? { quality: params.quality } : {}), ...(params.background ? { background: params.background } : {}) };
 }
 /** Only an explicit allowlist ever crosses the browser persistence boundary. */
 export function historySnapshot(entry: StudioHistoryEntry): StudioHistoryEntry {

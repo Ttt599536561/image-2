@@ -4,6 +4,8 @@ import { getOrCreateStudioSession, requireStudioSession } from "../../src/server
 import { consumeStudioRate } from "../../src/server/studio/limits.server";
 import { enqueueGeneration } from "../../src/server/generation/enqueue";
 import { finalizeCustomSuccess } from "../../src/server/generation/finalizeCustom.server";
+import { runGenerationJob } from "../../src/server/generation/process";
+import { sweepOrphanR2Objects } from "../../src/server/maintenance.server";
 import { type TestCtx, newCtx } from "./_helpers";
 
 let ctx: TestCtx;
@@ -18,7 +20,7 @@ async function owner() {
   ctx.userIds.push(session.userId);
   return { id: session.userId, maxConcurrency: 10 };
 }
-const job = (generationId = randomUUID()) => ({ generationId, prompt: "test tree", size: "1024x1024", credentialMode: "custom" as const, customApiKey: "fixture-only-no-upstream", customBaseUrl: "https://images.example/v1" });
+const job = (generationId = randomUUID()) => ({ generationId, prompt: "test tree", size: "1024x1024", credentialMode: "custom" as const, customApiKey: "fixture-only-no-upstream", customBaseUrl: "https://api.tangguo.xin/v1" });
 
 beforeEach(async () => {
   ctx = newCtx();
@@ -35,6 +37,54 @@ afterEach(async () => {
 });
 
 describe("anonymous studio database isolation", () => {
+  it("freezes four ordered references and the selected model across a changed retry and worker claim", async () => {
+    const user = await owner();
+    const inputImageKeys = [1, 2, 3, 4].map((n) => `uploads/${user.id}/${n}.png`);
+    const input = { ...job(), model: "gpt-image-2.5-sunburst", inputImageKeys };
+    await enqueueGeneration({ user, input });
+    await enqueueGeneration({ user, input: { ...input, model: "gpt-image-2", inputImageKeys: [inputImageKeys[3]] } });
+    expect(await ctx.gen(input.generationId)).toMatchObject({ model: "gpt-image-2.5-sunburst", input_image_keys: inputImageKeys, input_image_key: null });
+    const objects = inputImageKeys.map((key, index) => ({ bytes: new Uint8Array([index, 255, 0]), contentType: "image/png", filename: key.split("/").at(-1)! }));
+    const readKeys: string[] = [];
+    expect(await runGenerationJob(input.generationId, {
+      getUploadObject: async (key) => { readKeys.push(key); return objects[inputImageKeys.indexOf(key)]; },
+      callRelay: async (request) => {
+        expect(request.model).toBe("gpt-image-2.5-sunburst");
+        expect(request.inputImages).toEqual(objects);
+        expect(request.credential).toEqual({ mode: "custom", apiKey: input.customApiKey, baseUrl: input.customBaseUrl });
+        return { images: [{ b64_json: "aGVsbG8=" }] };
+      },
+      putToR2: async () => ({ storageKey: `fixture/${input.generationId}.png`, publicUrl: `/media/fixture/${input.generationId}.png`, contentType: "image/png", sizeBytes: 5 }),
+    })).toBe("succeeded");
+    expect(readKeys).toEqual(inputImageKeys);
+    expect(await ctx.credentials(input.generationId)).toHaveLength(0);
+    expect(await ctx.ledger(user.id)).toHaveLength(0);
+    expect(await ctx.sql`SELECT user_id FROM credit_accounts WHERE user_id=${user.id}`).toHaveLength(0);
+  });
+  it("protects all four active references from orphan cleanup and releases them after termination", async () => {
+    const user = await owner();
+    const inputImageKeys = [1, 2, 3, 4].map((n) => `uploads/${user.id}/${n}.png`);
+    const input = { ...job(), inputImageKeys };
+    await enqueueGeneration({ user, input });
+    const listObjects = async () => inputImageKeys.map((key) => ({ key, lastModified: Date.now() - 2 * 3600_000 }));
+    const deleted: string[] = [];
+    const deleteMany = async (keys: string[]) => { deleted.push(...keys); return []; };
+    expect(await sweepOrphanR2Objects({ listObjects, deleteMany })).toEqual({ orphansDeleted: 0 });
+    expect(deleted).toEqual([]);
+    await ctx.sql`UPDATE generations SET status='failed' WHERE id=${input.generationId}`;
+    expect(await sweepOrphanR2Objects({ listObjects, deleteMany })).toEqual({ orphansDeleted: 4 });
+    expect(deleted).toEqual(inputImageKeys);
+  });
+  it("enforces reference-array shape, type, count and source conflicts in the database", async () => {
+    const user = await owner(); const input = job();
+    await enqueueGeneration({ user, input });
+    for (const invalid of [{ key: "x" }, [], ["1", "2", "3", "4", "5"], [1], [null], [""]]) {
+      await expect(ctx.sql`UPDATE generations SET input_image_keys=${JSON.stringify(invalid)}::jsonb WHERE id=${input.generationId}`).rejects.toMatchObject({ code: "23514" });
+    }
+    const refs = JSON.stringify([`uploads/${user.id}/ref.png`]);
+    await expect(ctx.sql`UPDATE generations SET input_image_keys=${refs}::jsonb,input_image_key='legacy' WHERE id=${input.generationId}`).rejects.toMatchObject({ code: "23514" });
+    await expect(ctx.sql`UPDATE generations SET input_image_keys=${refs}::jsonb,source_image_id=${randomUUID()} WHERE id=${input.generationId}`).rejects.toMatchObject({ code: "23514" });
+  });
   it("creates hash-only sessions without an auth account, balance, lot or ledger", async () => {
     const request = browser();
     const session = await getOrCreateStudioSession(request); ctx.userIds.push(session.userId);

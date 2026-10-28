@@ -6,6 +6,7 @@ import { closeDbPools } from "../../src/db/db.server";
 import { runGenerationJob } from "../../src/server/generation/process";
 import { deleteLocalStorageObjects, isLocalStorageEnabled, listLocalStorageObjects } from "../../src/server/local-storage.server";
 import type { StudioAccepted, StudioGenerateRequest, StudioStatusBatch } from "../../src/contracts/studio";
+import { DEFAULT_STUDIO_BASE_URL, STUDIO_MODEL, type StudioModel } from "../../src/contracts/studio";
 
 const env = loadDisposableTestEnv();
 if (!isLocalStorageEnabled() || !env.CUSTOM_KEY_JOB_ENCRYPTION_KEY) {
@@ -13,8 +14,12 @@ if (!isLocalStorageEnabled() || !env.CUSTOM_KEY_JOB_ENCRYPTION_KEY) {
 }
 export const pool = new Pool({ connectionString: env.DATABASE_URL_UNPOOLED, max: 3, allowExitOnIdle: true });
 export const fixtureKey = "studio-e2e-fixture-key-never-send-upstream";
-export const fixtureBaseUrl = "https://studio-fixture.example/v1";
+// The URL is the production contract, but generation always uses the injected fake relay below.
+export const fixtureBaseUrl = DEFAULT_STUDIO_BASE_URL;
 export const tinyPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+export const referenceFiles = Array.from({ length: 5 }, (_, index) => ({
+  name: `reference-${index + 1}.png`, mimeType: "image/png", buffer: Buffer.concat([tinyPng, Buffer.from(`fixture-${index + 1}`)]),
+}));
 const owners = new Set<string>();
 let initialRates: Array<{ bucket_hash: string; hits: number; expires_at: Date }> = [];
 
@@ -59,10 +64,16 @@ export async function openStudio(page: Page): Promise<string> {
 
 export async function configureConnection(page: Page, remember = false): Promise<void> {
   await page.getByRole("navigation", { name: "工作台导航" }).getByRole("button", { name: "连接设置", exact: true }).click();
-  await page.getByPlaceholder("https://api.tangguo.xin/v1").fill(fixtureBaseUrl);
+  await expect(page.getByRole("textbox", { name: /URL|地址/i })).toHaveAttribute("readonly", "");
   await page.getByPlaceholder("输入你的 API Key").fill(fixtureKey);
   await page.getByRole("checkbox", { name: /在此浏览器记住 API Key/ }).setChecked(remember);
   await page.getByRole("button", { name: "完成，开始创作" }).click();
+}
+
+export async function selectOption(page: Page, label: string, option: string): Promise<void> {
+  await page.getByRole("combobox", { name: label, exact: true }).click();
+  await page.getByRole("option", { name: option, exact: true }).click();
+  await expect(page.getByRole("combobox", { name: label, exact: true })).toContainText(option);
 }
 
 export function requestBody(extra: Partial<StudioGenerateRequest> = {}): StudioGenerateRequest {
@@ -82,17 +93,21 @@ export async function submitFromUi(page: Page, prompt: string): Promise<StudioAc
   return accepted.json();
 }
 
-export async function completeJob(generationId: string, expected: { reference?: boolean; prompt?: string } = {}): Promise<void> {
+export async function completeJob(generationId: string, expected: { reference?: boolean; images?: Buffer[]; prompt?: string; model?: StudioModel } = {}): Promise<void> {
   let calls = 0;
   const outcome = await runGenerationJob(generationId, {
     callRelay: async (input) => {
       calls += 1;
       expect(input.credential).toEqual({ mode: "custom", apiKey: fixtureKey, baseUrl: fixtureBaseUrl });
+      expect(input.model).toBe(expected.model ?? STUDIO_MODEL);
       if (expected.prompt) expect(input.prompt).toBe(expected.prompt);
-      if (expected.reference) {
-        expect(Buffer.from(input.inputImage!.bytes)).toEqual(tinyPng);
-        expect(input.inputImage!.contentType).toBe("image/png");
-      } else expect(input.inputImage).toBeNull();
+      const images = input.inputImages ?? (input.inputImage ? [input.inputImage] : []);
+      const expectedImages = expected.images ?? (expected.reference ? [tinyPng] : []);
+      expect(images).toHaveLength(expectedImages.length);
+      for (const [index, image] of images.entries()) {
+        expect(Buffer.from(image.bytes), `reference image ${index + 1}`).toEqual(expectedImages[index]);
+        expect(image.contentType).toBe("image/png");
+      }
       return { images: [{ b64_json: tinyPng.toString("base64") }] };
     },
   });

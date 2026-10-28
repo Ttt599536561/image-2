@@ -167,6 +167,25 @@ describe("public HTTPS boundary", () => {
     expect(mocks.request).not.toHaveBeenCalled();
   });
 
+  it("encodes four full 4MiB images within an explicitly bounded multipart budget", async () => {
+    const { response, request } = transport();
+    const form = new FormData();
+    for (let n = 0; n < 4; n++) form.append("image[]", new Blob([Buffer.alloc(4 * 1024 * 1024, n)], { type: "image/png" }), `ref-${n}.png`);
+    const work = safeHttpsRequest("https://api.tangguo.xin/v1/images/edits", { ...options(), deadlineAtMs: Date.now() + 10_000, method: "POST", body: form, maxRequestBytes: 16 * 1024 * 1024 + 64 * 1024 });
+    const result = work.then((value) => ({ value }), (error) => ({ error }));
+    await vi.waitFor(() => expect(request.end).toHaveBeenCalled(), { timeout: 500 });
+    const [, opts] = mocks.request.mock.calls[0];
+    const body = request.end.mock.calls[0][0] as Buffer;
+    expect(body.length).toBeGreaterThan(16 * 1024 * 1024);
+    const encoded = await new Response(new Uint8Array(body), { headers: { "Content-Type": opts.headers["Content-Type"] } }).formData();
+    const images = encoded.getAll("image[]") as File[];
+    expect(images.map((file) => file.name)).toEqual(["ref-0.png", "ref-1.png", "ref-2.png", "ref-3.png"]);
+    for (const [n, file] of images.entries()) expect(Buffer.from(await file.arrayBuffer()).equals(Buffer.alloc(4 * 1024 * 1024, n))).toBe(true);
+    expect(opts).toMatchObject({ servername: "api.tangguo.xin", rejectUnauthorized: true, agent: false });
+    response.end("ok");
+    expect(await result).toMatchObject({ value: { status: 200 } });
+  });
+
   it("cancels a stalled request upload without exposing the caller abort reason", async () => {
     const { response, request } = transport();
     mocks.request.mockImplementation(() => request); // No headers or response body arrive.

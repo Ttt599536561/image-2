@@ -11,7 +11,7 @@ describe("anonymous studio requests", () => {
       if (bodies.length === 1) throw new TypeError("network lost");
       return Response.json({ generationId: bodies[1].generationId, status: "queued", conversationId: "conversation", deadlineAt: "date" }, { status: 202 });
     });
-    const request: StudioGenerateRequest = { generationId: "f10c8523-20ee-45b0-8f2e-52a88dfdbe20", prompt: "a cat", size: "auto", baseUrl: "https://example.com/v1", apiKey: "fixture" };
+    const request: StudioGenerateRequest = { generationId: "f10c8523-20ee-45b0-8f2e-52a88dfdbe20", prompt: "a cat", size: "auto", baseUrl: "https://api.tangguo.xin/v1", apiKey: "fixture" };
     await expect(submitGeneration(request)).rejects.toThrow();
     expect(bodies).toHaveLength(1);
     await submitGeneration(request);

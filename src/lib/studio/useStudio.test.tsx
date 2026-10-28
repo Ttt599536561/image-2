@@ -16,7 +16,7 @@ vi.mock("./history", async (original) => {
   };
 });
 
-const session = { ok: true, defaults: { baseUrl: "https://api.tangguo.xin/v1", model: "gpt-image-2" }, limits: { maxPromptLength: 4000, maxUploadBytes: 4194304, maxInflight: 10 } };
+const session = { ok: true, defaults: { baseUrl: "https://api.tangguo.xin/v1", model: "gpt-image-2" }, limits: { maxPromptLength: 4000, maxUploadBytes: 4194304, maxInflight: 10, maxReferenceImages: 4 } };
 beforeEach(() => { localStorage.clear(); history.records = []; history.writes = []; history.failWrites = false; });
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
@@ -53,7 +53,7 @@ describe("studio workflow", () => {
     await waitFor(() => expect(result.current.session).not.toBeNull());
     act(() => result.current.updateConnection({ baseUrl: "https://example.com/v1", apiKey: "session-secret", rememberKey: false }));
     let pending: Promise<boolean>;
-    act(() => { pending = result.current.generate({ prompt: "a cat", size: "auto" }, null); });
+    act(() => { pending = result.current.generate({ prompt: "a cat", size: "auto" }, []); });
     await waitFor(() => expect(result.current.entries[0]?.status).toBe("failed"));
     await act(async () => { finishAcceptance!(Response.json({ generationId: generatedId, conversationId: "conversation", status: "queued", deadlineAt: "date" }, { status: 202 })); await pending; });
     expect(result.current.entries[0].status).toBe("failed");
@@ -61,6 +61,49 @@ describe("studio workflow", () => {
     expect(states.slice(states.indexOf("failed"))).not.toContain("queued");
     expect(localStorage.getItem("image-studio-connection-v1")).not.toContain("session-secret");
     expect(JSON.stringify(history.writes)).not.toContain("session-secret");
+  });
+
+  it("uploads four ordered references and retries the original model and ids without uploading again", async () => {
+    const uploads: string[] = []; const requests: Record<string, unknown>[] = [];
+    vi.stubGlobal("fetch", async (url: string, init?: RequestInit) => {
+      if (url === "/api/studio/session") return Response.json(session);
+      if (url === "/api/studio/uploads") {
+        const file = (init?.body as FormData).get("file") as File; uploads.push(file.name);
+        return Response.json({ inputImageKey: `studio/session/uploads/${uploads.length}.png` });
+      }
+      if (url === "/api/studio/generate") {
+        requests.push(JSON.parse(String(init?.body)));
+        if (requests.length === 1) throw new Error("connection lost");
+        return Response.json({ generationId: requests[0].generationId, conversationId: "conversation", status: "queued", deadlineAt: "date" }, { status: 202 });
+      }
+      if (url.startsWith("/api/studio/status")) return Response.json({ items: [], missingIds: [] });
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    const { result } = renderHook(() => useStudio());
+    await waitFor(() => expect(result.current.session).not.toBeNull());
+    act(() => result.current.updateConnection({ baseUrl: "https://old.example/v1", apiKey: "fixture", rememberKey: false }));
+    await act(async () => { await result.current.generate({ prompt: "cat", size: "auto", model: "gpt-image-2.5-sunburst" }, [1, 2, 3, 4].map((n) => new File(["x"], `${n}.png`, { type: "image/png" }))); });
+    expect(uploads).toEqual(["1.png", "2.png", "3.png", "4.png"]);
+    expect(requests[0]).toMatchObject({ model: "gpt-image-2.5-sunburst", baseUrl: "https://api.tangguo.xin/v1", inputImageKeys: [1, 2, 3, 4].map((n) => `studio/session/uploads/${n}.png`) });
+    act(() => result.current.updateConnection({ baseUrl: session.defaults.baseUrl, apiKey: "other-key", rememberKey: false }));
+    await act(async () => { await result.current.retry(result.current.retryIds[0]); });
+    expect(requests[1]).toEqual(requests[0]);
+    expect(uploads).toHaveLength(4);
+    expect(result.current.entries[0].params.model).toBe("gpt-image-2.5-sunburst");
+  });
+
+  it("never submits a generation when one reference upload fails", async () => {
+    let count = 0; const submits: string[] = [];
+    vi.stubGlobal("fetch", async (url: string) => {
+      if (url === "/api/studio/session") return Response.json(session);
+      if (url === "/api/studio/uploads") return ++count === 2 ? Response.json({ error: "upload failed" }, { status: 503 }) : Response.json({ inputImageKey: "studio/session/uploads/1.png" });
+      submits.push(url); return Response.json({});
+    });
+    const { result } = renderHook(() => useStudio());
+    await waitFor(() => expect(result.current.session).not.toBeNull());
+    act(() => result.current.updateConnection({ baseUrl: session.defaults.baseUrl, apiKey: "fixture", rememberKey: false }));
+    await act(async () => { await result.current.generate({ prompt: "cat", size: "auto" }, [1, 2, 3].map((n) => new File(["x"], `${n}.png`, { type: "image/png" }))); });
+    expect(result.current.error).toContain("upload failed"); expect(submits).toEqual([]); expect(result.current.entries).toEqual([]);
   });
 
   it("retains the current result and warns when browser persistence fails", async () => {

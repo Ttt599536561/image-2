@@ -1,8 +1,9 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { getSql } from "../../db/db.server";
+import { DEFAULT_STUDIO_BASE_URL } from "../../contracts/studio";
 import { normalizeStudioBaseUrl } from "../studio/safe-http.server";
 
-export const CUSTOM_RELAY_BASE_URL = "https://api.tangguo.xin/v1";
+export const CUSTOM_RELAY_BASE_URL = DEFAULT_STUDIO_BASE_URL;
 export const CUSTOM_CREDENTIAL_KEY_VERSION = 1;
 const STUDIO_CREDENTIAL_VERSION = 2;
 export interface CustomCredential { mode: "custom"; apiKey: string; baseUrl?: string }

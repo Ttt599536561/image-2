@@ -53,6 +53,24 @@ describe("generation deadline and ancillary failures", () => {
     expect(relay).toHaveBeenCalledWith(expect.objectContaining({ credential: { mode: "custom", apiKey: "private custom key", baseUrl: "https://provider.example/custom/v1" } }));
     expect(mocks.charge).not.toHaveBeenCalled();
   });
+  it("reads every reference in order and forwards the frozen model and untouched bytes", async () => {
+    const inputImageKeys = [1, 2, 3, 4].map((n) => `uploads/owner/${n}.png`);
+    mocks.claim.mockResolvedValue({ ...(await mocks.claim()), credentialMode: "custom", model: "gpt-image-2.5-sunburst", inputImageKeys });
+    const uploads = inputImageKeys.map((key, n) => ({ filename: key.split("/").at(-1)!, contentType: "image/png", bytes: new Uint8Array([n, 255, 0, n + 1]) }));
+    const read = vi.fn(async (key: string) => uploads[inputImageKeys.indexOf(key)]);
+    const relay = vi.fn(async () => ({ images: [{ b64_json: "aA==" }] }));
+    expect(await runGenerationJob("job", { getUploadObject: read, callRelay: relay, putToR2: async () => stored })).toBe("succeeded");
+    expect(read.mock.calls.map(([key]) => key)).toEqual(inputImageKeys);
+    expect(relay).toHaveBeenCalledWith(expect.objectContaining({ model: "gpt-image-2.5-sunburst", inputImages: uploads }));
+    expect(mocks.cleanup).toHaveBeenCalledWith("job");
+  });
+  it("refuses an unowned reference in persisted jobs before reading or calling relay", async () => {
+    mocks.claim.mockResolvedValue({ ...(await mocks.claim()), credentialMode: "custom", inputImageKeys: ["uploads/owner/1.png", "uploads/other/2.png"] });
+    const read = vi.fn(); const relay = vi.fn();
+    expect(await runGenerationJob("job", { getUploadObject: read, callRelay: relay })).toBe("failed");
+    expect(read).not.toHaveBeenCalled(); expect(relay).not.toHaveBeenCalled();
+    expect(mocks.cleanup).toHaveBeenCalledWith("job");
+  });
 
   it("rejects a late storage result even if the IO implementation ignores cancellation", async () => {
     let finish!: (result: typeof stored) => void;

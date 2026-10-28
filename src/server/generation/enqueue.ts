@@ -6,11 +6,13 @@
 import { randomUUID } from "node:crypto";
 import { httpError } from "../../contracts/error";
 import type { CredentialMode } from "../../contracts/generate";
+import { DEFAULT_STUDIO_BASE_URL, STUDIO_MODEL, STUDIO_MODELS, type StudioModel } from "../../contracts/studio";
 import { readConfigInt } from "../config.server";
 import { isDailyBudgetExhausted } from "../budget.server";
 import { ensureDefaultProject } from "../projects.server";
 import { type TxClient, tx } from "../tx.server";
 import { encryptCustomApiKey, type EncryptedCustomApiKey } from "./credential.server";
+import { resolveInputImageKeys } from "./input-images";
 
 export interface EnqueueUser {
   id: string;
@@ -20,11 +22,13 @@ export interface EnqueueUser {
 export interface EnqueueRequest {
   prompt: string;
   size: string;
+  model?: string;
   quality?: string | null;
   background?: string | null;
   conversationId?: string; // 客户端提供：新建用此 id（owner-safe upsert）/ 续聊传既有 id
   generationId?: string; // 客户端提供：generations 行用此 id（乐观 turn 与服务端同 id）
   inputImageKey?: string | null; // ④b 图生图：参考图 key（owner-scope 在 run() 内校验）
+  inputImageKeys?: string[] | null;
   sourceImageId?: string | null; // 对话结果图编辑：仅接收 images.id，归属/状态/会话在事务内校验
   credentialMode: CredentialMode;
   customApiKey?: string;
@@ -93,16 +97,8 @@ async function run(
       throw httpError(429, "CONCURRENCY_LIMIT", "任务较多，请等待当前任务完成");
     }
   }
-  // ④b owner-scope：参考图 key 必须属本人（uploads/<me>/…），杜绝拿别人/伪造 key 进图生图。
-  // 入队前就拒（不入队、不调中转），是越权防线；通过则原样落 generations.input_image_key。
-  const inputImageKey = input.inputImageKey?.trim() || null;
-  if (inputImageKey && !inputImageKey.startsWith(`uploads/${user.id}/`)) {
-    throw httpError(400, "INVALID_PARAM", "参考图无效");
-  }
+  const inputImageKey = input.inputImageKey ?? null;
   const sourceImageId = input.sourceImageId?.trim() || null;
-  if (sourceImageId && inputImageKey) {
-    throw httpError(400, "INVALID_PARAM", "来源图片参数冲突");
-  }
   if (sourceImageId) {
     if (!input.conversationId) {
       throw httpError(404, "SOURCE_IMAGE_UNAVAILABLE", "这张图片已不可编辑");
@@ -196,9 +192,9 @@ async function run(
   const gen = await c.query(
     `INSERT INTO generations(
        id,conversation_id,user_id,prompt,model,size,quality,background,moderation,input_image_key,
-       source_image_id,credential_mode,deadline_at,status
+       source_image_id,credential_mode,input_image_keys,deadline_at,status
      )
-     VALUES($1,$2,$3,$4,'gpt-image-2',$5,$6,$7,'low',$8,$9,$10,now()+interval '5 minutes','queued')
+     VALUES($1,$2,$3,$4,$11,$5,$6,$7,'low',$8,$9,$10,$12::jsonb,now()+interval '5 minutes','queued')
      ON CONFLICT(id) DO NOTHING
      RETURNING id,deadline_at`,
     [
@@ -212,6 +208,8 @@ async function run(
       inputImageKey,
       sourceImageId,
       input.credentialMode,
+      input.model ?? STUDIO_MODEL,
+      input.inputImageKeys == null ? null : JSON.stringify(input.inputImageKeys),
     ],
   );
   if (gen.rowCount === 0) throw httpError(400, "INVALID_PARAM", "任务标识无效");
@@ -245,9 +243,12 @@ export async function enqueueGeneration(args: { user: EnqueueUser; input: Enqueu
   if (input.credentialMode === "system" && input.customApiKey !== undefined) {
     throw httpError(400, "SYSTEM_MODE_FORBIDS_CUSTOM_KEY", "系统 Key 模式不接受自定义 Key");
   }
-  if (input.customBaseUrl !== undefined && (input.credentialMode !== "custom" || !input.customBaseUrl.trim())) {
+  if (input.customBaseUrl !== undefined && (input.credentialMode !== "custom" || input.customBaseUrl !== DEFAULT_STUDIO_BASE_URL)) {
     throw httpError(400, "INVALID_PARAM", "连接地址无效");
   }
+  if (input.model !== undefined && !STUDIO_MODELS.includes(input.model as StudioModel)) throw httpError(400, "INVALID_PARAM", "模型无效");
+  try { resolveInputImageKeys(input, args.user.id); }
+  catch { throw httpError(400, "INVALID_PARAM", "参考图无效或来源参数冲突"); }
 
   const generationId = input.generationId ?? randomUUID();
   const encrypted =

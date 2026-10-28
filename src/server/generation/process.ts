@@ -18,6 +18,8 @@ import { RelayError, callRelay as realCallRelay, type RelayCredential } from "..
 import { deleteGenerationCredential, loadCustomCredential } from "./credential.server";
 import { normalizeFailure } from "./failure";
 import { finalizeCustomSuccess } from "./finalizeCustom.server";
+import { resolveInputImageKeys } from "./input-images";
+import { STUDIO_MODEL } from "../../contracts/studio";
 
 export interface ProcessDeps {
   callRelay?: typeof realCallRelay;
@@ -87,7 +89,8 @@ async function processClaimedGeneration(g: ClaimedGeneration, deps: ProcessDeps,
     }
 
     let inputImage: Awaited<ReturnType<typeof realGetUploadObject>> | null = null;
-    if (g.inputImageKey && g.sourceImageId) throw sourceImageUnavailable();
+    let inputImages: Awaited<ReturnType<typeof realGetUploadObject>>[] | undefined;
+    const inputImageKeys = resolveInputImageKeys(g, g.userId);
     if (g.sourceImageId) {
       const [source] = await sql`
         SELECT i.storage_key
@@ -124,24 +127,31 @@ async function processClaimedGeneration(g: ClaimedGeneration, deps: ProcessDeps,
 
     // ④b 图生图：有参考图 key → 回读字节，传给 callRelay 走 /images/edits multipart（无则文生图）。
     // 回读失败（参考图已被孤儿清理/存储故障，罕见）→ 友好归一为 invalid_request、不扣费（在扣费事务前）。
-    if (g.inputImageKey) {
+    if (inputImageKeys.length) {
       try {
-        inputImage = await timed("fetchInputMs", () => getUploadObject(g.inputImageKey!, controller.signal));
-        checkDeadline();
+        const uploaded = [];
+        for (const key of inputImageKeys) {
+          uploaded.push(await timed("fetchInputMs", () => getUploadObject(key, controller.signal)));
+          checkDeadline();
+        }
+        if (g.inputImageKeys) inputImages = uploaded;
+        else inputImage = uploaded[0];
       } catch {
         checkDeadline();
         throw new RelayError("参考图已失效，请重新上传后再试", 400);
       }
     }
 
-    // ④ 调中转（Key 只在此从 env 注入；固定 gpt-image-2/n=1/moderation=low）。
+    // ④ 调中转：模型来自任务快照，Key 来自服务端凭据；保持 n=1/moderation=low。
     checkDeadline();
     const { images } = await timed("relayMs", () => callRelay({
       prompt: g.prompt,
+      model: g.model ?? STUDIO_MODEL,
       size: g.size,
       quality: g.quality,
       background: g.background,
       inputImage,
+      inputImages,
       credential,
       deadlineAt: g.deadlineAt,
     }));

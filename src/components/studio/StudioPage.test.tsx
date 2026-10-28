@@ -22,6 +22,28 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("editing a generated image", () => {
+  it("appends selections, supports individual removal, and rejects overflow without losing images", async () => {
+    render(<StudioPage />);
+    const input = screen.getByLabelText("上传参考图片");
+    const files = [1, 2, 3, 4].map((n) => new File(["image"], `${n}.png`, { type: "image/png" }));
+    fireEvent.change(input, { target: { files: files.slice(0, 2) } });
+    fireEvent.change(input, { target: { files: files.slice(2) } });
+    expect(screen.getAllByAltText(/参考图片 \d/)).toHaveLength(4);
+    fireEvent.paste(screen.getByRole("textbox", { name: "画面描述" }), { clipboardData: { files: [files[0]] } });
+    expect(fixture.error).toHaveBeenCalledWith(expect.stringContaining("最多 4 张"));
+    fireEvent.click(screen.getByRole("button", { name: "移除参考图片 2" }));
+    expect(screen.getAllByAltText(/参考图片 \d/)).toHaveLength(3);
+    expect(screen.queryByText("2.png")).not.toBeInTheDocument();
+  });
+  it("adds a generated reference copy to existing references", async () => {
+    fixture.prepare.mockResolvedValue({ file: new File(["copy"], "generated.webp", { type: "image/webp" }), converted: false });
+    render(<StudioPage />);
+    fireEvent.change(screen.getByLabelText("上传参考图片"), { target: { files: [new File(["image"], "existing.png", { type: "image/png" })] } });
+    fireEvent.click(screen.getByRole("button", { name: "以图编辑" }));
+    await waitFor(() => expect(screen.getAllByAltText(/参考图片 \d/)).toHaveLength(2));
+    expect(screen.getByText("existing.png")).toBeVisible();
+    expect(screen.getByText("generated.webp")).toBeVisible();
+  });
   it("blocks repeated preparation and uses only the reference copy without replacing the original", async () => {
     let finish: ((value: { file: File; converted: boolean }) => void) | undefined;
     fixture.prepare.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));

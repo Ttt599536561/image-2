@@ -3,6 +3,7 @@ import { StudioGenerateRequest, type StudioParams, type StudioSessionInfo, type 
 import { DEFAULT_CONNECTION, loadConnection, saveConnection, type StudioConnection } from "./connection";
 import { fetchResultBlob, getStudioSession, getStudioStatus, StudioApiError, submitGeneration, uploadReference } from "./api";
 import { isActive, pickParams, pruneHistory, readHistory, writeHistory, type StudioHistoryEntry } from "./history";
+import { appendReferences } from "./references";
 
 const STORAGE_WARNING = "此浏览器未能保存历史。当前结果仍可查看和下载，请及时下载原图。";
 export function useStudio() {
@@ -47,8 +48,9 @@ export function useStudio() {
   }, []);
 
   const updateConnection = useCallback((next: StudioConnection) => {
-    setConnection(next);
-    try { saveConnection(next, window.localStorage); }
+    const fixed = { ...next, baseUrl: DEFAULT_CONNECTION.baseUrl };
+    setConnection(fixed);
+    try { saveConnection(fixed, window.localStorage); }
     catch { setNotice("连接设置未能保存在此浏览器，当前页面仍可使用。"); }
   }, []);
 
@@ -130,17 +132,24 @@ export function useStudio() {
     } finally { setRetryIds([...retryRequests.current.keys()]); }
   }, [commit]);
 
-  const generate = useCallback(async (params: StudioParams, reference: File | null): Promise<boolean> => {
+  const generate = useCallback(async (params: StudioParams, references: File[]): Promise<boolean> => {
     if (submitting.current || !ready || !session) return false;
-    const parsed = StudioGenerateRequest.safeParse({ ...pickParams(params), baseUrl: connection.baseUrl, apiKey: connection.apiKey, generationId: crypto.randomUUID() });
+    const validation = appendReferences([], references);
+    if (validation.error) { setError(validation.error); return false; }
+    const parsed = StudioGenerateRequest.safeParse({ ...pickParams(params), baseUrl: DEFAULT_CONNECTION.baseUrl, apiKey: connection.apiKey, generationId: crypto.randomUUID() });
     if (!parsed.success) {
-      setError(!connection.apiKey.trim() ? "请先在连接设置中填写 API Key。" : !params.prompt.trim() ? "请先写下你想生成的画面。" : "请检查连接地址和生成参数，提示词最多 4000 字。");
+      setError(!connection.apiKey.trim() ? "请先在连接设置中填写 API Key。" : !params.prompt.trim() ? "请先写下你想生成的画面。" : "请检查生成参数，提示词最多 4000 字。");
       return false;
     }
     submitting.current = true; setBusy(true); setError("");
     try {
       const request = parsed.data;
-      if (reference) request.inputImageKey = await uploadReference(reference);
+      if (references.length) {
+        const keys: string[] = [];
+        // At most four sequential uploads preserve order and stop at the first failure.
+        for (const reference of references) keys.push(await uploadReference(reference));
+        request.inputImageKeys = keys;
+      }
       const entry: StudioHistoryEntry = { generationId: request.generationId, params: pickParams(request), createdAt: Date.now(), deadlineAt: "", status: "queued" };
       // Keep the request before exposing its id to polling; it may not be accepted yet.
       retryRequests.current.set(request.generationId, request);

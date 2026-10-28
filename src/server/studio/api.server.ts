@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { httpError } from "../../contracts/error";
-import { DEFAULT_STUDIO_BASE_URL, STUDIO_MODEL, StudioGenerateRequest, type StudioJobStatus, type StudioSessionInfo, type StudioStatusBatch } from "../../contracts/studio";
+import { DEFAULT_STUDIO_BASE_URL, MAX_STUDIO_REFERENCE_IMAGES, STUDIO_MODEL, StudioGenerateRequest, type StudioJobStatus, type StudioSessionInfo, type StudioStatusBatch } from "../../contracts/studio";
 import { UPLOAD_ACCEPT, UPLOAD_EXT, UPLOAD_MAX_BYTES, sniffImageMime, type UploadMime } from "../../contracts/upload";
 import { getSql } from "../../db/db.server";
 import { usesPgDriver } from "../../db/db-driver.server";
@@ -10,7 +10,6 @@ import { subscribeGenerationChanges } from "../generation/notifications.server";
 import { getStoredImageObject, putUserUpload } from "../r2.server";
 import { consumeStudioRate, type StudioRateScope } from "./limits.server";
 import { assertStudioWriteOrigin, readLimitedBody } from "./request.server";
-import { normalizeStudioBaseUrl } from "./safe-http.server";
 import { getOrCreateStudioSession, requireStudioSession } from "./session.server";
 
 const privateHeaders = { "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" };
@@ -39,7 +38,7 @@ export async function studioSessionLoader(request: Request): Promise<Response> {
   try {
     await consumeStudioRate(request, "read");
     const session = await getOrCreateStudioSession(request);
-    const info: StudioSessionInfo = { ok: true, defaults: { baseUrl: DEFAULT_STUDIO_BASE_URL, model: STUDIO_MODEL }, limits: { maxPromptLength: 4000, maxUploadBytes: UPLOAD_MAX_BYTES, maxInflight: 10 } };
+    const info: StudioSessionInfo = { ok: true, defaults: { baseUrl: DEFAULT_STUDIO_BASE_URL, model: STUDIO_MODEL }, limits: { maxPromptLength: 4000, maxUploadBytes: UPLOAD_MAX_BYTES, maxInflight: 10, maxReferenceImages: MAX_STUDIO_REFERENCE_IMAGES } };
     return Response.json(info, { headers: { ...privateHeaders, ...(session.cookie ? { "Set-Cookie": session.cookie } : {}) } });
   } catch (error) { return failure(error); }
 }
@@ -55,17 +54,14 @@ export async function studioGenerateAction(request: Request): Promise<Response> 
     catch { throw httpError(400, "INVALID_PARAM", "请求体无效"); }
     const parsed = StudioGenerateRequest.safeParse(json);
     if (!parsed.success) throw httpError(400, "INVALID_PARAM", "生成参数无效");
-    const { baseUrl, apiKey, inputImageKey, ...params } = parsed.data;
-    let normalized: string;
-    try { normalized = normalizeStudioBaseUrl(baseUrl); }
-    catch { throw httpError(400, "INVALID_PARAM", "请输入有效的公网 HTTPS 服务地址"); }
-    if (inputImageKey) {
+    const { baseUrl: _baseUrl, apiKey, inputImageKey, inputImageKeys, ...params } = parsed.data;
+    for (const key of inputImageKeys ?? (inputImageKey ? [inputImageKey] : [])) {
       const prefix = `uploads/${owner.userId}/`;
-      if (!inputImageKey.startsWith(prefix) || !/^\d{4}\/\d{2}\/[0-9a-f-]{36}\.(png|jpg|webp)$/.test(inputImageKey.slice(prefix.length))) {
+      if (!key.startsWith(prefix) || !/^\d{4}\/\d{2}\/[0-9a-f-]{36}\.(png|jpg|webp)$/.test(key.slice(prefix.length))) {
         throw httpError(400, "INVALID_PARAM", "参考图无效");
       }
     }
-    const result = await enqueueGeneration({ user: { id: owner.userId, maxConcurrency: 10 }, input: { ...params, inputImageKey, credentialMode: "custom", customApiKey: apiKey, customBaseUrl: normalized } });
+    const result = await enqueueGeneration({ user: { id: owner.userId, maxConcurrency: 10 }, input: { ...params, inputImageKey, inputImageKeys, credentialMode: "custom", customApiKey: apiKey, customBaseUrl: DEFAULT_STUDIO_BASE_URL } });
     return Response.json({ generationId: result.generationId, conversationId: result.conversationId, status: "queued", deadlineAt: result.deadlineAt }, { status: 202, headers: privateHeaders });
   } catch (error) { return failure(error); }
 }

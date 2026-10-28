@@ -13,7 +13,7 @@ vi.mock("../r2.server", () => ({ getStoredImageObject: mock.store, putUserUpload
 import { studioEventsLoader, studioGenerateAction, studioImageLoader, studioSessionLoader, studioStatusLoader, studioUploadsAction } from "./api.server";
 const id = "00000000-0000-4000-8000-000000000001";
 const other = "00000000-0000-4000-8000-000000000002";
-const input = { baseUrl: "https://images.example/v1", apiKey: "private-key", prompt: "tree", size: "1024x1024", generationId: id };
+const input = { baseUrl: "https://api.tangguo.xin/v1", apiKey: "private-key", prompt: "tree", size: "1024x1024", generationId: id };
 const req = (body: unknown) => new Request("https://studio.example/api/studio/generate", { method: "POST", headers: { origin: "https://studio.example", "content-type": "application/json" }, body: JSON.stringify(body) });
 describe("anonymous API", () => {
   afterEach(() => vi.useRealTimers());
@@ -54,6 +54,23 @@ describe("anonymous API", () => {
     const serialized = JSON.stringify(await response.json()); expect(serialized).not.toMatch(/private-key|credentialMode/);
     for (const field of [{ credentialMode: "system" }, { userId: other }]) expect((await studioGenerateAction(req({ ...input, ...field }))).status).toBe(400);
     expect(mock.enqueue).toHaveBeenCalledOnce();
+  });
+  it("uses the fixed endpoint when omitted and freezes the selected model with four ordered references", async () => {
+    const inputImageKeys = [1, 2, 3, 4].map((n) => `uploads/owner/2026/10/00000000-0000-4000-8000-00000000000${n}.png`);
+    expect((await studioGenerateAction(req({ ...input, baseUrl: undefined, model: "gpt-image-2.5-sunburst", inputImageKeys }))).status).toBe(202);
+    expect(mock.enqueue).toHaveBeenCalledWith(expect.objectContaining({ input: expect.objectContaining({ model: "gpt-image-2.5-sunburst", inputImageKeys, customBaseUrl: input.baseUrl }) }));
+  });
+  it("validates every reference owner and rejects substituted endpoints before enqueue", async () => {
+    const own = `uploads/owner/2026/10/${id}.png`;
+    for (const patch of [
+      { baseUrl: "https://attacker.example/v1" },
+      { inputImageKeys: [own, own, own, `uploads/other/2026/10/${other}.png`] },
+      { inputImageKeys: [own, own, own, "uploads/owner/../../secret"] },
+      { inputImageKeys: [own, own, own, own, own] },
+      { inputImageKeys: [own], inputImageKey: own },
+      { inputImageKeys: [own], sourceImageId: other },
+    ]) expect((await studioGenerateAction(req({ ...input, ...patch }))).status).toBe(400);
+    expect(mock.enqueue).not.toHaveBeenCalled();
   });
   it("rejects cross-origin writes before loading owner or consuming a body", async () => {
     const response = await studioGenerateAction(new Request("https://studio.example/api/studio/generate", { method: "POST", headers: { origin: "https://evil.example" }, body: JSON.stringify(input) }));

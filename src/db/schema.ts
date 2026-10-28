@@ -249,6 +249,7 @@ export const generations = pgTable(
     moderation: text("moderation").notNull().default("low"),
     // ④b 图生图：参考图上传 key（uploads/<userId>/…）；NULL = 文生图。管线有图走 /images/edits multipart。
     inputImageKey: text("input_image_key"),
+    inputImageKeys: jsonb("input_image_keys").$type<string[]>(),
     // 对话结果图编辑来源；应用层校验 owner/succeeded，不加 FK 以保留来源删除后的历史关系。
     sourceImageId: uuid("source_image_id"),
     credentialMode: text("credential_mode").notNull().default("system"),
@@ -271,6 +272,8 @@ export const generations = pgTable(
       sql`${t.status} IN ('queued','claimed','running','succeeded','failed')`,
     ),
     check("generations_credential_mode_chk", sql`${t.credentialMode} IN ('system','custom')`),
+    check("generations_input_image_keys_chk", sql`${t.inputImageKeys} IS NULL OR CASE WHEN jsonb_typeof(${t.inputImageKeys})='array' THEN jsonb_array_length(${t.inputImageKeys}) BETWEEN 1 AND 4 AND NOT jsonb_path_exists(${t.inputImageKeys}, '$[*] ? (@.type() != "string" || @ == "")') ELSE false END`),
+    check("generations_input_image_sources_chk", sql`${t.inputImageKeys} IS NULL OR (${t.inputImageKey} IS NULL AND ${t.sourceImageId} IS NULL)`),
     index("ix_gen_conv").on(t.conversationId),
     index("ix_gen_source_image").on(t.sourceImageId),
     index("ix_gen_user_time").on(t.userId, t.createdAt.desc()),

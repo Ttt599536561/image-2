@@ -10,6 +10,12 @@ function Settings() {
 }
 describe("connection settings", () => {
   beforeEach(() => localStorage.clear());
+  it("shows the fixed service URL as read-only", () => {
+    render(<Settings />);
+    expect(screen.getByLabelText("服务地址 URL")).toHaveAttribute("readonly");
+    expect(screen.getByLabelText("服务地址 URL")).toHaveValue("https://api.tangguo.xin/v1");
+    expect(screen.getByRole("button", { name: "复制服务地址" })).toBeEnabled();
+  });
   it("requires an explicit remember choice and clears the key independently of history", () => {
     localStorage.setItem("unrelated-history-fixture", "keep");
     render(<Settings />);
