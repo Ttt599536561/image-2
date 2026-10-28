@@ -15,8 +15,10 @@ import type { CredentialMode, ErrorCode } from "../contracts/generate";
 import { redactText } from "../lib/redaction";
 import { getConfigString } from "./config.server";
 import { CUSTOM_RELAY_BASE_URL } from "./generation/credential.server";
+import { UPLOAD_MAX_BYTES } from "../contracts/upload";
+import { MAX_RELAY_RESPONSE_BYTES, normalizeStudioBaseUrl, safeHttpsRequest } from "./studio/safe-http.server";
 
-export type RelayCredential = { mode: "system" } | { mode: "custom"; apiKey: string };
+export type RelayCredential = { mode: "system" } | { mode: "custom"; apiKey: string; baseUrl?: string };
 
 export function relayTimeoutMs(deadlineAtMs: number, nowMs = Date.now()): number {
   return Math.max(0, deadlineAtMs - nowMs - 30_000);
@@ -63,7 +65,7 @@ async function relayTarget(
   credential: RelayCredential,
 ): Promise<{ mode: CredentialMode; key: string; bases: string[] }> {
   if (credential.mode === "custom") {
-    return { mode: "custom", key: credential.apiKey, bases: [CUSTOM_RELAY_BASE_URL] };
+    return { mode: "custom", key: credential.apiKey, bases: [credential.baseUrl === undefined ? CUSTOM_RELAY_BASE_URL : normalizeStudioBaseUrl(credential.baseUrl)] };
   }
   return { mode: "system", key: await relayKey(), bases: await relayBases() };
 }
@@ -146,6 +148,39 @@ export interface CallRelayRequest {
   deadlineAt: Date;
 }
 
+function studioProviderError(status: number): RelayError {
+  const messages: Record<number, string> = {
+    400: "图片服务不支持这些生成参数", 401: "API Key 无效，请检查连接设置",
+    403: "图片服务拒绝访问，请检查 API Key 权限", 402: "自定义 API Key 额度不足",
+    429: "图片服务请求过于频繁，请稍后重试",
+  };
+  return new RelayError(messages[status] ?? "图片服务暂时不可用，请稍后重试", status);
+}
+
+async function callStudioRelay(req: CallRelayRequest, key: string, base: string, jsonBody: string | null): Promise<{ images: RelayImage[] }> {
+  if (req.inputImage && req.inputImage.bytes.byteLength > UPLOAD_MAX_BYTES) throw new RelayError("参考图超过 4MiB 限制", 400);
+  const response = await safeHttpsRequest(buildImageGenerationUrl(base, req.inputImage ? "/images/edits" : undefined), {
+    method: "POST",
+    headers: req.inputImage ? { Authorization: `Bearer ${key}` } : { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: req.inputImage ? buildEditsForm({ ...req, inputImage: req.inputImage }) : jsonBody!,
+    deadlineAtMs: req.deadlineAt.getTime() - 30_000,
+    maxResponseBytes: MAX_RELAY_RESPONSE_BYTES,
+  });
+  if (response.status < 200 || response.status >= 300) throw studioProviderError(response.status);
+  let raw: Record<string, unknown>;
+  try { raw = JSON.parse(response.body.toString("utf8")); }
+  catch { throw Object.assign(new Error("图片服务返回的内容无效"), { failureCode: "invalid_response" as const }); }
+  if (raw?.error && !raw.data && !raw.output) {
+    const status = (raw.error as { status?: unknown }).status;
+    throw studioProviderError(typeof status === "number" && status >= 400 && status <= 599 ? status : 502);
+  }
+  try {
+    const images = parseImageGenerationResponse(raw).map(toRelayImage);
+    if (!images.length) throw new Error();
+    return { images };
+  } catch { throw Object.assign(new Error("图片服务未返回有效图片"), { failureCode: "invalid_response" as const }); }
+}
+
 export async function callRelay(req: CallRelayRequest): Promise<{ images: RelayImage[] }> {
   const { key, bases } = await relayTarget(req.credential);
   if (relayTimeoutMs(req.deadlineAt.getTime()) <= 0) {
@@ -172,6 +207,11 @@ export async function callRelay(req: CallRelayRequest): Promise<{ images: RelayI
         response_format: "b64_json",
       });
 
+  if (req.credential.mode === "custom" && req.credential.baseUrl !== undefined) {
+    // One request only: a timeout or provider failure must never place a second paid order.
+    return callStudioRelay(req, key, bases[0], jsonBody);
+  }
+
   let lastErr: unknown;
   for (let i = 0; i < bases.length; i++) {
     const base = bases[i];
@@ -182,6 +222,7 @@ export async function callRelay(req: CallRelayRequest): Promise<{ images: RelayI
     try {
       const resp = await fetch(buildImageGenerationUrl(base, endpoint), {
         method: "POST",
+        redirect: "error",
         signal: ctrl.signal,
         // 图生图：仅 Authorization，Content-Type 由 FormData 自动设（含 boundary）；文生图：JSON。
         headers: isEdit

@@ -2,7 +2,6 @@
 // 兑换/生成/删除成功后 invalidate 对应 key 自动刷新。所有 queryFn 走同源 cookie + Zod 解析（api-client）。
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouteLoaderData } from "react-router";
-import type { loader as appLoader } from "../../app/routes/_app";
 import { LedgerResponse, LotsResponse, RedemptionsResponse } from "../contracts/account";
 import { ConversationDetail, ConversationListResponse } from "../contracts/conversation";
 import { type ImageRange, ImagesResponse } from "../contracts/image";
@@ -17,7 +16,7 @@ import { reconcileConversationDetail } from "../lib/generationStatusCache";
 
 /** _app 父 loader 数据（me + 项目列表），供子组件作 query initialData。 */
 function useAppLoaderData() {
-  return useRouteLoaderData<typeof appLoader>("routes/_app");
+  return useRouteLoaderData<{ me: MeResponse; projects: ProjectListResponse }>("routes/_app");
 }
 
 export function useMe() {

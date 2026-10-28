@@ -1,9 +1,5 @@
-// Playwright 冒烟配置（⑦ · 真相源 10 §11.10）。关键路径 @smoke：注册 → 生图 → 兑换。
-// 选跑（CI 单独 job）。运行器是 @playwright/test（非 vitest），且本文件/ tests/e2e 不在 tsconfig include 内，故不入 tsc/默认单测。
-//
-// 安装（首次）：npm i -D @playwright/test && npx playwright install chromium
-// 跑：npm run test:e2e。受保护 runner 加载 .env.test，Playwright 自动启动 dev:ui:test。
-// 真中转场景默认跳过，只能在显式批准的 disposable 环境启用。
+// Anonymous Studio E2E: real disposable PostgreSQL + local media + stubbed relay.
+// The protected runner loads .env.test. No test calls a paid upstream service.
 import { defineConfig, devices } from "@playwright/test";
 import { assertLoopbackTestUrl } from "./scripts/test-env-guard";
 
@@ -11,20 +7,25 @@ const baseURL = assertLoopbackTestUrl(process.env.E2E_BASE_URL || process.env.BE
 
 export default defineConfig({
   testDir: "tests/e2e",
+  testMatch: "**/*.spec.ts",
+  outputDir: ".cache/playwright-results",
   timeout: 90_000,
   expect: { timeout: 15_000 },
   fullyParallel: false,
+  workers: 1,
   retries: 0,
   reporter: "list",
   webServer: {
     command: "npm run dev:ui:test",
-    url: `${baseURL}/login`,
+    url: `${baseURL}/healthz`,
     reuseExistingServer: false,
     timeout: 120_000,
   },
   use: {
     baseURL,
-    trace: "on-first-retry",
+    actionTimeout: 15_000,
+    trace: "retain-on-failure",
+    screenshot: "only-on-failure",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 });

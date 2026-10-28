@@ -1,6 +1,4 @@
 import type { DebitInput } from "../money/debit.server";
-import { readConfigInt } from "../config.server";
-import { retentionExpiry } from "../r2.server";
 import { tx } from "../tx.server";
 
 export async function finalizeCustomSuccess(input: DebitInput): Promise<"succeeded" | "lost"> {
@@ -17,13 +15,7 @@ export async function finalizeCustomSuccess(input: DebitInput): Promise<"succeed
       return "lost";
     }
 
-    const freeDays = await readConfigInt(client, "retention_free_days", 7);
-    const paidDays = await readConfigInt(client, "retention_paid_days", 60);
-    const user = await client.query("SELECT has_paid FROM users WHERE id=$1", [input.userId]);
-    const expiresAt = retentionExpiry(
-      { has_paid: Boolean(user.rows[0]?.has_paid) },
-      { freeDays, paidDays },
-    );
+    const expiresAt = new Date(Date.now() + 7 * 86_400_000);
     await client.query(
       `INSERT INTO images(generation_id,user_id,storage_key,public_url,content_type,width,height,size_bytes,expires_at)
        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)

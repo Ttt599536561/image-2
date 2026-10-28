@@ -26,6 +26,7 @@ import {
   storageKeyFromLocalPublicUrl,
   writeLocalStorageObject,
 } from "./local-storage.server";
+import { MAX_IMAGE_BYTES, safeHttpsRequest } from "./studio/safe-http.server";
 
 function env(name: string): string {
   const v = process.env[name];
@@ -80,13 +81,13 @@ export function storageKeyFromPublicUrl(url: string): string | null {
 }
 
 /** 不可枚举 key（§7.2）：{userId}/{yyyy}/{mm}/{generationId}-{rand}.png。 */
-export function buildStorageKey(userId: string, generationId: string): string {
+export function buildStorageKey(userId: string, generationId: string, ext = "png"): string {
   const d = new Date();
   const yyyy = d.getUTCFullYear();
   const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
   // 6 字节 base64url 防枚举随机段，取前 8 位（§7.2）。
   const rand = randomBytes(6).toString("base64url").slice(0, 8);
-  return `${userId}/${yyyy}/${mm}/${generationId}-${rand}.png`;
+  return `${userId}/${yyyy}/${mm}/${generationId}-${rand}.${ext}`;
 }
 
 async function putObject(key: string, body: Uint8Array, contentType: string, signal?: AbortSignal): Promise<void> {
@@ -113,16 +114,38 @@ async function fetchImageBytes(relay: {
   url?: string;
 }, signal?: AbortSignal): Promise<{ bytes: Uint8Array; contentType: string }> {
   signal?.throwIfAborted();
+  let bytes: Uint8Array;
   if (relay.b64_json) {
-    return { bytes: new Uint8Array(Buffer.from(relay.b64_json, "base64")), contentType: "image/png" };
+    const encoded = relay.b64_json;
+    if (encoded.length > Math.ceil(MAX_IMAGE_BYTES / 3) * 4) throw new Error("provider image too large");
+    if (encoded.length % 4 === 1 || !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)) throw new Error("invalid provider image encoding");
+    const padding = encoded.endsWith("==") ? 2 : encoded.endsWith("=") ? 1 : 0;
+    if (Math.floor(encoded.length * 3 / 4) - padding > MAX_IMAGE_BYTES) throw new Error("provider image too large");
+    bytes = Buffer.from(encoded, "base64");
+  } else {
+    if (!relay.url) throw new Error("provider image missing");
+    // Signed image URL is separate from the authenticated generation request: never forward its key.
+    const response = await safeHttpsRequest(relay.url, {
+      signal, maxResponseBytes: MAX_IMAGE_BYTES, deadlineAtMs: Date.now() + 30_000,
+    });
+    if (response.status < 200 || response.status >= 300) throw new Error("provider image download failed");
+    bytes = response.body;
   }
-  if (!relay.url) throw new Error("relay image: 缺少 b64_json / url");
-  // 临时 URL：必须在中转链路活着时立刻取字节，绝不把它存进 DB（§7.6）。
-  const resp = await fetch(relay.url, { signal });
-  if (!resp.ok) throw new Error(`relay image fetch ${resp.status}`);
-  const bytes = new Uint8Array(await resp.arrayBuffer());
   signal?.throwIfAborted();
-  return { bytes, contentType: resp.headers.get("content-type") ?? "image/png" };
+  if (bytes.length > MAX_IMAGE_BYTES) throw new Error("provider image too large");
+  return { bytes, contentType: providerImageMime(bytes) };
+}
+
+/** Validate file signatures, never trust the URL suffix or upstream Content-Type. */
+function providerImageMime(bytes: Uint8Array): string {
+  const pngSignature = [137, 80, 78, 71, 13, 10, 26, 10];
+  if (bytes.length >= 24 && pngSignature.every((byte, index) => bytes[index] === byte) &&
+    Buffer.from(bytes.subarray(12, 16)).toString("ascii") === "IHDR") return "image/png";
+  if (bytes.length >= 4 && bytes[0] === 255 && bytes[1] === 216 && bytes[2] === 255) return "image/jpeg";
+  if (bytes.length >= 20 && Buffer.from(bytes.subarray(0, 4)).toString("ascii") === "RIFF" &&
+    Buffer.from(bytes.subarray(8, 12)).toString("ascii") === "WEBP" &&
+    ["VP8 ", "VP8L", "VP8X"].includes(Buffer.from(bytes.subarray(12, 16)).toString("ascii"))) return "image/webp";
+  throw new Error("invalid provider image format");
 }
 
 /** 从 PNG 头读宽高（IHDR）；非 PNG / 解析失败返回 undefined（可选元数据）。 */
@@ -145,7 +168,8 @@ export async function putToR2(
   signal?: AbortSignal,
 ): Promise<PutResult> {
   const { bytes, contentType } = await fetchImageBytes(relayImage, signal);
-  const storageKey = buildStorageKey(userId, generationId);
+  const extension = contentType === "image/jpeg" ? "jpg" : contentType === "image/webp" ? "webp" : "png";
+  const storageKey = buildStorageKey(userId, generationId, extension);
   await putObject(storageKey, bytes, contentType, signal);
   signal?.throwIfAborted();
   const dims = readPngDims(bytes);
@@ -270,9 +294,10 @@ export async function putUserUpload(args: {
   bytes: Uint8Array;
   contentType: string;
   ext: string;
+  signal?: AbortSignal;
 }): Promise<{ storageKey: string; publicUrl: string }> {
   const storageKey = buildUploadKey(args.userId, args.ext);
-  await putObject(storageKey, args.bytes, args.contentType);
+  await putObject(storageKey, args.bytes, args.contentType, args.signal);
   return { storageKey, publicUrl: publicUrl(storageKey) };
 }
 
@@ -282,7 +307,12 @@ export async function getStoredImageObject(
   signal?: AbortSignal,
 ): Promise<{ bytes: Uint8Array; contentType: string; filename: string }> {
   signal?.throwIfAborted();
-  if (isLocalStorageEnabled()) return readLocalStorageObject(storageKey, signal);
+  const maxStoredBytes = 64 * 1024 * 1024;
+  if (isLocalStorageEnabled()) {
+    const stored = await readLocalStorageObject(storageKey, signal);
+    if (stored.bytes.byteLength > maxStoredBytes) throw new Error("stored image too large");
+    return stored;
+  }
   const res = await getR2Client().send(
     new GetObjectCommand({ Bucket: env("STORAGE_BUCKET"), Key: storageKey }),
     { abortSignal: signal },
@@ -301,7 +331,25 @@ export async function getStoredImageObject(
       if ("destroy" in body) body.destroy();
       signal.throwIfAborted();
     }
-    bytes = new Uint8Array(await body.transformToByteArray());
+    if (res.ContentLength !== undefined && res.ContentLength > maxStoredBytes) {
+      if ("destroy" in body) body.destroy();
+      throw new Error("stored image too large");
+    }
+    if (Symbol.asyncIterator in body) {
+      const chunks: Buffer[] = [];
+      let received = 0;
+      for await (const chunk of body as AsyncIterable<Uint8Array>) {
+        signal?.throwIfAborted();
+        received += chunk.byteLength;
+        if (received > maxStoredBytes) throw new Error("stored image too large");
+        chunks.push(Buffer.from(chunk));
+      }
+      bytes = Buffer.concat(chunks, received);
+    } else {
+      // Non-stream SDK adapters are retained for compatibility; Node S3 uses the bounded stream above.
+      bytes = new Uint8Array(await body.transformToByteArray());
+      if (bytes.byteLength > maxStoredBytes) throw new Error("stored image too large");
+    }
     signal?.throwIfAborted();
   } finally {
     signal?.removeEventListener("abort", abort);

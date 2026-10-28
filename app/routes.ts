@@ -1,85 +1,24 @@
 import { index, layout, type RouteConfig, route } from "@react-router/dev/routes";
 
-// 集中路由表（路由真相源，docs/dev 08 §9.2）。下划线前缀 = pathless 布局。
-// 阶段一：受保护前台挂 _app（mock 放行）；鉴权页挂 _auth；/admin 留阶段二。
+// The public product uses only anonymous sessions and user-provided URL + Key.
+// Retired account/billing handlers under legacy/ are never registered.
 export default [
+  index("routes/studio.tsx"),
   route("healthz", "routes/healthz.ts"),
-  route("welcome", "routes/welcome.tsx"), // 公开落地页（营销门面），无需登录
   route("media/*", "routes/media.$.ts"),
-  // 阶段二 ②：Better Auth catch-all 资源路由（/api/auth/*），无 UI（05 §6.1）。
+  route("api/studio/session", "routes/api.studio.session.ts"),
+  route("api/studio/generate", "routes/api.studio.generate.ts"),
+  route("api/studio/status", "routes/api.studio.status.ts"),
+  route("api/studio/events", "routes/api.studio.events.ts"),
+  route("api/studio/uploads", "routes/api.studio.uploads.ts"),
+  route("api/studio/images/:id", "routes/api.studio.images.$id.ts"),
   route("api/auth/*", "routes/api.auth.$.ts"),
-  // 阶段二 ⑤：前台读/写 API（资源路由，无 UI，server-only；读供客户端 refetch、写=REST/action）。
-  route("api/me", "routes/api.me.ts"),
-  route("api/generate", "routes/api.generate.ts"),
-  route("api/generate-background", "routes/api.generate-background.ts"),
-  route("api/generate-status", "routes/api.generate-status.ts"),
-  route("api/generate-events", "routes/api.generate-events.ts"),
-  route("api/conversations", "routes/api.conversations.ts"),
-  route("api/conversations/:id", "routes/api.conversations.$id.ts"),
-  // F-074 侧边栏项目分组：项目 CRUD + 项目/项目内会话整组排序。
-  route("api/projects", "routes/api.projects.ts"),
-  route("api/projects/order", "routes/api.projects.order.ts"),
-  route("api/projects/:id", "routes/api.projects.$id.ts"),
-  route("api/projects/:id/order", "routes/api.projects.$id.order.ts"),
-  route("api/images", "routes/api.images.ts"),
-  route("api/images/save", "routes/api.images.save.ts"),
-  route("api/packages", "routes/api.packages.ts"),
-  route("api/inspirations", "routes/api.inspirations.ts"),
-  route("api/notifications", "routes/api.notifications.ts"),
-  route("api/notifications/read", "routes/api.notifications.read.ts"),
-  route("api/account/ledger", "routes/api.account.ledger.ts"),
-  route("api/account/lots", "routes/api.account.lots.ts"),
-  route("api/account/redemptions", "routes/api.account.redemptions.ts"),
-  route("api/redeem", "routes/api.redeem.ts"),
-  route("api/uploads", "routes/api.uploads.ts"), // ④b 图生图：参考图上传（multipart）
-  route("api/inspiration-submissions", "routes/api.inspiration-submissions.ts"), // §13.1 用户投稿（POST 提交 / GET 我的投稿）
-  // 阶段二 ⑥：后台 API（资源路由，server-only；每个各自 requireAdmin = 双守卫之一）。
-  route("api/admin/users", "routes/api.admin.users.ts"),
-  route("api/admin/users/:id", "routes/api.admin.users.$id.ts"),
-  route("api/admin/codes", "routes/api.admin.codes.ts"),
-  route("api/admin/codes/export", "routes/api.admin.codes.export.ts"),
-  route("api/admin/codes/batch/:batchId", "routes/api.admin.codes.batch.$batchId.ts"),
-  route("api/admin/codes/:code", "routes/api.admin.codes.$code.ts"),
-  route("api/admin/packages", "routes/api.admin.packages.ts"),
-  route("api/admin/config", "routes/api.admin.config.ts"),
-  route("api/admin/relay", "routes/api.admin.relay.ts"), // 中转站 url/key 配置（换厂商）
-  route("api/admin/inspirations", "routes/api.admin.inspirations.ts"),
-  route("api/admin/inspirations/upload", "routes/api.admin.inspirations.upload.ts"), // 封面本地上传（multipart）
-  route("api/admin/landing-gallery", "routes/api.admin.landing-gallery.ts"), // F-073 首页画廊（GET 列表 / POST 动作）
-  route("api/admin/landing-gallery/upload", "routes/api.admin.landing-gallery.upload.ts"), // F-073 图片本地上传（multipart）
-  route("api/admin/inspiration-submissions", "routes/api.admin.inspiration-submissions.ts"), // §13.1 投稿审核（GET 队列 / POST approve|reject）
-  route("api/admin/generations", "routes/api.admin.generations.ts"),
-  route("api/admin/notifications", "routes/api.admin.notifications.ts"),
-  route("api/admin/audit", "routes/api.admin.audit.ts"),
-  route("api/admin/dashboard", "routes/api.admin.dashboard.ts"),
   route("api/admin/system-update", "routes/api.admin.system-update.ts"),
   route("api/admin/system-update/check", "routes/api.admin.system-update.check.ts"),
-  layout("routes/_app.tsx", [
-    index("routes/_app._index.tsx"), // 主对话 /（新建生成）
-    route("c/:id", "routes/_app.c.$id.tsx"), // 某会话线程
-    route("inspiration", "routes/_app.inspiration.tsx"), // 灵感库
-    route("assets", "routes/_app.assets.tsx"), // 资产库（mock 占位）
-    route("billing", "routes/_app.billing.tsx"), // 充值（做实：接住「去充值」CTA）
-    route("account", "routes/_app.account.tsx"), // 账号设置（占位）
-  ]),
-  layout("routes/_auth.tsx", [
-    route("login", "routes/_auth.login.tsx"),
-    route("register", "routes/_auth.register.tsx"),
-    route("forgot", "routes/_auth.forgot.tsx"),
-    // #14：管理员独立登录页（同一 Better Auth 账号体系；登录后校验 role 直达 /admin）。
-    route("admin/login", "routes/_auth.admin-login.tsx"),
-  ]),
-  // 阶段二 ⑥：后台 UI（独立 _admin 布局，requireAdminPage 守卫）。
+  layout("routes/_auth.tsx", [route("admin/login", "routes/_auth.admin-login.tsx")]),
   layout("routes/_admin.tsx", [
-    route("admin", "routes/_admin._index.tsx"), // 看板
-    route("admin/users", "routes/_admin.users.tsx"),
-    route("admin/codes", "routes/_admin.codes.tsx"),
-    route("admin/generations", "routes/_admin.generations.tsx"),
-    route("admin/inspiration", "routes/_admin.inspiration.tsx"),
-    route("admin/landing-gallery", "routes/_admin.landing-gallery.tsx"), // F-073 首页画廊（未登录 /welcome 展示图）
-    route("admin/inspiration-submissions", "routes/_admin.inspiration-submissions.tsx"), // §13.1 灵感投稿审核
-    route("admin/packages", "routes/_admin.packages.tsx"),
-    route("admin/notifications", "routes/_admin.notifications.tsx"), // §9 广播公告
+    route("admin", "routes/admin-index.ts"),
     route("admin/system-update", "routes/_admin.system-update.tsx"),
   ]),
+  route("*", "routes/legacy-redirect.ts"),
 ] satisfies RouteConfig;

@@ -28,6 +28,8 @@ export interface EnqueueRequest {
   sourceImageId?: string | null; // 对话结果图编辑：仅接收 images.id，归属/状态/会话在事务内校验
   credentialMode: CredentialMode;
   customApiKey?: string;
+  /** Present only for the anonymous studio: freezes the endpoint and enables its admission limits. */
+  customBaseUrl?: string;
 }
 
 export interface EnqueueResult {
@@ -67,6 +69,30 @@ async function run(
   generationId: string,
   encrypted: EncryptedCustomApiKey | null,
 ): Promise<EnqueueResult> {
+  if (input.customBaseUrl !== undefined) {
+    // One global transaction lock covers count + insert and simultaneous retries across all web instances.
+    // No credit account is created or locked in this path.
+    await c.query("SELECT pg_advisory_xact_lock(771077, 1)");
+    const existing = await c.query(
+      "SELECT id,user_id,conversation_id,credential_mode,deadline_at FROM generations WHERE id=$1",
+      [generationId],
+    );
+    if (existing.rowCount) {
+      const row = existing.rows[0];
+      if (row.user_id !== user.id || row.credential_mode !== "custom") {
+        throw httpError(404, "NOT_FOUND", "任务不存在");
+      }
+      return { generationId, conversationId: row.conversation_id, credentialMode: "custom", deadlineAt: new Date(row.deadline_at).toISOString() };
+    }
+    const counts = await c.query(
+      `SELECT COUNT(*) FILTER (WHERE user_id=$1)::int AS owner_count,COUNT(*)::int AS global_count
+       FROM generations WHERE status IN ('queued','claimed','running')`,
+      [user.id],
+    );
+    if (Number(counts.rows[0].owner_count) >= 10 || Number(counts.rows[0].global_count) >= 100) {
+      throw httpError(429, "CONCURRENCY_LIMIT", "任务较多，请等待当前任务完成");
+    }
+  }
   // ④b owner-scope：参考图 key 必须属本人（uploads/<me>/…），杜绝拿别人/伪造 key 进图生图。
   // 入队前就拒（不入队、不调中转），是越权防线；通过则原样落 generations.input_image_key。
   const inputImageKey = input.inputImageKey?.trim() || null;
@@ -219,11 +245,14 @@ export async function enqueueGeneration(args: { user: EnqueueUser; input: Enqueu
   if (input.credentialMode === "system" && input.customApiKey !== undefined) {
     throw httpError(400, "SYSTEM_MODE_FORBIDS_CUSTOM_KEY", "系统 Key 模式不接受自定义 Key");
   }
+  if (input.customBaseUrl !== undefined && (input.credentialMode !== "custom" || !input.customBaseUrl.trim())) {
+    throw httpError(400, "INVALID_PARAM", "连接地址无效");
+  }
 
   const generationId = input.generationId ?? randomUUID();
   const encrypted =
     input.credentialMode === "custom"
-      ? encryptCustomApiKey(generationId, (input.customApiKey as string).trim())
+      ? encryptCustomApiKey(generationId, (input.customApiKey as string).trim(), input.customBaseUrl)
       : null;
   const { customApiKey: _customApiKey, generationId: _generationId, ...persistableInput } = input;
   return tx((c) => run(c, args.user, persistableInput, generationId, encrypted));

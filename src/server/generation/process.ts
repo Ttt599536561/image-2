@@ -15,7 +15,7 @@ import {
   putToR2 as realPutToR2,
 } from "../r2.server";
 import { RelayError, callRelay as realCallRelay, type RelayCredential } from "../relay";
-import { deleteGenerationCredential, loadCustomApiKey } from "./credential.server";
+import { deleteGenerationCredential, loadCustomCredential } from "./credential.server";
 import { normalizeFailure } from "./failure";
 import { finalizeCustomSuccess } from "./finalizeCustom.server";
 
@@ -83,7 +83,7 @@ async function processClaimedGeneration(g: ClaimedGeneration, deps: ProcessDeps,
     if (!(await markRunning(generationId))) return outcome;
     checkDeadline();
     if (g.credentialMode === "custom") {
-      credential = { mode: "custom", apiKey: await loadCustomApiKey(generationId) };
+      credential = await loadCustomCredential(generationId);
     }
 
     let inputImage: Awaited<ReturnType<typeof realGetUploadObject>> | null = null;
@@ -105,7 +105,7 @@ async function processClaimedGeneration(g: ClaimedGeneration, deps: ProcessDeps,
       }
     }
 
-    // 只有 system 消耗本站共享中转预算；custom 使用用户自己的凭据和固定目标。
+    // 只有 system 消耗本站共享中转预算；custom 使用任务冻结的用户凭据和目标。
     if (g.credentialMode === "system" && !(await incCallIfUnderCap())) {
       try {
         if (await markBudgetAlertedOnce()) await alert("daily_budget_exhausted", {

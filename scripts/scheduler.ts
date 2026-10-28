@@ -1,9 +1,6 @@
 import { closeDbPools } from "../src/db/db.server";
 import timeoutRescan from "../netlify/functions/cron-timeout-rescan";
 import credentialCleanup from "../netlify/functions/cron-clean-generation-credentials";
-import budgetCleanup from "../netlify/functions/cron-budget-cleanup";
-import expireCredits from "../netlify/functions/cron-expire-credits";
-import reconcileBalance from "../netlify/functions/cron-reconcile-balance";
 import cleanImages from "../netlify/functions/cron-clean-images";
 
 const completed = new Map<string, number>();
@@ -34,9 +31,6 @@ async function tick(now = new Date()) {
   if (now.getUTCMinutes() % 5 === 0) await run("credential-cleanup", minuteSlot, minuteExpiry, credentialCleanup);
   const hm = `${String(now.getUTCHours()).padStart(2, "0")}:${String(now.getUTCMinutes()).padStart(2, "0")}`;
   const day = now.toISOString().slice(0, 10);
-  if (hm === "16:00") await run("budget-cleanup", day, dayExpiry, budgetCleanup);
-  if (hm === "16:10") await run("expire-credits", day, dayExpiry, expireCredits);
-  if (hm === "16:30") await run("reconcile-balance", day, dayExpiry, reconcileBalance);
   if (hm === "17:00") await run("clean-images", day, dayExpiry, cleanImages);
 }
 

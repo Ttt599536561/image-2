@@ -1,33 +1,34 @@
 # 项目上下文
 
-这是一个对话式 AI 生图应用。system 模式只在图片成功持久化后扣本站积分；custom 模式使用用户 Key、本站零扣费且不回退 system。
+这是一个无需普通用户账户的 AI 生图工作台。用户填写自己的 HTTPS URL 与 API Key，所有公开生图均为 custom；站内套餐、积分、注册和普通登录已退役。历史与图片副本保存在当前浏览器。
 
 ## 当前生产事实
 
-- 当前产品版本为 `0.2.9`；生产已于2026-10-28切换到 `45.207.199.3`
-  的 `/opt/ai-image-workshop`，运行提交 `ca55891faf1d422360d06ace5e1b5f981cb9a0c0`，
-  站点为 `https://one-image2.tangguo.xin`；公网HTTPS及管理员登录验收通过。
+- 当前代码版本为 `0.3.0`；部署主机为 `45.207.199.3` 的 `/opt/ai-image-workshop`，
+  站点为 `https://one-image2.tangguo.xin`。实际运行提交和最新验收以 `docs/PROGRESS.md` 为准。
   按owner确认使用全新数据库，未迁移旧账号/积分/图片；旧腾讯云站点保留作回退。
 - Debian Docker Compose：Caddy/现有代理 -> `web`，并运行 `worker`、单例 `scheduler`。
 - PostgreSQL 17 在私有 Compose 网络中，数据卷为 `postgres_data`；宿主机不发布 `5432`。
 - 媒体默认存 `media_data:/app/data/media`，数据库保存相对地址 `/media/<key>`。
 - 容器内 Web 使用 `3000`；宿主机已有 `3000` 不冲突。现有代理模式只绑定空闲的 `127.0.0.1` 端口。
 - 安装从空数据开始，不迁移 Neon/Supabase/Netlify 数据。Neon 与 S3 仅是可选驱动。
-- 安装器收集可留空的 Relay Key、管理员邮箱、可见管理员密码；内部密钥自动生成。管理员入口 `/admin/login`。新机系统Relay Key尚未配置，需管理员在后台填写后使用system模式；custom模式已开启，用户可在浏览器保存自己的Key。
+- 管理员入口 `/admin/login`，仅用于 `/admin/system-update` 运维；普通用户不用账户。安装器兼容保留的站长Relay Key不参与新工作台生成，用户必须填写自己的URL与Key。
 - 安装、resume、升级、备份、恢复及空栈持久化 smoke 已实现并验证；现有产品与工程需求全部收口。
-- 未登录访问 `/` 会 302 到公开落地页 `/welcome`；后台 `/admin/landing-gallery` 可手动配置未登录首页画廊（CRUD/排序/上下架，无配置回退灵感库）。
+- `/` 直接展示三栏工作台；旧welcome/login/register/billing/account页面跳回工作台。旧公开账户、充值、套餐及生成API不注册，源码与测试归档在 `legacy/routes`。
 - 管理后台更新入口为 `/admin/system-update`；宿主机
   `ai-image-workshop-update.path` 已启用并运行，Web 不持有 Docker 或 shell 权限。
-- GitHub `main` 与 stable/latest Release（当前 `v0.2.9`）已发布，是更新器唯一更新来源；
+- GitHub `main` 与 stable/latest Release 是更新器唯一更新来源；最新发布版本需实时核实，
   2026-07-25 已完成首次全链路受控更新（`0.2.0` → `0.2.7`，含 jq 1.6 校验、
   DOCKER_CONFIG、UMask 三项宿主环境修复）。真实 Relay 检查、恢复演练、
   凭据轮换和异地备份按持续运维周期执行。
 
 ## 不可破坏
 
-- 金额使用整数毫积分；system 仅成功后扣费；`generation_id` 幂等；FIFO；余额不得为负。
+- 历史计费表保留供回退，新匿名流程不得创建/修改余额、批次、账本或预算；管理员认证也不发积分。不得以删除旧表完成普通功能退役。
 - `generations` 是队列和状态真相源；worker 原子抢占，scheduler 处理超时和维护。
-- custom 不碰账户、账本、预算或 system 并发；任务级 AES-GCM 密文在终态删除，明文不得进入日志、事件、审计或响应。
+- 匿名owner必须由高熵HttpOnly cookie映射，不能接受客户端ownerId。任务、上传、SSE与图片严格校验归属，用户媒体经Web输出private缓存。
+- URL＋Key以任务级AES-GCM密封、终态删除；禁止system回退。用户URL及返回图片URL都必须走安全HTTPS出站，校验全部DNS并固定连接IP，禁止私网及redirect。
+- `generation_id`重放不能重复调用上游；owner在途10/全局100原子闸，单worker并发10。POST同源校验与由代理覆盖的IP限流不可移除。
 - 管理员页面/API 必须有 admin guard；敏感写入同事务审计。
 - 所有业务 Compose 命令使用 `--env-file deploy/.env.production`；不得删除数据卷处理普通启动故障。
 
@@ -61,4 +62,4 @@
 - [技术索引](docs/dev/README.md)
 - [产品契约](tasks/prd-user-api-key-modes.md)
 
-现有需求、计划和规格均已完成；历史记录只用于回归调查，不作为当前任务清单。后续只有新增需求才进入需求文档。
+当前改造见 `tasks/2026-10-28-anonymous-studio.md`；旧账户/营销/计费规格仅用于回归及回退，不应恢复其公开入口。

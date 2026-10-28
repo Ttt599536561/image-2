@@ -1,17 +1,11 @@
 {$DOMAIN} {
 	encode zstd gzip
 
-	handle_path /media/* {
-		root * /srv/media
-		file_server
-		header {
-			Cache-Control "public, max-age=31536000, immutable"
-			X-Content-Type-Options nosniff
-		}
-	}
-
 	handle {
-		reverse_proxy web:3000
+		reverse_proxy web:3000 {
+			# Overwrite client input; only Caddy may establish the rate-limit IP.
+			header_up X-Studio-Client-IP {remote_host}
+		}
 	}
 
 	@assets path /assets/*

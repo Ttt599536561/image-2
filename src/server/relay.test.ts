@@ -19,6 +19,7 @@ describe("custom relay target", () => {
       deadlineAt: new Date(Date.now() + 90_000),
     });
     expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock.mock.calls[0][1]?.redirect).toBe("error");
     expect(String(fetchMock.mock.calls[0][0])).toBe("https://api.tangguo.xin/v1/images/generations");
     expect((fetchMock.mock.calls[0][1]?.headers as Record<string, string>).Authorization).toBe(
       "Bearer fictional-relay-token",

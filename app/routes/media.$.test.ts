@@ -2,7 +2,10 @@
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+const session = vi.hoisted(() => vi.fn());
+vi.mock("../../src/server/studio/session.server", () => ({ requireStudioSession: session }));
+vi.mock("../../src/server/studio/limits.server", () => ({ consumeStudioRate: vi.fn().mockResolvedValue(undefined) }));
 import { ErrorBody } from "../../src/contracts/error";
 import { writeLocalStorageObject } from "../../src/server/local-storage.server";
 import routes from "../routes";
@@ -16,6 +19,8 @@ const FILE_BYTES = new Uint8Array([0, 1, 2, 127, 255]);
 let storageRoot = "";
 
 beforeEach(() => {
+  session.mockReset();
+  session.mockRejectedValue(new Response(null, { status: 401 }));
   storageRoot = mkdtempSync(join(tmpdir(), "media-route-storage-"));
   process.env.STORAGE_DRIVER = "local";
   delete process.env.DISPOSABLE_TEST_DB_DRIVER;
@@ -76,9 +81,9 @@ describe("self-hosted media route", () => {
   });
 
   it("serves exact bytes for an encoded nested filename with immutable headers", async () => {
-    await writeLocalStorageObject("users/a file #1.webp", FILE_BYTES);
+    await writeLocalStorageObject("inspirations/a file #1.webp", FILE_BYTES);
 
-    const response = await load("/media/users/a%20file%20%231.webp");
+    const response = await load("/media/inspirations/a%20file%20%231.webp");
 
     expect(response.status).toBe(200);
     expect(new Uint8Array(await response.arrayBuffer())).toEqual(FILE_BYTES);
@@ -87,6 +92,23 @@ describe("self-hosted media route", () => {
       "public, max-age=31536000, immutable",
     );
     expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
+  });
+
+  it("does not expose another browser's generated image by a known storage key", async () => {
+    const owner = "11111111-1111-4111-8111-111111111111";
+    await writeLocalStorageObject(`${owner}/2026/10/result.png`, FILE_BYTES);
+    session.mockResolvedValue({ userId: "22222222-2222-4222-8222-222222222222" });
+    await expectNotFound(`/media/${owner}/2026/10/result.png`);
+  });
+
+  it("serves owned images with private cache controls and requires a session", async () => {
+    const owner = "11111111-1111-4111-8111-111111111111";
+    await writeLocalStorageObject(`${owner}/2026/10/result.png`, FILE_BYTES);
+    await expectNotFound(`/media/${owner}/2026/10/result.png`);
+    session.mockResolvedValue({ userId: owner });
+    const response = await load(`/media/${owner}/2026/10/result.png`);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
   });
 
   it("returns a safe 404 for a missing object", async () => {

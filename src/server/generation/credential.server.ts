@@ -1,8 +1,11 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { getSql } from "../../db/db.server";
+import { normalizeStudioBaseUrl } from "../studio/safe-http.server";
 
 export const CUSTOM_RELAY_BASE_URL = "https://api.tangguo.xin/v1";
 export const CUSTOM_CREDENTIAL_KEY_VERSION = 1;
+const STUDIO_CREDENTIAL_VERSION = 2;
+export interface CustomCredential { mode: "custom"; apiKey: string; baseUrl?: string }
 
 export class CredentialConfigurationError extends Error {
   constructor() {
@@ -36,16 +39,21 @@ function authenticatedGenerationId(generationId: string): Buffer {
 export function encryptCustomApiKey(
   generationId: string,
   apiKey: string,
+  baseUrl?: string,
 ): EncryptedCustomApiKey {
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", masterKey(), iv);
   cipher.setAAD(authenticatedGenerationId(generationId));
-  const ciphertext = Buffer.concat([cipher.update(apiKey, "utf8"), cipher.final()]);
+  // v1 raw-key ciphertext remains readable; v2 freezes a versioned URL+key envelope.
+  const plaintext = baseUrl === undefined ? apiKey : JSON.stringify({
+    version: 1, apiKey, baseUrl: normalizeStudioBaseUrl(baseUrl),
+  });
+  const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
   return {
     ciphertext: ciphertext.toString("base64"),
     iv: iv.toString("base64"),
     authTag: cipher.getAuthTag().toString("base64"),
-    keyVersion: CUSTOM_CREDENTIAL_KEY_VERSION,
+    keyVersion: baseUrl === undefined ? CUSTOM_CREDENTIAL_KEY_VERSION : STUDIO_CREDENTIAL_VERSION,
   };
 }
 
@@ -53,29 +61,42 @@ export function decryptCustomApiKey(
   generationId: string,
   value: EncryptedCustomApiKey,
 ): string {
-  if (value.keyVersion !== CUSTOM_CREDENTIAL_KEY_VERSION) {
+  return decryptCustomCredential(generationId, value).apiKey;
+}
+
+function decryptCustomCredential(generationId: string, value: EncryptedCustomApiKey): CustomCredential {
+  if (value.keyVersion !== CUSTOM_CREDENTIAL_KEY_VERSION && value.keyVersion !== STUDIO_CREDENTIAL_VERSION) {
     throw new CredentialConfigurationError();
   }
   try {
     const decipher = createDecipheriv("aes-256-gcm", masterKey(), Buffer.from(value.iv, "base64"));
     decipher.setAAD(authenticatedGenerationId(generationId));
     decipher.setAuthTag(Buffer.from(value.authTag, "base64"));
-    return Buffer.concat([
+    const plaintext = Buffer.concat([
       decipher.update(Buffer.from(value.ciphertext, "base64")),
       decipher.final(),
     ]).toString("utf8");
+    if (value.keyVersion === CUSTOM_CREDENTIAL_KEY_VERSION) return { mode: "custom", apiKey: plaintext };
+    const envelope = JSON.parse(plaintext);
+    if (!envelope || envelope.version !== 1 || typeof envelope.apiKey !== "string" ||
+      !envelope.apiKey || typeof envelope.baseUrl !== "string") throw new CredentialConfigurationError();
+    return { mode: "custom", apiKey: envelope.apiKey, baseUrl: normalizeStudioBaseUrl(envelope.baseUrl) };
   } catch {
     throw new CredentialConfigurationError();
   }
 }
 
 export async function loadCustomApiKey(generationId: string): Promise<string> {
+  return (await loadCustomCredential(generationId)).apiKey;
+}
+
+export async function loadCustomCredential(generationId: string): Promise<CustomCredential> {
   const rows = await getSql()`SELECT ciphertext,iv,auth_tag,key_version
                               FROM generation_credentials
                               WHERE generation_id=${generationId} AND expires_at>now()`;
   const row = rows[0];
   if (!row) throw new CredentialConfigurationError();
-  return decryptCustomApiKey(generationId, {
+  return decryptCustomCredential(generationId, {
     ciphertext: row.ciphertext as string,
     iv: row.iv as string,
     authTag: row.auth_tag as string,

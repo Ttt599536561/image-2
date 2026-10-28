@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { expect, type Page } from "@playwright/test";
 import { Pool } from "pg";
-import { loadDisposableTestEnv } from "../../scripts/test-env-guard";
+import { loadDisposableTestEnv } from "../../../scripts/test-env-guard";
 
 const env = loadDisposableTestEnv();
 for (const name of [

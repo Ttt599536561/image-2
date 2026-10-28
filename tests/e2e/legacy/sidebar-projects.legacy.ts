@@ -7,7 +7,7 @@ import {
   closeKeyModeFixture,
   installGenerationHarness,
   registerTestUser,
-} from "./key-mode-fixture";
+} from "./key-mode-fixture.legacy";
 
 test.describe("sidebar projects", () => {
   const cleanupEmails: string[] = [];

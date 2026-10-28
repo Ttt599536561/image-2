@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { cleanupTestUsers, closeKeyModeFixture, installGenerationHarness, registerTestUser } from "./key-mode-fixture";
+import { cleanupTestUsers, closeKeyModeFixture, installGenerationHarness, registerTestUser } from "./key-mode-fixture.legacy";
 
 test.describe.serial("committed generation SSE", () => {
   const emails: string[] = [];

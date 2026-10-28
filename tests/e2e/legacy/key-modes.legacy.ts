@@ -6,7 +6,7 @@ import {
   loginTestUser,
   registerTestUser,
   setBalanceZero,
-} from "./key-mode-fixture";
+} from "./key-mode-fixture.legacy";
 
 test.describe.serial("user API key modes", () => {
   let cleanupEmails: string[] = [];

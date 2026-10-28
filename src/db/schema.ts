@@ -49,6 +49,19 @@ export const users = pgTable(
 );
 
 // ========== credit_accounts（物化余额：缓存，权威是 lots 之和） ==========
+export const studioSessions = pgTable("studio_sessions", {
+  tokenHash: text("token_hash").primaryKey(),
+  userId: uuid("user_id").notNull().unique().references(() => users.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", tz).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", tz).notNull(),
+}, (t) => [check("studio_sessions_token_hash_check", sql`length(${t.tokenHash})=64`), index("ix_studio_sessions_expires").on(t.expiresAt)]);
+
+export const studioRateLimits = pgTable("studio_rate_limits", {
+  bucketHash: text("bucket_hash").primaryKey(),
+  hits: integer("hits").notNull(),
+  expiresAt: timestamp("expires_at", tz).notNull(),
+}, (t) => [check("studio_rate_limits_bucket_hash_check", sql`length(${t.bucketHash})=64`), check("studio_rate_limits_hits_check", sql`${t.hits}>0`), index("ix_studio_rate_limits_expires").on(t.expiresAt)]);
+
 export const creditAccounts = pgTable(
   "credit_accounts",
   {
