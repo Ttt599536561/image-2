@@ -64,7 +64,7 @@ services:
     <<: *app
     command: ["node", "--import", "tsx", "scripts/worker.ts"]
     init: true
-    stop_grace_period: 6m
+    stop_grace_period: 11m
     depends_on:
       web:
         condition: service_healthy
