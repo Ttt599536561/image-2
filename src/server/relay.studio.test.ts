@@ -39,7 +39,7 @@ describe("studio custom relay", () => {
     await expect(callRelay(req)).rejects.toThrow();
     expect(safeRequest).toHaveBeenCalledOnce();
   });
-  it.each(["gpt-image-2", "gpt-image-2.5-sunburst"] as const)("sends %s in JSON and preserves four ordered original images in multipart", async (model) => {
+  it.each(["gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst"] as const)("sends %s in JSON and preserves four ordered original images in multipart", async (model) => {
     await callRelay({ ...input(), model });
     expect(JSON.parse(safeRequest.mock.calls[0][1].body).model).toBe(model);
     const inputImages = [1, 2, 3, 4].map((n) => ({ bytes: new Uint8Array([0, n, 255, n + 10]), contentType: "image/png", filename: `ref-${n}.png` }));

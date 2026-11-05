@@ -48,8 +48,8 @@ describe("device history", () => {
     expect(JSON.stringify(saved)).not.toMatch(/secret|baseUrl|apiKey/);
     expect(saved.params).toEqual({ prompt: "a cat", size: "auto", model: "gpt-image-2" });
   });
-  it("preserves the chosen model and defaults old history to Image 2", () => {
-    expect(pickParams({ prompt: "cat", size: "auto", model: "gpt-image-2.5-sunburst" }).model).toBe("gpt-image-2.5-sunburst");
+  it.each(["gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst"] as const)("preserves %s and defaults old history to Image 2", (model) => {
+    expect(pickParams({ prompt: "cat", size: "auto", model }).model).toBe(model);
     expect(pickParams({ prompt: "cat", size: "auto" }).model).toBe("gpt-image-2");
   });
   it("evicts oldest completed records while preserving active work", () => {

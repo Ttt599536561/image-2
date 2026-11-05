@@ -500,7 +500,7 @@ test("mobile creation, settings, history and result fit the viewport", async ({ 
   await fits();
 });
 
-test("fixed service ignores legacy browser URLs and both models reach the fake relay with saved snapshots", async ({ page }) => {
+test("fixed service ignores legacy browser URLs and all models reach the fake relay with saved snapshots", async ({ page }) => {
   const foreignKey = "fixture-legacy-key-bound-to-another-service";
   await page.addInitScript(({ key }) => localStorage.setItem("image-studio-connection-v1", JSON.stringify({
     baseUrl: "https://obsolete-browser-setting.example/v1", apiKey: key, rememberKey: true,
@@ -522,12 +522,13 @@ test("fixed service ignores legacy browser URLs and both models reach the fake r
   await page.getByPlaceholder("输入你的 API Key").fill(fixtureKey);
   await page.getByRole("button", { name: "完成，开始创作" }).click();
   await expect(modelSelect(page)).toContainText("gpt-image-2");
-  for (const model of ["gpt-image-2", "gpt-image-2.5-sunburst"] as const) {
+  for (const [model, badge] of [["gpt-image-2", "GPT IMAGE 2"], ["gpt-image-2.5-sunburst", "IMAGE 2.5 SUNBURST"], ["gpt-image-2.6-flare", "IMAGE 2.6 FLARE"], ["gpt-image-2.6-sunburst", "IMAGE 2.6 SUNBURST"]] as const) {
     await selectOption(page, "生成模型", model);
     const request = page.waitForRequest((item) => new URL(item.url()).pathname === "/api/studio/generate");
     const accepted = await submitFromUi(page, `${model} 模型快照`);
     const payload = (await request).postDataJSON();
     expect(payload.model).toBe(model);
+    await expect(page.getByText(badge, { exact: true })).toBeVisible();
     expect(payload.baseUrl === undefined || payload.baseUrl === fixtureBaseUrl).toBe(true);
     expect(JSON.stringify(payload)).not.toContain("obsolete-browser-setting");
     expect(payload.apiKey).toBe(fixtureKey);
@@ -542,7 +543,7 @@ test("fixed service ignores legacy browser URLs and both models reach the fake r
     await page.getByRole("button", { name: "复用参数" }).click();
     await expect(modelSelect(page)).toHaveText(model);
   }
-  expect(generationRequests).toHaveLength(2);
+  expect(generationRequests).toHaveLength(4);
   expect(JSON.stringify(generationRequests)).not.toContain(foreignKey);
   await expectNoMoney(owner);
 });
@@ -680,7 +681,7 @@ test("all desktop controls and four references fit without clipped or internally
 test("custom selectors support arrows, Enter, Escape, Tab and keep their popups in the viewport", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 1366, height: 768 });
   await openStudio(page);
-  for (const { label, choice } of [{ label: "生成模型", choice: "gpt-image-2.5-sunburst" }, { label: "生成质量", choice: "高" }, { label: "图片背景", choice: "透明" }]) {
+  for (const { label, choice } of [{ label: "生成模型", choice: "gpt-image-2.6-flare" }, { label: "生成质量", choice: "高" }, { label: "图片背景", choice: "透明" }]) {
     const trigger = page.getByRole("combobox", { name: label, exact: true });
     const before = await trigger.innerText();
     await trigger.focus();

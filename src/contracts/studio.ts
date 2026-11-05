@@ -3,7 +3,7 @@ import { BACKGROUNDS, QUALITIES, SIZES } from "./generate";
 
 export const DEFAULT_STUDIO_BASE_URL = "https://api.tangguo.xin/v1";
 export const STUDIO_MODEL = "gpt-image-2";
-export const STUDIO_MODELS = ["gpt-image-2.5-sunburst", "gpt-image-2"] as const;
+export const STUDIO_MODELS = ["gpt-image-2.6-flare", "gpt-image-2.6-sunburst", "gpt-image-2.5-sunburst", "gpt-image-2"] as const;
 export type StudioModel = typeof STUDIO_MODELS[number];
 export const MAX_STUDIO_REFERENCE_IMAGES = 4;
 export const StudioGenerateRequest = z.object({

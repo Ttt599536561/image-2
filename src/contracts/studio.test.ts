@@ -10,7 +10,7 @@ describe("studio generation contract", () => {
   it.each(["https://evil.example/v1", "http://api.tangguo.xin/v1", "https://api.tangguo.xin/v1/else", "https://api.tangguo.xin.evil.example/v1"])("rejects a substituted upstream %s", (baseUrl) => {
     expect(StudioGenerateRequest.safeParse({ ...request, baseUrl }).success).toBe(false);
   });
-  it.each(["gpt-image-2", "gpt-image-2.5-sunburst"])("accepts model %s", (model) => {
+  it.each(["gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst"])("accepts model %s", (model) => {
     expect(StudioGenerateRequest.parse({ ...request, model }).model).toBe(model);
   });
   it("accepts four ordered references and legacy single reference", () => {

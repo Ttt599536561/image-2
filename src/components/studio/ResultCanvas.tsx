@@ -2,11 +2,18 @@ import { useEffect, useState } from "react";
 import { ArrowDownToLine, ArrowUpRight, Check, Clock3, Expand, ImagePlus, Images, LoaderCircle, RotateCcw, Sparkles, TriangleAlert } from "lucide-react";
 import { useLightbox } from "../Lightbox/LightboxProvider";
 import { downloadImage } from "../../lib/download";
+import { STUDIO_MODEL, type StudioModel } from "../../contracts/studio";
 import { isActive, type StudioHistoryEntry } from "../../lib/studio/history";
 import { useBlobUrl } from "./ReferenceImage";
 import styles from "./Studio.module.css";
 
 export const STATUS_LABELS = { queued: "排队中", claimed: "准备生成", running: "生成中", succeeded: "已完成", failed: "生成失败" };
+const MODEL_LABELS: Record<StudioModel, string> = {
+  "gpt-image-2.6-flare": "IMAGE 2.6 FLARE",
+  "gpt-image-2.6-sunburst": "IMAGE 2.6 SUNBURST",
+  "gpt-image-2.5-sunburst": "IMAGE 2.5 SUNBURST",
+  "gpt-image-2": "GPT IMAGE 2",
+};
 export function durationLabel(ms: number): string {
   const seconds = Math.max(0, Math.floor(ms / 1000));
   return seconds >= 60 ? `${Math.floor(seconds / 60)} 分 ${seconds % 60} 秒` : `${seconds} 秒`;
@@ -31,7 +38,7 @@ export function ResultCanvas({ entry, entries, onSelect, onReuse, onEdit, prepar
   const src = localUrl ?? entry?.image?.url;
   const filename = `图像工坊_${entry?.generationId ?? "image"}.${entry?.blob?.type === "image/webp" ? "webp" : entry?.blob?.type === "image/jpeg" ? "jpg" : "png"}`;
   return <section className={styles.canvasSection} aria-label="生成结果">
-    <div className={styles.canvasToolbar}><div className={styles.canvasTitle}><Images size={17} strokeWidth={1.5} /><span>{entry ? "创作预览" : "你的创作画布"}</span>{entry && <span className={`${styles.statusPill} ${entry.status === "succeeded" ? styles.successPill : ""}`}><i />{STATUS_LABELS[entry.status]}</span>}</div><span className={styles.modelBadge}>{entry?.params.model === "gpt-image-2.5-sunburst" ? "IMAGE 2.5 SUNBURST" : "GPT IMAGE 2"}</span></div>
+    <div className={styles.canvasToolbar}><div className={styles.canvasTitle}><Images size={17} strokeWidth={1.5} /><span>{entry ? "创作预览" : "你的创作画布"}</span>{entry && <span className={`${styles.statusPill} ${entry.status === "succeeded" ? styles.successPill : ""}`}><i />{STATUS_LABELS[entry.status]}</span>}</div><span className={styles.modelBadge}>{MODEL_LABELS[entry?.params.model ?? STUDIO_MODEL]}</span></div>
     <div className={`${styles.canvas} ${!entry ? styles.canvasEmpty : ""} ${entry?.status === "succeeded" ? styles.canvasWithImage : ""}`}>
       {!entry ? <div className={styles.emptyCanvas}><div className={styles.emptyArt} aria-hidden><span /><span /><div><Sparkles size={34} strokeWidth={1.15} /></div></div><span className={styles.eyebrow}>A LITTLE IDEA. A NEW IMAGE.</span><h2>从一个想法开始</h2><p>写下画面，选择比例。<br />让此刻的灵感，成为看得见的作品。</p>{!hasConnection ? <button type="button" className={styles.textAction} onClick={onConnect}>连接图片服务<ArrowUpRight size={15} /></button> : <span className={styles.emptyHint}>在创作面板输入描述，开始生成</span>}<div className={styles.canvasCorner}>YOUR SPACE TO CREATE</div></div>
       : entry.status === "succeeded" && src ? <button type="button" className={styles.imageStage} aria-label="放大查看生成图片" onClick={() => lightbox.open(src, filename)}><img src={src} alt={entry.params.prompt} /><span><Expand size={15} />放大查看</span></button>

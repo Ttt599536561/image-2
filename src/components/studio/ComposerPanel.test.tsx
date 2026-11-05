@@ -26,12 +26,14 @@ describe("studio composer keyboard submission", () => {
     expect(screen.getByLabelText("生成质量")).toBeVisible();
     expect(screen.queryByText("4K")).not.toBeInTheDocument();
   });
-  it("exposes both models, always-visible background, and all clipboard files", () => {
+  it("exposes all models, always-visible background, and all clipboard files", () => {
     const change = vi.fn(); const add = vi.fn();
     render(<ComposerPanel params={{ prompt: "", size: "auto", model: "gpt-image-2" }} onParams={change} references={[]} onReferences={add} onRemoveReference={vi.fn()} onGenerate={vi.fn()} busy={false} enabled hasConnection connectionLabel="api.tangguo.xin" onConnection={vi.fn()} />);
-    fireEvent.click(screen.getByRole("combobox", { name: "生成模型" }));
-    fireEvent.click(screen.getByRole("option", { name: "gpt-image-2.5-sunburst" }));
-    expect(change).toHaveBeenCalledWith(expect.objectContaining({ model: "gpt-image-2.5-sunburst" }));
+    for (const model of ["gpt-image-2.6-flare", "gpt-image-2.6-sunburst", "gpt-image-2.5-sunburst", "gpt-image-2"]) {
+      fireEvent.click(screen.getByRole("combobox", { name: "生成模型" }));
+      fireEvent.click(screen.getByRole("option", { name: model }));
+      expect(change).toHaveBeenLastCalledWith(expect.objectContaining({ model }));
+    }
     expect(screen.getByRole("combobox", { name: "图片背景" })).toBeVisible();
     const files = [new File(["1"], "1.png", { type: "image/png" }), new File(["2"], "2.png", { type: "image/png" })];
     fireEvent.paste(screen.getByRole("textbox", { name: "画面描述" }), { clipboardData: { files } });

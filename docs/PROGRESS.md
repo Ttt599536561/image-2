@@ -42,6 +42,13 @@
 
 ## 会话日志（新条目追加在最上面，必须按此格式）
 
+### [2026-11-05] F-082：新增 Image 2.6 Flare / Sunburst，本地验收通过
+- 用户要求网站新增 `gpt-image-2.6-flare`、`gpt-image-2.6-sunburst`；共享模型白名单扩展到四个，默认仍为`gpt-image-2`，结果预览准确显示任务模型，版本升至0.3.5。无数据库迁移。
+- 验收：typecheck退出0；单测103文件、889 passed / 1 skipped；完整E2E19 passed，覆盖四模型请求/数据库快照/模拟Relay/本地历史/参数复用/结果标签，以及桌面和手机选择器。build、assert-no-secrets（45文件/4值/9标记）、audit高危门禁、release:validate均退出0；四项既有开发依赖中危保持。独立审查发现README旧简介，已修正。
+- 本机测试说明：默认Vitest会扫描`.local`旧工作树，因此完整单测加`--exclude '.local/**' --exclude '.cache/**' --maxWorkers 4`。开发E2E启动超时，改用已验收生产构建和临时Playwright配置`.cache/models26-playwright.config.ts`，原19项断言不变；独立PG17/55435/image2_models26_test，真实数据位于E盘项目`.cache`。证据`.cache/logs/image26-*`。
+- 上线前只读核对：生产仍为0.3.4/869c88b，五服务正常。准备沿用main精确提交和installer受控升级，保留镜像/配置/数据库/媒体回退点。真实付费生成未调用。
+- 浏览器限制：Computer Use因无法可靠识别Windows当前URL而停止，未继续控制生产浏览器；上线后将以版本、健康状态、公开资源与运行时模型合同核验，UI由本地生产构建E2E覆盖。
+
 ### [2026-10-29] 0.3.4整图单次上传已上线
 - 实现869c88b快进main并推送，[CI40775192020](https://github.com/Ttt599536561/image-2/actions/runs/40775192020)全绿，包含新入口Docker运行与真实空栈smoke。预构建/受控升级退出0，运行0.3.4/869c88b692409db8f0e0e93a5d915571b2c1d3ca，upgrade complete/status0、health204。版本alias为ai-image-workshop:0.3.4-869c88b。
 - 线上预算验证：生产HTTP工厂实际requestTimeout1260000ms、headersTimeout60000ms；应用整图readLimitedBody1200000ms，客户端1260000ms。单张原图只一次请求；明确错误不等待长时限，不自动重试或分片。旧分片接口/表/清理仅兼容旧页面，新前端不调用。
