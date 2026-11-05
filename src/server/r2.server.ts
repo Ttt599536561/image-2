@@ -17,6 +17,7 @@ import {
   S3Client,
 } from "@aws-sdk/client-s3";
 import {
+  contentTypeForStorageKey,
   deleteLocalStorageObject,
   deleteLocalStorageObjects,
   isLocalStorageEnabled,
@@ -27,6 +28,8 @@ import {
   writeLocalStorageObject,
 } from "./local-storage.server";
 import { MAX_IMAGE_BYTES, safeHttpsRequest } from "./studio/safe-http.server";
+import { readGifMetadata } from "./gif";
+import type { StudioOutputFormat } from "../contracts/studio";
 
 function env(name: string): string {
   const v = process.env[name];
@@ -133,11 +136,13 @@ async function fetchImageBytes(relay: {
   }
   signal?.throwIfAborted();
   if (bytes.length > MAX_IMAGE_BYTES) throw new Error("provider image too large");
-  return { bytes, contentType: providerImageMime(bytes) };
+  try { return { bytes, contentType: providerImageMime(bytes) }; }
+  catch { throw Object.assign(new Error("invalid provider image format"), { failureCode: "invalid_response" as const }); }
 }
 
 /** Validate file signatures, never trust the URL suffix or upstream Content-Type. */
 function providerImageMime(bytes: Uint8Array): string {
+  if (readGifMetadata(bytes)) return "image/gif";
   const pngSignature = [137, 80, 78, 71, 13, 10, 26, 10];
   if (bytes.length >= 24 && pngSignature.every((byte, index) => bytes[index] === byte) &&
     Buffer.from(bytes.subarray(12, 16)).toString("ascii") === "IHDR") return "image/png";
@@ -166,13 +171,18 @@ export async function putToR2(
   generationId: string,
   relayImage: { b64_json?: string; url?: string },
   signal?: AbortSignal,
+  expectedOutputFormat?: StudioOutputFormat,
 ): Promise<PutResult> {
   const { bytes, contentType } = await fetchImageBytes(relayImage, signal);
-  const extension = contentType === "image/jpeg" ? "jpg" : contentType === "image/webp" ? "webp" : "png";
+  const gif = contentType === "image/gif" ? readGifMetadata(bytes) : undefined;
+  if (expectedOutputFormat === "gif" && (!gif || gif.frames < 2)) {
+    throw Object.assign(new Error("上游未返回完整的 GIF 动图，请确认所选服务支持 GIF 输出"), { failureCode: "invalid_response" as const });
+  }
+  const extension = contentType === "image/jpeg" ? "jpg" : contentType === "image/webp" ? "webp" : contentType === "image/gif" ? "gif" : "png";
   const storageKey = buildStorageKey(userId, generationId, extension);
   await putObject(storageKey, bytes, contentType, signal);
   signal?.throwIfAborted();
-  const dims = readPngDims(bytes);
+  const dims = gif ?? readPngDims(bytes);
   return {
     storageKey,
     publicUrl: publicUrl(storageKey),
@@ -281,7 +291,7 @@ export async function copyToInspirationSubmission(
   );
   if (!res.Body) throw new Error(`[storage] 投稿源对象为空：${srcKey}`);
   const body = new Uint8Array(await res.Body.transformToByteArray());
-  const contentType = res.ContentType ?? "image/png";
+  const contentType = res.ContentType ?? contentTypeForStorageKey(srcKey);
   const ext = srcKey.split(".").pop()?.toLowerCase() || "png";
   const storageKey = buildInspirationSubmissionKey(userId, ext);
   await putObject(storageKey, body, contentType);
@@ -385,7 +395,7 @@ export async function getStoredImageObject(
   }
   return {
     bytes,
-    contentType: res.ContentType ?? "image/png",
+    contentType: res.ContentType ?? contentTypeForStorageKey(storageKey),
     filename: storageKey.split("/").pop() || "input.png",
   };
 }

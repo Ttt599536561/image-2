@@ -191,11 +191,12 @@ export function useStudio() {
 
   const generate = useCallback(async (params: StudioParams, references: File[]): Promise<boolean> => {
     if (submitting.current || !ready || !session) return false;
+    if (params.outputFormat === "gif" && references.length) { setError("GIF 动图不支持参考图，请先移除参考图或切换为 PNG 静态图。"); return false; }
     const validation = appendReferences([], references);
     if (validation.error) { setError(validation.error); return false; }
     const parsed = StudioGenerateRequest.safeParse({ ...pickParams(params), baseUrl: DEFAULT_CONNECTION.baseUrl, apiKey: connection.apiKey, generationId: crypto.randomUUID() });
     if (!parsed.success) {
-      setError(!connection.apiKey.trim() ? "请先在连接设置中填写 API Key。" : !params.prompt.trim() ? "请先写下你想生成的画面。" : "请检查生成参数，提示词最多 4000 字。");
+      setError(!connection.apiKey.trim() ? "请先在连接设置中填写 API Key。" : !params.prompt.trim() ? "请先写下你想生成的画面。" : params.outputFormat === "gif" ? parsed.error.issues[0]?.message ?? "请检查 GIF 生成参数。" : "请检查生成参数，提示词最多 4000 字。");
       return false;
     }
     submitting.current = true; setBusy(true); setError("");

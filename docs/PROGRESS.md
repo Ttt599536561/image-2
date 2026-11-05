@@ -44,6 +44,14 @@
 
 ## 会话日志（新条目追加在最上面，必须按此格式）
 
+### [2026-11-06] F-083：GIF输出与生成偏好保持，本地验收通过
+- 官方文档明确GIF需`output_format: gif`；生产最近GIF提示词任务是269833ms后`provider_timeout`，未收到格式拒绝。新增PNG/GIF显式选择，保留现有网关模型别名；GIF文生图默认9帧/200ms、10分钟任务/15分钟凭据、自动尺寸原样传递，无付费自动重试。新迁移0015冻结格式，GIF字节/MIME/扩展名/历史/预览/下载贯通；不支持模型/参考图/透明背景在提交前提示。复制动图明确为静态帧。
+- 偏好重现：页面重新挂载丢失设置（原成功/失败状态更新本身不重置）；现以浏览器localStorage保存模型/尺寸/质量/背景/格式，SSR安全恢复，不混入Key/提示词/参考图，成功/失败/再次生成/刷新回归通过。
+- 最终命令均退出0：`npm run typecheck`；`npm run test:run -- --exclude '.local/**' --exclude '.cache/**' --maxWorkers 4`输出`105 passed`、`932 passed | 1 skipped`；`npm run test:money`输出`21 passed`、`125 passed`；`npm run test:e2e -- --config .cache/models26-playwright.config.ts`输出`21 passed (1.3m)`；build、assert-no-secrets（45文件）、audit高危门禁、release:validate（v0.3.7对v0.2.9）通过。证据`.cache/logs/gif-*`；复用E盘PG17/55435测试库，16迁移。
+- 集成修复：新增独立E2E文件触发共享池已关闭，已并回既有测试文件；新增选择器令700px桌面溢出5px，仅压缩小高度桌面的输入框8px后全尺寸双主题E2E通过。桌面/手机GIF截图已目视检查。
+- 独立审查修复S3缺失MIME回退和GIF调色板校验；结构解析不解码LZW像素，与既有PNG/JPEG验证边界一致，损坏压缩内容仍可能被保存（任务卡记载此边界）。未调用用户Key或真实付费生成，网关GIF权限未实测。
+- 下一步：提交推送、等待精确SHA的CI成功，使用`.cache/tmp/deploy-gif-preferences.ps1 -WaitForCi`受控升级，再以运行版本/数据库迁移/当前公开资源核验生产。
+
 ### [2026-11-05] 0.3.6模型名更正已上线
 - 实现`fa45974`已推送main，[CI42023733717](https://github.com/Ttt599536561/image-2/actions/runs/42023733717)成功。服务器预构建与CI并行，只有核实精确SHA成功后才释放切换标记。受控升级退出0，三个应用容器均为0.3.6/fa45974；五服务正常、内外health204、首页200。
 - 线上只读验收退出0：合同接受`gpt-image-2.6`和flare，拒绝旧2.6-sunburst，默认Image 2；当前公开`/assets/studio-COMxyLfq.js`包含准确模型字符串，未以flare前缀误判2.6。证据`.cache/logs/deployment/image26-rename-production-verification-20261105T120657Z.json`；无真实付费调用。

@@ -283,6 +283,7 @@ export const generations = pgTable(
       .references(() => users.id, { onDelete: "cascade" }),
     prompt: text("prompt").notNull(),
     model: text("model").notNull().default("gpt-image-2"),
+    outputFormat: text("output_format").notNull().default("png"),
     size: text("size").notNull(), // auto|1024x1024|1024x1536|1536x1024|1088x1920|1920x1088
     quality: text("quality"),
     background: text("background"),
@@ -312,6 +313,8 @@ export const generations = pgTable(
       sql`${t.status} IN ('queued','claimed','running','succeeded','failed')`,
     ),
     check("generations_credential_mode_chk", sql`${t.credentialMode} IN ('system','custom')`),
+    check("generations_output_format_chk", sql`${t.outputFormat} IN ('png','gif')`),
+    check("generations_gif_params_chk", sql`${t.outputFormat} <> 'gif' OR (${t.model} IN ('gpt-image-2.6','gpt-image-2.6-flare') AND ${t.inputImageKey} IS NULL AND ${t.inputImageKeys} IS NULL AND ${t.sourceImageId} IS NULL AND (${t.background} IS NULL OR ${t.background} <> 'transparent'))`),
     check("generations_input_image_keys_chk", sql`${t.inputImageKeys} IS NULL OR CASE WHEN jsonb_typeof(${t.inputImageKeys})='array' THEN jsonb_array_length(${t.inputImageKeys}) BETWEEN 1 AND 4 AND NOT jsonb_path_exists(${t.inputImageKeys}, '$[*] ? (@.type() != "string" || @ == "")') ELSE false END`),
     check("generations_input_image_sources_chk", sql`${t.inputImageKeys} IS NULL OR (${t.inputImageKey} IS NULL AND ${t.sourceImageId} IS NULL)`),
     index("ix_gen_conv").on(t.conversationId),

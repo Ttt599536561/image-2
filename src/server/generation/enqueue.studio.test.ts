@@ -11,6 +11,15 @@ const conv = "00000000-0000-4000-8000-000000000003";
 const input = { prompt: "a tree", size: "1024x1024", credentialMode: "custom" as const, customApiKey: "secret", customBaseUrl: "https://api.tangguo.xin/v1", generationId: id };
 
 describe("anonymous studio enqueue", () => {
+  it.each([["gif", 10], ["png", 5]] as const)("freezes %s with a %i minute deadline and credentials lasting five minutes longer", async (outputFormat, minutes) => {
+    await enqueueGeneration({ user, input: { ...input, model: "gpt-image-2.6", outputFormat } });
+    const [sql, values] = mock.query.mock.calls.find(([sql]) => sql.includes("INSERT INTO generations"))!;
+    expect(sql).toContain("output_format");
+    expect(values).toContain(outputFormat);
+    expect(values).toContain(minutes);
+    const [, credentialValues] = mock.query.mock.calls.find(([sql]) => sql.includes("INSERT INTO generation_credentials"))!;
+    expect(credentialValues).toContain(minutes + 5);
+  });
   beforeEach(() => {
     mock.encrypt.mockReset().mockReturnValue({ ciphertext: "sealed", iv: "iv", authTag: "tag", keyVersion: 2 });
     mock.project.mockReset().mockResolvedValue(conv);

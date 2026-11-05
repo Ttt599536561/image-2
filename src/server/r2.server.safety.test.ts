@@ -7,10 +7,41 @@ vi.mock("./studio/safe-http.server", async (original) => ({
 vi.mock("@aws-sdk/client-s3", async (original) => ({
   ...await original<typeof import("@aws-sdk/client-s3")>(), S3Client: class { send = mocks.send; },
 }));
-import { putToR2 } from "./r2.server";
+import { getStoredImageObject, putToR2 } from "./r2.server";
+import { contentTypeForStorageKey } from "./local-storage.server";
 
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII=", "base64");
+const gifHeader = Buffer.from("47494638396101000100800000000000ffffff", "hex");
+const gifFrame = Buffer.from("21f90400140000002c0000000001000100000202440100", "hex");
+const animatedGif = Buffer.concat([gifHeader, gifFrame, gifFrame, Buffer.from([0x3b])]);
 describe("provider image storage boundary", () => {
+  it("uses the persisted GIF suffix when an S3 adapter omits MIME metadata", async () => {
+    mocks.send.mockResolvedValue({ Body: { transformToByteArray: async () => animatedGif } });
+    const result = await getStoredImageObject("owner/result.gif");
+    expect(result.contentType).toBe("image/gif");
+    expect(Buffer.from(result.bytes)).toEqual(animatedGif);
+  });
+  it("rejects GIF images with no global or per-frame palette", async () => {
+    const header = Buffer.from("47494638396101000100000000", "hex");
+    const bytes = Buffer.concat([header, gifFrame, gifFrame, Buffer.from([0x3b])]);
+    await expect(putToR2("owner", "job", { b64_json: bytes.toString("base64") }, undefined, "gif")).rejects.toMatchObject({ failureCode: "invalid_response" });
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+  it("preserves a complete animated GIF and serves the right MIME and dimensions", async () => {
+    const result = await putToR2("owner", "job", { b64_json: animatedGif.toString("base64") }, undefined, "gif");
+    expect(result).toMatchObject({ contentType: "image/gif", width: 1, height: 1, sizeBytes: animatedGif.length });
+    expect(result.storageKey).toMatch(/\.gif$/);
+    expect(mocks.send.mock.calls[0][0].input.Body).toEqual(animatedGif);
+    expect(contentTypeForStorageKey(result.storageKey)).toBe("image/gif");
+  });
+  it("accepts GIF URLs by their bytes even when the provider claims PNG", async () => {
+    mocks.safeRequest.mockResolvedValue({ status: 200, headers: { "content-type": "image/png" }, body: animatedGif });
+    expect(await putToR2("owner", "job", { url: "https://provider.example/result.png" }, undefined, "gif")).toMatchObject({ contentType: "image/gif" });
+  });
+  it.each([png, Buffer.concat([gifHeader, gifFrame, Buffer.from([0x3b])]), animatedGif.subarray(0, -1)])("rejects static or incomplete GIF results before persistence", async (bytes) => {
+    await expect(putToR2("owner", "job", { b64_json: bytes.toString("base64") }, undefined, "gif")).rejects.toMatchObject({ failureCode: "invalid_response" });
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     vi.resetAllMocks();
     vi.stubEnv("STORAGE_DRIVER", "s3");

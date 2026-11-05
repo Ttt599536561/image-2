@@ -17,6 +17,13 @@ export const fixtureKey = "studio-e2e-fixture-key-never-send-upstream";
 // The URL is the production contract, but generation always uses the injected fake relay below.
 export const fixtureBaseUrl = DEFAULT_STUDIO_BASE_URL;
 export const tinyPng = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
+// Two distinct 1px frames (black/white), 200ms each, looping indefinitely.
+export const tinyGif = Buffer.concat([
+  Buffer.from("47494638396101000100800000000000ffffff21ff0b4e45545343415045322e300301000000", "hex"),
+  Buffer.from("21f90400140000002c0000000001000100000202440100", "hex"),
+  Buffer.from("21f90400140000002c00000000010001000002024c0100", "hex"),
+  Buffer.from([0x3b]),
+]);
 export const referenceFiles = Array.from({ length: 5 }, (_, index) => ({
   name: `reference-${index + 1}.png`, mimeType: "image/png", buffer: Buffer.concat([tinyPng, Buffer.from(`fixture-${index + 1}`)]),
 }));
@@ -93,13 +100,14 @@ export async function submitFromUi(page: Page, prompt: string): Promise<StudioAc
   return accepted.json();
 }
 
-export async function completeJob(generationId: string, expected: { reference?: boolean; images?: Buffer[]; prompt?: string; model?: StudioModel } = {}): Promise<void> {
+export async function completeJob(generationId: string, expected: { reference?: boolean; images?: Buffer[]; prompt?: string; model?: StudioModel; outputFormat?: "png" | "gif" } = {}): Promise<void> {
   let calls = 0;
   const outcome = await runGenerationJob(generationId, {
     callRelay: async (input) => {
       calls += 1;
       expect(input.credential).toEqual({ mode: "custom", apiKey: fixtureKey, baseUrl: fixtureBaseUrl });
       expect(input.model).toBe(expected.model ?? STUDIO_MODEL);
+      if (expected.outputFormat) expect(input.outputFormat).toBe(expected.outputFormat);
       if (expected.prompt) expect(input.prompt).toBe(expected.prompt);
       const images = input.inputImages ?? (input.inputImage ? [input.inputImage] : []);
       const expectedImages = expected.images ?? (expected.reference ? [tinyPng] : []);
@@ -108,7 +116,7 @@ export async function completeJob(generationId: string, expected: { reference?: 
         expect(Buffer.from(image.bytes), `reference image ${index + 1}`).toEqual(expectedImages[index]);
         expect(image.contentType).toBe("image/png");
       }
-      return { images: [{ b64_json: tinyPng.toString("base64") }] };
+      return { images: [{ b64_json: (expected.outputFormat === "gif" ? tinyGif : tinyPng).toString("base64") }] };
     },
   });
   expect(outcome).toBe("succeeded");

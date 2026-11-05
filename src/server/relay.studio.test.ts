@@ -13,6 +13,25 @@ const input = (): CallRelayRequest => ({
 });
 const response = (value: unknown, status = 200) => ({ status, headers: {}, body: Buffer.from(JSON.stringify(value)) });
 describe("studio custom relay", () => {
+  it.each(["gpt-image-2.6", "gpt-image-2.6-flare"])("requests a complete GIF from %s with bounded animation defaults", async (model) => {
+    await callRelay({ ...input(), model, outputFormat: "gif" });
+    expect(JSON.parse(safeRequest.mock.calls[0][1].body)).toMatchObject({ model, output_format: "gif", frame_count: 9, frame_duration_ms: 200, response_format: "b64_json", n: 1 });
+    expect(safeRequest).toHaveBeenCalledOnce();
+  });
+  it("rejects unsupported GIF combinations before a paid request", async () => {
+    for (const patch of [
+      { model: "gpt-image-2" }, { model: "gpt-image-2.5-sunburst" }, { background: "transparent" },
+      { inputImages: [{ bytes: new Uint8Array([1]), contentType: "image/png", filename: "ref.png" }] },
+    ]) await expect(callRelay({ ...input(), model: "gpt-image-2.6", outputFormat: "gif", ...patch })).rejects.toMatchObject({ httpStatus: 400 });
+    expect(safeRequest).not.toHaveBeenCalled();
+  });
+  it("preserves GIF auto size while retaining the existing PNG gateway workaround", async () => {
+    await callRelay({ ...input(), model: "gpt-image-2.6", outputFormat: "gif", size: "auto" });
+    expect(JSON.parse(safeRequest.mock.calls[0][1].body).size).toBe("auto");
+    await callRelay({ ...input(), model: "gpt-image-2.6", outputFormat: "png", size: "auto" });
+    expect(JSON.parse(safeRequest.mock.calls[1][1].body).size).toBe("1024x1024");
+    expect(JSON.parse(safeRequest.mock.calls[1][1].body)).not.toHaveProperty("output_format");
+  });
   beforeEach(() => {
     vi.resetAllMocks();
     safeRequest.mockResolvedValue(response({ data: [{ b64_json: "aGVsbG8=" }] }));

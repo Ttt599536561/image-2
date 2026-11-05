@@ -129,7 +129,7 @@ export function LightboxProvider({ children }: { children: ReactNode }): JSX.Ele
               </button>
               <button type="button" className={styles.action} onClick={() => copyImage(state.src)}>
                 <Copy size={15} aria-hidden />
-                复制
+                {state.filename.toLowerCase().endsWith(".gif") ? "复制静态帧" : "复制"}
               </button>
             </div>
           ) : null}

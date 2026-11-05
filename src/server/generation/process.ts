@@ -147,6 +147,7 @@ async function processClaimedGeneration(g: ClaimedGeneration, deps: ProcessDeps,
     const { images } = await timed("relayMs", () => callRelay({
       prompt: g.prompt,
       model: g.model ?? STUDIO_MODEL,
+      outputFormat: g.outputFormat ?? "png",
       size: g.size,
       quality: g.quality,
       background: g.background,
@@ -163,10 +164,11 @@ async function processClaimedGeneration(g: ClaimedGeneration, deps: ProcessDeps,
     // ⑤ 落 R2（事务外，结果存临时变量）。
     let obj: Awaited<ReturnType<typeof realPutToR2>>;
     try {
-      obj = await timed("storageMs", () => putToR2(g.userId, generationId, images[0], controller.signal));
+      obj = await timed("storageMs", () => putToR2(g.userId, generationId, images[0], controller.signal, g.outputFormat));
       checkDeadline();
-    } catch {
+    } catch (error) {
       checkDeadline();
+      if ((error as { failureCode?: string })?.failureCode === "invalid_response") throw error;
       throw Object.assign(new Error("图片保存失败，本站未扣积分，请重试"), {
         failureCode: "storage_failed" as const,
       });

@@ -3,6 +3,17 @@ import { DEFAULT_STUDIO_BASE_URL, StudioGenerateRequest } from "./studio";
 
 const request = { apiKey: "fictional-key", prompt: "tree", size: "1024x1024", generationId: "00000000-0000-4000-8000-000000000001" };
 describe("studio generation contract", () => {
+  it("defaults to PNG and permits GIF only for compatible text-only models", () => {
+    expect(StudioGenerateRequest.parse(request).outputFormat).toBe("png");
+    for (const model of ["gpt-image-2.6", "gpt-image-2.6-flare"]) {
+      expect(StudioGenerateRequest.parse({ ...request, model, outputFormat: "gif" }).outputFormat).toBe("gif");
+    }
+    for (const patch of [
+      { model: "gpt-image-2" }, { model: "gpt-image-2.5-sunburst" },
+      { inputImageKey: "one" }, { inputImageKeys: ["one"] }, { sourceImageId: request.generationId },
+      { background: "transparent" }, { outputFormat: "jpeg" },
+    ]) expect(StudioGenerateRequest.safeParse({ ...request, model: "gpt-image-2.6", outputFormat: "gif", ...patch }).success).toBe(false);
+  });
   it("accepts a key-only connection and defaults the model", () => {
     expect(StudioGenerateRequest.parse(request).model).toBe("gpt-image-2");
     expect(StudioGenerateRequest.parse({ ...request, baseUrl: DEFAULT_STUDIO_BASE_URL }).baseUrl).toBe(DEFAULT_STUDIO_BASE_URL);

@@ -14,6 +14,23 @@ import { runGenerationJob } from "./process";
 
 const stored = { storageKey: "key", publicUrl: "/media/key", contentType: "image/png", sizeBytes: 1 };
 describe("generation deadline and ancillary failures", () => {
+  it("forwards the frozen GIF format to relay and verifies it before storage success", async () => {
+    mocks.claim.mockResolvedValue({ ...(await mocks.claim()), credentialMode: "custom", model: "gpt-image-2.6", outputFormat: "gif" });
+    const relay = vi.fn(async () => ({ images: [{ b64_json: "aA==" }] }));
+    const store = vi.fn(async () => ({ ...stored, contentType: "image/gif" }));
+    expect(await runGenerationJob("job", { callRelay: relay, putToR2: store })).toBe("succeeded");
+    expect(relay).toHaveBeenCalledWith(expect.objectContaining({ outputFormat: "gif", model: "gpt-image-2.6" }));
+    expect(store).toHaveBeenCalledWith("owner", "job", { b64_json: "aA==" }, expect.any(AbortSignal), "gif");
+  });
+  it("preserves invalid_response from GIF validation instead of reporting storage failure", async () => {
+    mocks.claim.mockResolvedValue({ ...(await mocks.claim()), credentialMode: "custom", outputFormat: "gif" });
+    expect(await runGenerationJob("job", {
+      callRelay: async () => ({ images: [{ b64_json: "aA==" }] }),
+      putToR2: async () => { throw Object.assign(new Error("not an animated GIF"), { failureCode: "invalid_response" }); },
+    })).toBe("failed");
+    expect(mocks.sql.mock.calls.some((call) => call.includes("invalid_response"))).toBe(true);
+    expect(mocks.finalize).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     vi.useFakeTimers();
     vi.resetAllMocks();

@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowUpRight, ChevronDown, Circle, Clock3, Link2, Moon, PanelLeftClose, Sparkles, Sun, X } from "lucide-react";
-import { STUDIO_MODEL, MAX_STUDIO_REFERENCE_IMAGES, type StudioParams } from "../../contracts/studio";
+import { MAX_STUDIO_REFERENCE_IMAGES, type StudioParams } from "../../contracts/studio";
 import { fetchResultBlob, validateReferenceImage } from "../../lib/studio/api";
 import { isActive, paramsForReuse, type StudioHistoryEntry } from "../../lib/studio/history";
 import { appendReferences } from "../../lib/studio/references";
 import { useStudio } from "../../lib/studio/useStudio";
 import { prepareReferenceCopy } from "../../lib/studio/referenceCopy";
+import { DEFAULT_STUDIO_PREFERENCES, loadPreferences, savePreferences } from "../../lib/studio/preferences";
 import { useThemeMode } from "../../lib/theme";
 import { useToast } from "../Toast/ToastProvider";
 import { ComposerPanel } from "./ComposerPanel";
@@ -22,7 +23,19 @@ export function StudioPage() {
   const toast = useToast();
   const [view, setView] = useState<View>("create");
   const [panelOpen, setPanelOpen] = useState(true);
-  const [params, setParams] = useState<StudioParams>({ prompt: "", size: "auto", quality: "auto", background: "auto", model: STUDIO_MODEL });
+  const [params, setParams] = useState<StudioParams>({ prompt: "", ...DEFAULT_STUDIO_PREFERENCES });
+  useEffect(() => {
+    // Read after hydration so server and client initially render the same defaults.
+    try {
+      const preferences = loadPreferences(window.localStorage);
+      setParams((current) => ({ ...current, ...preferences }));
+    } catch { /* Storage may be disabled; the current page remains usable. */ }
+  }, []);
+  const updateParams = (next: StudioParams) => {
+    setParams(next);
+    try { savePreferences(next, window.localStorage); }
+    catch { /* Keep using the in-memory choices if storage is unavailable. */ }
+  };
   const [references, setReferences] = useState<File[]>([]);
   const referencesRef = useRef(references);
   const [preparingReference, setPreparingReference] = useState(false);
@@ -47,7 +60,7 @@ export function StudioPage() {
     if (result.error) { toast.error(result.error); return false; }
     updateReferences(result.files); return true;
   };
-  const reuse = (entry: StudioHistoryEntry) => { setParams(paramsForReuse(entry.params)); navigate("create"); toast.info("参数已填入创作面板"); };
+  const reuse = (entry: StudioHistoryEntry) => { updateParams(paramsForReuse(entry.params)); navigate("create"); toast.info("参数已填入创作面板"); };
   const edit = async (entry: StudioHistoryEntry) => {
     if (referencePreparation.current) return;
     if (referencesRef.current.length >= MAX_STUDIO_REFERENCE_IMAGES) { toast.error("参考图片最多 4 张，请先移除一张再添加。"); return; }
@@ -62,7 +75,7 @@ export function StudioPage() {
       if (controller.signal.aborted) return;
       const invalid = validateReferenceImage(file); if (invalid) throw new Error(invalid);
       if (!chooseReferences([file])) return;
-      setParams(paramsForReuse(entry.params)); navigate("create");
+      updateParams(paramsForReuse(entry.params)); navigate("create");
       toast.info(converted ? "已将大图转换为参考副本，原图不变" : "已将原图设为参考图，可修改描述后生成");
     } catch (cause) {
       if (!controller.signal.aborted) toast.error(cause instanceof Error ? cause.message : "准备参考图片失败，原图不受影响。");
@@ -89,7 +102,7 @@ export function StudioPage() {
     </nav>
     <button type="button" className={styles.mobilePanelToggle} aria-expanded={panelOpen} aria-controls="studio-creation-panel" onClick={() => setPanelOpen(!panelOpen)}><span><Sparkles size={16} />{view === "settings" ? "连接设置" : "创作面板"}</span>{panelOpen ? <PanelLeftClose size={17} /> : <ChevronDown size={17} />}</button>
     <aside id="studio-creation-panel" className={`${styles.sidePanel} ${panelOpen ? styles.panelOpen : ""}`}>
-      {view === "settings" ? <ConnectionPanel connection={studio.connection} onChange={studio.updateConnection} onBack={() => navigate("create")} /> : <ComposerPanel params={params} onParams={setParams} references={references} onReferences={chooseReferences} onRemoveReference={(index) => updateReferences(referencesRef.current.filter((_, current) => current !== index))} onGenerate={() => void generate()} busy={studio.busy} enabled={studio.ready && !!studio.session} hasConnection={hasConnection} connectionLabel={connectionHost(studio.connection.baseUrl)} onConnection={() => navigate("settings")} />}
+      {view === "settings" ? <ConnectionPanel connection={studio.connection} onChange={studio.updateConnection} onBack={() => navigate("create")} /> : <ComposerPanel params={params} onParams={updateParams} references={references} onReferences={chooseReferences} onRemoveReference={(index) => updateReferences(referencesRef.current.filter((_, current) => current !== index))} onGenerate={() => void generate()} busy={studio.busy} enabled={studio.ready && !!studio.session} hasConnection={hasConnection} connectionLabel={connectionHost(studio.connection.baseUrl)} onConnection={() => navigate("settings")} />}
     </aside>
     <div className={`${styles.workspace} ${!selected && view !== "history" ? styles.workspaceEmpty : ""}`}>
       <header className={styles.workspaceHeader}><div><span className={styles.workspaceName}>创作工作台</span><span className={styles.headerSlash}>/</span><span>{view === "history" ? "此设备历史" : "自由创作"}</span></div><div className={styles.workspaceMeta}>{activeCount > 0 && <span className={styles.activeCount}><Circle size={6} fill="currentColor" />{activeCount} 个任务进行中</span>}<button type="button" onClick={() => navigate("settings")}><span className={hasConnection ? styles.connectionDot : styles.offlineDot} />{hasConnection ? "Key 已配置" : "尚未连接"}<ArrowUpRight size={13} /></button></div></header>

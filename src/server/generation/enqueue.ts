@@ -6,7 +6,7 @@
 import { randomUUID } from "node:crypto";
 import { httpError } from "../../contracts/error";
 import type { CredentialMode } from "../../contracts/generate";
-import { DEFAULT_STUDIO_BASE_URL, STUDIO_MODEL, STUDIO_MODELS, type StudioModel } from "../../contracts/studio";
+import { DEFAULT_STUDIO_BASE_URL, STUDIO_MODEL, STUDIO_MODELS, supportsGifOutput, type StudioModel, type StudioOutputFormat } from "../../contracts/studio";
 import { readConfigInt } from "../config.server";
 import { isDailyBudgetExhausted } from "../budget.server";
 import { ensureDefaultProject } from "../projects.server";
@@ -23,6 +23,7 @@ export interface EnqueueRequest {
   prompt: string;
   size: string;
   model?: string;
+  outputFormat?: StudioOutputFormat;
   quality?: string | null;
   background?: string | null;
   conversationId?: string; // 客户端提供：新建用此 id（owner-safe upsert）/ 续聊传既有 id
@@ -189,12 +190,13 @@ async function run(
     conversationId = conv.rows[0].id as string;
   }
 
+  const deadlineMinutes = input.outputFormat === "gif" ? 10 : 5;
   const gen = await c.query(
     `INSERT INTO generations(
        id,conversation_id,user_id,prompt,model,size,quality,background,moderation,input_image_key,
-       source_image_id,credential_mode,input_image_keys,deadline_at,status
+       source_image_id,credential_mode,input_image_keys,output_format,deadline_at,status
      )
-     VALUES($1,$2,$3,$4,$11,$5,$6,$7,'low',$8,$9,$10,$12::jsonb,now()+interval '5 minutes','queued')
+     VALUES($1,$2,$3,$4,$11,$5,$6,$7,'low',$8,$9,$10,$12::jsonb,$13,now()+$14::int*interval '1 minute','queued')
      ON CONFLICT(id) DO NOTHING
      RETURNING id,deadline_at`,
     [
@@ -210,6 +212,8 @@ async function run(
       input.credentialMode,
       input.model ?? STUDIO_MODEL,
       input.inputImageKeys == null ? null : JSON.stringify(input.inputImageKeys),
+      input.outputFormat ?? "png",
+      deadlineMinutes,
     ],
   );
   if (gen.rowCount === 0) throw httpError(400, "INVALID_PARAM", "任务标识无效");
@@ -218,8 +222,8 @@ async function run(
     if (!encrypted) throw httpError(500, "INTERNAL", "自定义 Key 暂时不可用");
     await c.query(
       `INSERT INTO generation_credentials(generation_id,ciphertext,iv,auth_tag,key_version,expires_at)
-       VALUES($1,$2,$3,$4,$5,now()+interval '10 minutes')`,
-      [generationId, encrypted.ciphertext, encrypted.iv, encrypted.authTag, encrypted.keyVersion],
+       VALUES($1,$2,$3,$4,$5,now()+$6::int*interval '1 minute')`,
+      [generationId, encrypted.ciphertext, encrypted.iv, encrypted.authTag, encrypted.keyVersion, deadlineMinutes + 5],
     );
   }
 
@@ -247,6 +251,8 @@ export async function enqueueGeneration(args: { user: EnqueueUser; input: Enqueu
     throw httpError(400, "INVALID_PARAM", "连接地址无效");
   }
   if (input.model !== undefined && !STUDIO_MODELS.includes(input.model as StudioModel)) throw httpError(400, "INVALID_PARAM", "模型无效");
+  if (input.outputFormat !== undefined && input.outputFormat !== "png" && input.outputFormat !== "gif") throw httpError(400, "INVALID_PARAM", "输出格式无效");
+  if (input.outputFormat === "gif" && (!supportsGifOutput(input.model) || input.inputImageKey || input.inputImageKeys || input.sourceImageId || input.background === "transparent")) throw httpError(400, "INVALID_PARAM", "GIF 仅支持 Image 2.6 / Flare 文生图，不支持参考图或透明背景");
   try { resolveInputImageKeys(input, args.user.id); }
   catch { throw httpError(400, "INVALID_PARAM", "参考图无效或来源参数冲突"); }
 

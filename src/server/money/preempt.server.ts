@@ -5,13 +5,14 @@
 //   不调中转、不扣费；只有第一个把 queued→claimed 的实例能继续。
 import { randomUUID } from "node:crypto";
 import { getSql, usesPgDriver } from "../../db/db.server";
-import { STUDIO_MODEL } from "../../contracts/studio";
+import { STUDIO_MODEL, type StudioOutputFormat } from "../../contracts/studio";
 
 export interface ClaimedGeneration {
   id: string;
   userId: string;
   prompt: string;
   model: string;
+  outputFormat: StudioOutputFormat;
   size: string;
   quality: string | null;
   background: string | null;
@@ -37,7 +38,7 @@ export async function claim(generationId: string, tag: string = workerTag()): Pr
   const rows = await sql`
     UPDATE generations SET status='claimed', job_id=${tag}, updated_at=now()
     WHERE id=${generationId} AND status='queued' AND deadline_at>now()
-    RETURNING id, user_id, prompt, model, size, quality, background, input_image_key, input_image_keys, source_image_id,
+    RETURNING id, user_id, prompt, model, output_format, size, quality, background, input_image_key, input_image_keys, source_image_id,
               credential_mode, deadline_at, created_at`;
   if (rows.length === 0) return null;
   return claimedGeneration(rows[0]);
@@ -59,7 +60,7 @@ export async function claimNext(tag: string = workerTag()): Promise<ClaimedGener
     )
     UPDATE generations AS g SET status='claimed',job_id=${tag},updated_at=now()
     FROM next WHERE g.id=next.id AND g.status='queued' AND g.deadline_at>now()
-    RETURNING g.id,g.user_id,g.prompt,g.model,g.size,g.quality,g.background,g.input_image_key,g.input_image_keys,
+    RETURNING g.id,g.user_id,g.prompt,g.model,g.output_format,g.size,g.quality,g.background,g.input_image_key,g.input_image_keys,
               g.source_image_id,g.credential_mode,g.deadline_at,g.created_at`;
   return rows.length ? claimedGeneration(rows[0]) : null;
 }
@@ -70,6 +71,7 @@ function claimedGeneration(r: Record<string, unknown>): ClaimedGeneration {
     userId: r.user_id as string,
     prompt: r.prompt as string,
     model: (r.model as string | undefined) ?? STUDIO_MODEL,
+    outputFormat: (r.output_format as StudioOutputFormat | undefined) ?? "png",
     size: r.size as string,
     quality: (r.quality as string | null) ?? null,
     background: (r.background as string | null) ?? null,

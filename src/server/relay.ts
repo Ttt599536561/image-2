@@ -16,7 +16,7 @@ import { redactText } from "../lib/redaction";
 import { getConfigString } from "./config.server";
 import { CUSTOM_RELAY_BASE_URL } from "./generation/credential.server";
 import { UPLOAD_MAX_BYTES } from "../contracts/upload";
-import { DEFAULT_STUDIO_BASE_URL, MAX_STUDIO_REFERENCE_IMAGES, STUDIO_MODEL, STUDIO_MODELS, type StudioModel } from "../contracts/studio";
+import { DEFAULT_STUDIO_BASE_URL, MAX_STUDIO_REFERENCE_IMAGES, STUDIO_MODEL, STUDIO_MODELS, supportsGifOutput, type StudioModel, type StudioOutputFormat } from "../contracts/studio";
 import { MAX_RELAY_RESPONSE_BYTES, MAX_STUDIO_REQUEST_BYTES, safeHttpsRequest } from "./studio/safe-http.server";
 
 export type RelayCredential = { mode: "system" } | { mode: "custom"; apiKey: string; baseUrl?: string };
@@ -145,6 +145,7 @@ function buildEditsForm(req: {
 export interface CallRelayRequest {
   prompt: string;
   model?: string;
+  outputFormat?: StudioOutputFormat;
   size: string;
   quality?: string | null;
   background?: string | null;
@@ -194,6 +195,8 @@ export async function callRelay(req: CallRelayRequest): Promise<{ images: RelayI
   const inputImages = req.inputImages ?? (req.inputImage ? [req.inputImage] : []);
   if (!Array.isArray(inputImages) || inputImages.length > MAX_STUDIO_REFERENCE_IMAGES || (req.inputImages && !inputImages.length)) throw new RelayError("参考图数量无效", 400);
   if (inputImages.some((image) => image.bytes.byteLength > UPLOAD_MAX_BYTES)) throw new RelayError("参考图超过 4MiB 限制", 400);
+  if (req.outputFormat !== undefined && req.outputFormat !== "png" && req.outputFormat !== "gif") throw new RelayError("输出格式无效", 400);
+  if (req.outputFormat === "gif" && (!supportsGifOutput(req.model) || inputImages.length || req.background === "transparent")) throw new RelayError("GIF 仅支持 Image 2.6 / Flare 文生图，不支持参考图或透明背景", 400);
   const { key, bases } = await relayTarget(req.credential);
   if (relayTimeoutMs(req.deadlineAt.getTime()) <= 0) {
     throw new DOMException("provider deadline exceeded", "AbortError");
@@ -207,7 +210,7 @@ export async function callRelay(req: CallRelayRequest): Promise<{ images: RelayI
         ...buildImageGenerationPayload({
           model: req.model ?? STUDIO_MODEL,
           prompt: req.prompt,
-          size: toRelaySize(req.size), // 「auto」→ 1024x1024（中转不接受 auto，见 toRelaySize）
+          size: req.outputFormat === "gif" ? req.size : toRelaySize(req.size), // GIF auto selects an animation-compatible pixel budget.
           quality: req.quality ?? "auto",
           background: req.background ?? "auto",
           moderation: "low",
@@ -217,6 +220,7 @@ export async function callRelay(req: CallRelayRequest): Promise<{ images: RelayI
         // 默认文生图回 us-west-1 aliyuncs 临时 url → putToR2 需二次下载（且临时链接有过期丢图风险）；
         // 带此参 → 中转 HTTP 200 直接回 b64、免二次下载。
         response_format: "b64_json",
+        ...(req.outputFormat === "gif" ? { output_format: "gif", frame_count: 9, frame_duration_ms: 200 } : {}),
       });
 
   if (req.credential.mode === "custom" && req.credential.baseUrl !== undefined) {

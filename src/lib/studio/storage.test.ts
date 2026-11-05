@@ -38,6 +38,15 @@ function record(id: string, createdAt: number, status: StudioHistoryEntry["statu
   return { generationId: id, createdAt, status, params: { prompt: id, size: "auto", quality: "auto" }, deadlineAt: new Date(createdAt + 600000).toISOString() };
 }
 describe("device history", () => {
+  it("preserves GIF output in task snapshots and reused parameters", () => {
+    const entry = { ...record("animation", 1), params: { prompt: "moving cat", model: "gpt-image-2.6", size: "auto", outputFormat: "gif" } } as StudioHistoryEntry;
+    expect(historySnapshot(entry).params).toMatchObject({ outputFormat: "gif" });
+    expect(paramsForReuse(entry.params)).toMatchObject({ outputFormat: "gif" });
+    expect(entry.params).toMatchObject({ outputFormat: "gif" });
+  });
+  it("defaults older task parameters to PNG when reused", () => {
+    expect(paramsForReuse(record("legacy", 1).params)).toMatchObject({ outputFormat: "png" });
+  });
   it("persists only a preparation marker, excluding pending files and request credentials", () => {
     const saved = historySnapshot({ ...record("preparing", 1, "queued"), localPreparation: true, references: [new File(["secret pixels"], "private.png")], request: { apiKey: "secret-key", inputImageKeys: ["private-key"] } } as unknown as StudioHistoryEntry);
     expect(saved).toHaveProperty("localPreparation", true);
@@ -55,7 +64,7 @@ describe("device history", () => {
   it("keeps the original model in an existing history snapshot", () => {
     const legacy = { ...record("legacy-model", 1), params: { prompt: "cat", size: "auto", model: "gpt-image-2.6-sunburst" } } as unknown as StudioHistoryEntry;
     expect(historySnapshot(legacy).params).toEqual({ prompt: "cat", size: "auto", model: "gpt-image-2.6-sunburst" });
-    expect(paramsForReuse(legacy.params)).toEqual({ prompt: "cat", size: "auto", model: "gpt-image-2.6" });
+    expect(paramsForReuse(legacy.params)).toEqual({ prompt: "cat", size: "auto", model: "gpt-image-2.6", outputFormat: "png" });
     expect(legacy.params.model).toBe("gpt-image-2.6-sunburst");
   });
   it("evicts oldest completed records while preserving active work", () => {

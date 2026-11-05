@@ -85,6 +85,8 @@ function studioErrorMessage(code: string): string {
   if (code === "custom_key_quota") return "上游 Key 额度不足，请检查服务账户";
   if (code === "relay_rate_limited") return "上游服务繁忙，请稍后再试";
   if (code === "content_rejected") return "服务未接受此提示词，请修改后重试";
+  if (code === "invalid_response") return "上游未返回有效图片或完整 GIF 动图，请确认服务支持所选格式";
+  if (code === "invalid_request") return "图片服务不支持所选参数，请检查模型、输出格式和尺寸；GIF 需服务支持";
   return "生成失败，请检查连接设置后重试";
 }
 export async function studioStatusLoader(request: Request): Promise<Response> {

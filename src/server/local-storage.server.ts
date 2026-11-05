@@ -136,6 +136,7 @@ export function contentTypeForStorageKey(storageKey: string): string {
   const extension = storageKey.split(".").pop()?.toLowerCase();
   if (extension === "jpg" || extension === "jpeg") return "image/jpeg";
   if (extension === "webp") return "image/webp";
+  if (extension === "gif") return "image/gif";
   return "image/png";
 }
 

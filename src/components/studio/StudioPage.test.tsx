@@ -16,10 +16,71 @@ vi.mock("../../lib/studio/useStudio", () => ({ useStudio: () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  localStorage.clear();
+  vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));
   vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: vi.fn(() => "blob:fixture"), revokeObjectURL: vi.fn() }));
   fixture.entry = { generationId: "generated", status: "succeeded", deadlineAt: "", createdAt: 1, params: { prompt: "a transparent cat", size: "auto" }, blob: new Blob([new Uint8Array(4 * 1024 * 1024 + 1)], { type: "image/png" }), image: { id: "image", url: "/api/studio/images/image", width: 1536, height: 1024 } };
 });
 afterEach(() => vi.unstubAllGlobals());
+
+describe("generation preferences", () => {
+  function choosePreferences() {
+    fireEvent.click(screen.getByRole("combobox", { name: "生成模型" }));
+    fireEvent.click(screen.getByRole("option", { name: "gpt-image-2.6-flare" }));
+    fireEvent.click(screen.getByRole("button", { name: /16:9/ }));
+    fireEvent.click(screen.getByRole("combobox", { name: "生成质量" }));
+    fireEvent.click(screen.getByRole("option", { name: /^高$/ }));
+    fireEvent.click(screen.getByRole("combobox", { name: "图片背景" }));
+    fireEvent.click(screen.getByRole("option", { name: /^透明$/ }));
+  }
+  function expectPreferences() {
+    expect(screen.getByRole("combobox", { name: "生成模型" })).toHaveTextContent("gpt-image-2.6-flare");
+    expect(screen.getByRole("button", { name: /16:9/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("combobox", { name: "生成质量" })).toHaveTextContent("高");
+    expect(screen.getByRole("combobox", { name: "图片背景" })).toHaveTextContent("透明");
+  }
+  it("keeps the current page usable when browser storage is blocked", async () => {
+    const read = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("storage blocked"); });
+    const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("storage blocked"); });
+    try {
+      fixture.generate.mockResolvedValue(true);
+      render(<StudioPage />);
+      choosePreferences();
+      fireEvent.change(screen.getByRole("textbox", { name: "画面描述" }), { target: { value: "cat" } });
+      fireEvent.click(screen.getByRole("button", { name: /开始生成/ }));
+      await waitFor(() => expect(fixture.generate).toHaveBeenCalledTimes(1));
+      expectPreferences();
+    } finally { read.mockRestore(); write.mockRestore(); }
+  });
+  it.each([true, false])("restores preferences after a page reload when submission accepted=%s", async (accepted) => {
+    fixture.generate.mockResolvedValue(accepted);
+    const { unmount } = render(<StudioPage />);
+    choosePreferences();
+    fireEvent.change(screen.getByRole("textbox", { name: "画面描述" }), { target: { value: "private prompt" } });
+    fireEvent.click(screen.getByRole("button", { name: /开始生成/ }));
+    await waitFor(() => expect(fixture.generate).toHaveBeenCalledTimes(1));
+    expectPreferences();
+    unmount();
+    render(<StudioPage />);
+    expectPreferences();
+    expect(screen.getByRole("textbox", { name: "画面描述" })).toHaveValue("");
+  });
+  it.each(["succeeded", "failed"] as const)("keeps preferences for the next generation after status %s", async (status) => {
+    fixture.generate.mockResolvedValue(true);
+    const { rerender } = render(<StudioPage />);
+    choosePreferences();
+    fireEvent.change(screen.getByRole("textbox", { name: "画面描述" }), { target: { value: "first image" } });
+    fireEvent.click(screen.getByRole("button", { name: /开始生成/ }));
+    await waitFor(() => expect(fixture.success).toHaveBeenCalledTimes(1));
+    fixture.entry = { ...fixture.entry!, status };
+    rerender(<StudioPage />);
+    expectPreferences();
+    fireEvent.change(screen.getByRole("textbox", { name: "画面描述" }), { target: { value: "next image" } });
+    fireEvent.click(screen.getByRole("button", { name: /开始生成/ }));
+    await waitFor(() => expect(fixture.generate).toHaveBeenCalledTimes(2));
+    expect(fixture.generate).toHaveBeenLastCalledWith({ prompt: "next image", model: "gpt-image-2.6-flare", size: "1920x1088", quality: "high", background: "transparent", outputFormat: "png" }, []);
+  });
+});
 
 describe("editing a generated image", () => {
   it("clears submitted references as soon as the hook accepts the local task", async () => {

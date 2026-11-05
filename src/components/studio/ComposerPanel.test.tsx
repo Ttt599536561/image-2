@@ -3,6 +3,21 @@ import { describe, expect, it, vi } from "vitest";
 import { ComposerPanel } from "./ComposerPanel";
 
 describe("studio composer keyboard submission", () => {
+  it("selects GIF without changing model, size, quality or background", () => {
+    const change = vi.fn();
+    const params = { prompt: "cat waving", size: "1920x1088", quality: "high", background: "transparent", model: "gpt-image-2" } as const;
+    render(<ComposerPanel params={params} onParams={change} references={[]} onReferences={vi.fn()} onRemoveReference={vi.fn()} onGenerate={vi.fn()} busy={false} enabled hasConnection connectionLabel="api.tangguo.xin" onConnection={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "PNG 静态图" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "GIF 动图" }));
+    expect(change).toHaveBeenCalledExactlyOnceWith({ ...params, outputFormat: "gif" });
+  });
+  it("explains GIF restrictions while keeping all references and settings visible", () => {
+    render(<ComposerPanel params={{ prompt: "cat", size: "auto", outputFormat: "gif" }} onParams={vi.fn()} references={[new File(["1"], "1.png", { type: "image/png" })]} onReferences={vi.fn()} onRemoveReference={vi.fn()} onGenerate={vi.fn()} busy={false} enabled hasConnection connectionLabel="api.tangguo.xin" onConnection={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "GIF 动图" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/仅支持 2.6.*不支持参考图.*透明/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "移除参考图片 1" })).toBeVisible();
+    expect(screen.getByRole("combobox", { name: "图片背景" })).toBeVisible();
+  });
   it("describes accepted background work without showing upload or submission steps", () => {
     render(<ComposerPanel params={{ prompt: "cat", size: "auto" }} onParams={vi.fn()} references={[]} onReferences={vi.fn()} onRemoveReference={vi.fn()} onGenerate={vi.fn()} busy enabled hasConnection connectionLabel="example.com" onConnection={vi.fn()} />);
     expect(screen.getByRole("button", { name: /正在处理/ })).toBeDisabled();

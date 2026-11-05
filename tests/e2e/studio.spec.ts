@@ -1,7 +1,8 @@
 import { createHash, randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
 import { crc32, deflateSync } from "node:zlib";
 import type { Locator, Page } from "@playwright/test";
-import { completeJob, configureConnection, expect, expectNoMoney, firstSseStatus, fixtureBaseUrl, fixtureKey, history, openStudio, ownerOf, pool, postJob, referenceFiles, requestBody, selectOption, submitFromUi, test, tinyPng } from "./studio-fixture";
+import { completeJob, configureConnection, expect, expectNoMoney, firstSseStatus, fixtureBaseUrl, fixtureKey, history, openStudio, ownerOf, pool, postJob, referenceFiles, requestBody, selectOption, submitFromUi, test, tinyGif, tinyPng } from "./studio-fixture";
 
 const references = (page: Page) => page.getByRole("img", { name: /^参考图片 \d$/ });
 const modelSelect = (page: Page) => page.getByRole("combobox", { name: "生成模型", exact: true });
@@ -730,4 +731,104 @@ test("custom selectors support arrows, Enter, Escape, Tab and keep their popups 
     const screenshot = await page.screenshot({ path: testInfo.outputPath(`mobile-${viewport.width}x${viewport.height}-four-references.png`), fullPage: true });
     await testInfo.attach(`mobile-${viewport.width}x${viewport.height}-four-references`, { body: screenshot, contentType: "image/png" });
   }
+});
+
+test("GIF uses frozen format, animated media, local history, reuse and original download for both 2.6 models", async ({ page }) => {
+  const owner = await openStudio(page);
+  await configureConnection(page, true);
+  for (const model of ["gpt-image-2.6", "gpt-image-2.6-flare"] as const) {
+    await selectOption(page, "生成模型", model);
+    await page.getByRole("button", { name: "3:2 1536 × 1024" }).click();
+    await selectOption(page, "生成质量", "高");
+    await selectOption(page, "图片背景", "不透明");
+    await page.getByRole("button", { name: "GIF 动图", exact: true }).click();
+    const request = page.waitForRequest((item) => new URL(item.url()).pathname === "/api/studio/generate");
+    const accepted = await submitFromUi(page, `${model} 小猫挥手循环动图`);
+    const payload = (await request).postDataJSON();
+    expect(payload).toMatchObject({ outputFormat: "gif", model, size: "1536x1024", quality: "high", background: "opaque" });
+    expect(payload.inputImageKeys).toBeUndefined();
+    expect((await pool.query("SELECT output_format FROM generations WHERE id=$1", [accepted.generationId])).rows[0].output_format).toBe("gif");
+    await expect(page.getByText(/GIF 动图生成可能耗时较长.*10 分钟/)).toBeVisible();
+    await completeJob(accepted.generationId, { model, outputFormat: "gif" });
+    const preview = page.getByRole("button", { name: "放大查看生成图片" });
+    await expect(preview).toBeVisible();
+    await expect.poll(async () => (await history(page)).find((entry) => entry.generationId === accepted.generationId)?.blobType).toBe("image/gif");
+    const saved = (await history(page)).find((entry) => entry.generationId === accepted.generationId)!;
+    expect(saved.blobSize).toBe(tinyGif.length);
+    const snapshot = JSON.parse(saved.snapshot);
+    expect(snapshot.params).toMatchObject({ outputFormat: "gif", model, size: "1536x1024", quality: "high", background: "opaque" });
+    const media = await page.request.get(snapshot.image.url);
+    expect(media.headers()["content-type"]).toContain("image/gif");
+    expect(await media.body()).toEqual(tinyGif);
+    await expect(page.getByRole("button", { name: "以图编辑", exact: true })).toHaveCount(0);
+    await preview.click();
+    await expect(page.getByRole("dialog", { name: "图片放大预览" }).locator("img")).toHaveAttribute("src", /^blob:/);
+    await expect(page.getByRole("dialog").getByRole("button", { name: "复制静态帧" })).toBeVisible();
+    await page.getByRole("dialog").getByRole("button", { name: "关闭", exact: true }).click();
+    const download = page.waitForEvent("download");
+    await page.getByRole("button", { name: "下载原图" }).click();
+    const downloaded = await download;
+    expect(downloaded.suggestedFilename()).toBe(`图像工坊_${accepted.generationId}.gif`);
+    expect(await readFile((await downloaded.path())!)).toEqual(tinyGif);
+    await page.getByRole("button", { name: "PNG 静态图", exact: true }).click();
+    await selectOption(page, "生成模型", "gpt-image-2");
+    await page.getByRole("button", { name: "复用参数" }).click();
+    await expect(page.getByRole("button", { name: "GIF 动图", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("combobox", { name: "生成模型" })).toHaveText(model);
+    await page.route("**/api/studio/images/*", (route) => route.abort("failed"));
+    await page.reload();
+    await expect(preview.locator("img")).toHaveAttribute("src", /^blob:/);
+    await expect(page.getByRole("button", { name: "GIF 动图", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("combobox", { name: "生成模型" })).toHaveText(model);
+    await expect(page.getByRole("button", { name: "3:2 1536 × 1024" })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByRole("combobox", { name: "生成质量" })).toHaveText("高");
+    await page.unroute("**/api/studio/images/*");
+  }
+  await expectNoMoney(owner);
+});
+
+test("invalid GIF combinations explain the issue without changing parameters or uploading references", async ({ page }) => {
+  const owner = await openStudio(page);
+  await configureConnection(page);
+  const mutations: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && /\/api\/studio\/(generate|uploads)$/.test(new URL(request.url()).pathname)) mutations.push(request.url());
+  });
+  await page.getByRole("button", { name: "16:9 1920 × 1088" }).click();
+  await selectOption(page, "生成质量", "高");
+  await page.getByLabel("画面描述").fill("蓝天中的飞鸟动图");
+  await page.getByRole("button", { name: "GIF 动图", exact: true }).click();
+  await page.getByRole("button", { name: "开始生成" }).click();
+  await expect(page.getByRole("alert")).toContainText(/2\.6/);
+  await expect(page.getByRole("combobox", { name: "生成模型" })).toHaveText("gpt-image-2");
+  await selectOption(page, "生成模型", "gpt-image-2.6");
+  await selectOption(page, "图片背景", "透明");
+  await page.getByRole("button", { name: "开始生成" }).click();
+  await expect(page.getByRole("alert")).toContainText(/透明/);
+  await expect(page.getByRole("combobox", { name: "图片背景" })).toHaveText("透明");
+  await selectOption(page, "图片背景", "不透明");
+  await page.getByLabel("上传参考图片").setInputFiles(referenceFiles[0]);
+  await page.getByRole("button", { name: "开始生成" }).click();
+  await expect(page.getByRole("alert")).toContainText(/GIF.*不支持参考图/);
+  await expect(page.getByRole("img", { name: "参考图片 1" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "16:9 1920 × 1088" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("combobox", { name: "生成质量" })).toHaveText("高");
+  expect(mutations).toEqual([]);
+  expect((await pool.query("SELECT id FROM generations WHERE user_id=$1", [owner])).rowCount).toBe(0);
+  await page.getByRole("button", { name: "关闭错误提示" }).click();
+  for (const viewport of [{ width: 1366, height: 700 }, { width: 320, height: 640 }]) {
+    await page.setViewportSize(viewport);
+    const format = page.getByRole("group", { name: "输出格式" });
+    await format.scrollIntoViewIfNeeded();
+    await expect(format).toBeInViewport({ ratio: 1 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(viewport.width);
+    await page.screenshot({ path: `.cache/logs/gif-${viewport.width === 320 ? "mobile" : "desktop"}.png`, fullPage: true });
+  }
+  await page.reload();
+  await expect(page.getByRole("button", { name: "GIF 动图", exact: true })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("combobox", { name: "生成模型" })).toHaveText("gpt-image-2.6");
+  await expect(page.getByRole("button", { name: "16:9 1920 × 1088" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("combobox", { name: "生成质量" })).toHaveText("高");
+  await expect(page.getByRole("combobox", { name: "图片背景" })).toHaveText("不透明");
+  await expectNoMoney(owner);
 });

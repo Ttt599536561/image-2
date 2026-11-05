@@ -49,6 +49,22 @@ async function referenceMultipart() {
 }
 
 describe("anonymous API", () => {
+  it("reports unsupported GIF parameters and malformed output with fixed safe messages", async () => {
+    for (const code of ["invalid_request", "invalid_response"]) {
+      mock.statuses.mockResolvedValue([{ generationId: id, status: "failed", deadlineAt: "2026-10-28T12:00:00Z", errorCode: code, error: "private-key provider detail" }]);
+      const response = await studioStatusLoader(new Request(`https://studio.example/api/studio/status?ids=${id}`));
+      const body = await response.json();
+      expect(body.items[0].error.message).toContain("GIF");
+      expect(JSON.stringify(body)).not.toMatch(/private-key|provider detail/);
+    }
+  });
+  it("forwards GIF output format and blocks incompatible references before enqueue", async () => {
+    const gif = { ...input, model: "gpt-image-2.6", outputFormat: "gif" };
+    expect((await studioGenerateAction(req(gif))).status).toBe(202);
+    expect(mock.enqueue).toHaveBeenCalledWith(expect.objectContaining({ input: expect.objectContaining({ outputFormat: "gif" }) }));
+    expect((await studioGenerateAction(req({ ...gif, inputImageKey: `uploads/owner/2026/10/${id}.png` }))).status).toBe(400);
+    expect(mock.enqueue).toHaveBeenCalledOnce();
+  });
   afterEach(() => { vi.restoreAllMocks(); vi.clearAllTimers(); vi.useRealTimers(); });
   beforeEach(() => {
     mock.auth.mockReset().mockResolvedValue({ userId: "owner", maxConcurrency: 10 });

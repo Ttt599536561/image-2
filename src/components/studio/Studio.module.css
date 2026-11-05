@@ -30,6 +30,9 @@
 .disconnected { color: var(--text-tertiary); }
 .fieldHeading { display: flex; justify-content: space-between; align-items: center; margin-bottom: 7px; font-size: 12px; font-weight: 600; }
 .optional { color: var(--text-tertiary); font-size: 10px; font-weight: 400; }
+.formatSelector { display: flex; flex-shrink: 0; gap: 2px; padding: 2px; border: 1px solid var(--border-subtle); border-radius: 7px; background: var(--bg-canvas); }
+.formatSelector button { padding: 4px 7px; border: 0; border-radius: 4px; background: transparent; color: var(--text-tertiary); font-size: 10px; white-space: nowrap; }
+.formatSelector button[aria-pressed="true"] { background: var(--accent-surface); color: var(--accent-on-surface); }
 .promptField textarea { display: block; resize: none; height: 104px; min-height: 104px; width: 100%; background: var(--bg-canvas); color: var(--text-primary); padding: 11px 12px; border: 1px solid var(--border-subtle); border-radius: 10px; font-size: 13px; line-height: 1.75; transition: border-color .15s, box-shadow .15s; }
 .promptField textarea:hover { border-color: var(--border-strong); }
 .promptField textarea:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-surface); }
@@ -229,6 +232,7 @@
 @media (min-width: 901px) and (max-height: 739px) {
   .panelScroll { padding-top: 12px; padding-bottom: 8px; }
   .panelHeading { margin-bottom: 10px; }
+  .promptField textarea { height: 88px; min-height: 88px; }
   .referenceSection { margin-top: 10px; margin-bottom: 10px; }
   .sizes { margin-bottom: 10px; }
   .composerFooter { padding-top: 9px; padding-bottom: 10px; }

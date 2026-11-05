@@ -13,10 +13,11 @@ export function isActive(entry: StudioHistoryEntry): boolean {
   return entry.status === "queued" || entry.status === "claimed" || entry.status === "running";
 }
 export function pickParams(params: StudioParams): StudioParams {
-  return { prompt: params.prompt, size: params.size, model: params.model ?? STUDIO_MODEL, ...(params.quality ? { quality: params.quality } : {}), ...(params.background ? { background: params.background } : {}) };
+  return { prompt: params.prompt, size: params.size, model: params.model ?? STUDIO_MODEL, ...(params.quality ? { quality: params.quality } : {}), ...(params.background ? { background: params.background } : {}), ...(params.outputFormat ? { outputFormat: params.outputFormat } : {}) };
 }
 export function paramsForReuse(params: StudioParams): StudioParams {
   const result = pickParams(params);
+  result.outputFormat ??= "png";
   // Normalize a retired name only for a new creation, preserving old snapshots.
   if ((result.model as string | undefined) === "gpt-image-2.6-sunburst") result.model = "gpt-image-2.6";
   return result;

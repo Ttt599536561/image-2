@@ -5,6 +5,7 @@ import { consumeStudioRate } from "../../src/server/studio/limits.server";
 import { enqueueGeneration } from "../../src/server/generation/enqueue";
 import { finalizeCustomSuccess } from "../../src/server/generation/finalizeCustom.server";
 import { runGenerationJob } from "../../src/server/generation/process";
+import { deleteFromR2, putToR2 } from "../../src/server/r2.server";
 import { sweepOrphanR2Objects } from "../../src/server/maintenance.server";
 import { type TestCtx, newCtx } from "./_helpers";
 
@@ -12,6 +13,7 @@ let ctx: TestCtx;
 const originalKey = process.env.CUSTOM_KEY_JOB_ENCRYPTION_KEY;
 let originalRates: Array<{ bucket_hash: string; hits: number; expires_at: Date }>;
 let nextIp = 1;
+let storedKeys: string[] = [];
 function browser(): Request {
   return new Request("https://studio.test/api/studio/session", { headers: { "x-studio-client-ip": `198.51.100.${nextIp++}` } });
 }
@@ -24,10 +26,12 @@ const job = (generationId = randomUUID()) => ({ generationId, prompt: "test tree
 
 beforeEach(async () => {
   ctx = newCtx();
+  storedKeys = [];
   process.env.CUSTOM_KEY_JOB_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
   originalRates = await ctx.sql`SELECT * FROM studio_rate_limits` as typeof originalRates;
 });
 afterEach(async () => {
+  await Promise.all(storedKeys.map((key) => deleteFromR2(key)));
   await ctx.cleanup();
   const originalHashes = originalRates.map((row) => row.bucket_hash);
   await ctx.sql`DELETE FROM studio_rate_limits WHERE NOT(bucket_hash=ANY(${originalHashes}::text[]))`;
@@ -37,6 +41,52 @@ afterEach(async () => {
 });
 
 describe("anonymous studio database isolation", () => {
+  it("freezes GIF output and its longer deadline through replay, claim and finalization", async () => {
+    const user = await owner();
+    const input = { ...job(), model: "gpt-image-2.6", outputFormat: "gif" as const };
+    await enqueueGeneration({ user, input });
+    await enqueueGeneration({ user, input: { ...input, outputFormat: "png" } });
+    const row = await ctx.gen(input.generationId);
+    expect(row).toMatchObject({ model: "gpt-image-2.6", output_format: "gif" });
+    expect(new Date(row.deadline_at as string).getTime() - new Date(row.created_at as string).getTime()).toBe(600_000);
+    const [credential] = await ctx.credentials(input.generationId);
+    expect(new Date(credential.expires_at as string).getTime() - new Date(row.deadline_at as string).getTime()).toBe(300_000);
+    const gif = Buffer.concat([
+      Buffer.from("47494638396101000100800000000000ffffff", "hex"),
+      ...Array(2).fill(Buffer.from("21f90400140000002c0000000001000100000202440100", "hex")),
+      Buffer.from([0x3b]),
+    ]);
+    expect(await runGenerationJob(input.generationId, {
+      callRelay: async (request) => {
+        expect(request.outputFormat).toBe("gif");
+        expect(request.model).toBe("gpt-image-2.6");
+        return { images: [{ b64_json: gif.toString("base64") }] };
+      },
+      putToR2: async (...args) => {
+        const result = await putToR2(...args);
+        storedKeys.push(result.storageKey);
+        return result;
+      },
+    })).toBe("succeeded");
+    expect(await ctx.gen(input.generationId)).toMatchObject({ output_format: "gif", status: "succeeded" });
+    const [image] = await ctx.sql`SELECT content_type,storage_key,width,height FROM images WHERE generation_id=${input.generationId}`;
+    expect(image).toMatchObject({ content_type: "image/gif", width: 1, height: 1 });
+    expect(image.storage_key).toMatch(/\.gif$/);
+    expect(await ctx.credentials(input.generationId)).toHaveLength(0);
+    expect(await ctx.ledger(user.id)).toHaveLength(0);
+  });
+  it("rejects invalid GIF formats and combinations at the database boundary", async () => {
+    const user = await owner(); const input = job();
+    await enqueueGeneration({ user, input });
+    expect(await ctx.gen(input.generationId)).toMatchObject({ output_format: "png" });
+    await expect(ctx.sql`UPDATE generations SET output_format='jpeg' WHERE id=${input.generationId}`).rejects.toMatchObject({ code: "23514" });
+    await expect(ctx.sql`UPDATE generations SET output_format='gif' WHERE id=${input.generationId}`).rejects.toMatchObject({ code: "23514" });
+    await ctx.sql`UPDATE generations SET model='gpt-image-2.6',output_format='gif' WHERE id=${input.generationId}`;
+    await expect(ctx.sql`UPDATE generations SET background='transparent' WHERE id=${input.generationId}`).rejects.toMatchObject({ code: "23514" });
+    await expect(ctx.sql`UPDATE generations SET input_image_key='legacy' WHERE id=${input.generationId}`).rejects.toMatchObject({ code: "23514" });
+    await expect(ctx.sql`UPDATE generations SET input_image_keys='["reference"]'::jsonb WHERE id=${input.generationId}`).rejects.toMatchObject({ code: "23514" });
+    await expect(ctx.sql`UPDATE generations SET source_image_id=${randomUUID()} WHERE id=${input.generationId}`).rejects.toMatchObject({ code: "23514" });
+  });
   it("freezes four ordered references and the selected model across a changed retry and worker claim", async () => {
     const user = await owner();
     const inputImageKeys = [1, 2, 3, 4].map((n) => `uploads/${user.id}/${n}.png`);

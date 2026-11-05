@@ -24,6 +24,20 @@ beforeEach(() => { localStorage.clear(); history.records = []; history.writes = 
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); });
 
 describe("studio workflow", () => {
+  it("rejects GIF reference inputs before creating a task or uploading and preserves the selected parameters", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", async (url: string) => { calls.push(url); return Response.json(session); });
+    const { result } = renderHook(() => useStudio());
+    await waitFor(() => expect(result.current.ready && result.current.session).toBeTruthy());
+    act(() => result.current.updateConnection({ baseUrl: session.defaults.baseUrl, apiKey: "fixture", rememberKey: false }));
+    const params = { prompt: "waving cat", size: "1920x1088", quality: "high", model: "gpt-image-2.6", outputFormat: "gif" } as const;
+    await act(async () => expect(await result.current.generate(params, [new File(["png"], "ref.png", { type: "image/png" })])).toBe(false));
+    expect(result.current.error).toMatch(/GIF.*不支持参考图/);
+    expect(result.current.entries).toEqual([]);
+    expect(upload).not.toHaveBeenCalled();
+    expect(calls).toEqual(["/api/studio/session"]);
+    expect(params).toEqual({ prompt: "waving cat", size: "1920x1088", quality: "high", model: "gpt-image-2.6", outputFormat: "gif" });
+  });
   it("shows and persists a task before uploads finish without polling or exposing the private snapshot", async () => {
     let finishUpload: ((key: string) => void) | undefined;
     upload.mockImplementation(() => new Promise<string>((resolve) => { finishUpload = resolve; }));

@@ -31,9 +31,9 @@ export function ComposerPanel(props: Props) {
       </div>
       <StudioSelect label="生成模型" value={params.model ?? STUDIO_MODEL} options={STUDIO_MODELS.map((value) => ({ value, label: value }))} onChange={(model) => onParams({ ...params, model })} />
       <div className={styles.promptField}>
-        <div className={styles.fieldHeading}><label htmlFor="studio-prompt">画面描述</label><span className={styles.optional}>PROMPT</span></div>
+        <div className={styles.fieldHeading}><label htmlFor="studio-prompt">画面描述</label><div className={styles.formatSelector} role="group" aria-label="输出格式">{([ ["png", "PNG 静态图"], ["gif", "GIF 动图"] ] as const).map(([format, label]) => <button key={format} type="button" aria-pressed={(params.outputFormat ?? "png") === format} onClick={() => onParams({ ...params, outputFormat: format })}>{label}</button>)}</div></div>
         <textarea id="studio-prompt" value={params.prompt} maxLength={4000} rows={4} placeholder="描述主体、场景、光线与风格，让画面更接近你的想象…" onChange={(event) => onParams({ ...params, prompt: event.target.value })} />
-        <div className={styles.promptFooter}><span>细节越具体，画面越接近想象</span><span>{params.prompt.length}<span> / 4000</span></span></div>
+        <div className={styles.promptFooter}><span>{params.outputFormat === "gif" ? "GIF 仅支持 2.6 / 2.6-flare，不支持参考图或透明背景" : "细节越具体，画面越接近想象"}</span><span>{params.prompt.length}<span> / 4000</span></span></div>
       </div>
       <ReferenceImage files={references} onAdd={onReferences} onRemove={props.onRemoveReference} />
       <fieldset className={styles.sizes}><legend>画面比例 <span className={styles.optional}>输出尺寸</span></legend>

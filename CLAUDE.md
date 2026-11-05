@@ -4,7 +4,7 @@
 
 ## 当前生产事实
 
-- 当前代码版本为 `0.3.6`；部署主机为 `45.207.199.3` 的 `/opt/ai-image-workshop`，
+- 当前代码版本为 `0.3.7`；部署主机为 `45.207.199.3` 的 `/opt/ai-image-workshop`，
   站点为 `https://one-image2.tangguo.xin`。实际运行提交和最新验收以 `docs/PROGRESS.md` 为准。
   按owner确认使用全新数据库，未迁移旧账号/积分/图片；旧腾讯云站点保留作回退。
 - Debian Docker Compose：Caddy/现有代理 -> `web`，并运行 `worker`、单例 `scheduler`。
@@ -57,6 +57,8 @@
 - 翻车了用 `docs/WORKFLOW.md` 第五节的救命卡回滚，不许蛮干。
 
 ## 入口
+
+GIF输出与非敏感配置保持见 `tasks/2026-11-06-gif-and-preferences.md`。GIF需显式格式参数，仅两个2.6模型文生图；不得自动改用户设置或把静态返回伪装GIF。网关别名`gpt-image-2.6`保持，官方能力不等于网关Key权限已经实测。
 
 - [部署手册](docs/dev/deploy.md)
 - [当前状态](docs/PROGRESS.md)
