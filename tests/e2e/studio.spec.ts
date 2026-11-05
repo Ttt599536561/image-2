@@ -522,7 +522,7 @@ test("fixed service ignores legacy browser URLs and all models reach the fake re
   await page.getByPlaceholder("输入你的 API Key").fill(fixtureKey);
   await page.getByRole("button", { name: "完成，开始创作" }).click();
   await expect(modelSelect(page)).toContainText("gpt-image-2");
-  for (const [model, badge] of [["gpt-image-2", "GPT IMAGE 2"], ["gpt-image-2.5-sunburst", "IMAGE 2.5 SUNBURST"], ["gpt-image-2.6-flare", "IMAGE 2.6 FLARE"], ["gpt-image-2.6-sunburst", "IMAGE 2.6 SUNBURST"]] as const) {
+  for (const [model, badge] of [["gpt-image-2", "GPT IMAGE 2"], ["gpt-image-2.5-sunburst", "IMAGE 2.5 SUNBURST"], ["gpt-image-2.6-flare", "IMAGE 2.6 FLARE"], ["gpt-image-2.6", "GPT IMAGE 2.6"]] as const) {
     await selectOption(page, "生成模型", model);
     const request = page.waitForRequest((item) => new URL(item.url()).pathname === "/api/studio/generate");
     const accepted = await submitFromUi(page, `${model} 模型快照`);

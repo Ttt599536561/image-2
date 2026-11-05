@@ -1,10 +1,10 @@
 # 项目上下文
 
-这是一个无需普通用户账户的 AI 生图工作台。服务URL固定为 `https://api.tangguo.xin/v1`，用户只填写自己的API Key，可选 `gpt-image-2.6-flare`、`gpt-image-2.6-sunburst`、`gpt-image-2.5-sunburst` 或 `gpt-image-2`（默认）；所有公开生图均为custom。最多4张有序参考图。站内套餐、积分、注册和普通登录已退役，历史与图片副本保存在当前浏览器。
+这是一个无需普通用户账户的 AI 生图工作台。服务URL固定为 `https://api.tangguo.xin/v1`，用户只填写自己的API Key，可选 `gpt-image-2.6-flare`、`gpt-image-2.6`、`gpt-image-2.5-sunburst` 或 `gpt-image-2`（默认）；所有公开生图均为custom。最多4张有序参考图。站内套餐、积分、注册和普通登录已退役，历史与图片副本保存在当前浏览器。
 
 ## 当前生产事实
 
-- 当前代码版本为 `0.3.5`；部署主机为 `45.207.199.3` 的 `/opt/ai-image-workshop`，
+- 当前代码版本为 `0.3.6`；部署主机为 `45.207.199.3` 的 `/opt/ai-image-workshop`，
   站点为 `https://one-image2.tangguo.xin`。实际运行提交和最新验收以 `docs/PROGRESS.md` 为准。
   按owner确认使用全新数据库，未迁移旧账号/积分/图片；旧腾讯云站点保留作回退。
 - Debian Docker Compose：Caddy/现有代理 -> `web`，并运行 `worker`、单例 `scheduler`。

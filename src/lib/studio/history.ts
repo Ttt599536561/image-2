@@ -15,6 +15,12 @@ export function isActive(entry: StudioHistoryEntry): boolean {
 export function pickParams(params: StudioParams): StudioParams {
   return { prompt: params.prompt, size: params.size, model: params.model ?? STUDIO_MODEL, ...(params.quality ? { quality: params.quality } : {}), ...(params.background ? { background: params.background } : {}) };
 }
+export function paramsForReuse(params: StudioParams): StudioParams {
+  const result = pickParams(params);
+  // Normalize a retired name only for a new creation, preserving old snapshots.
+  if ((result.model as string | undefined) === "gpt-image-2.6-sunburst") result.model = "gpt-image-2.6";
+  return result;
+}
 /** Only an explicit allowlist ever crosses the browser persistence boundary. */
 export function historySnapshot(entry: StudioHistoryEntry): StudioHistoryEntry {
   return {

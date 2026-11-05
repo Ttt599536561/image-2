@@ -8,8 +8,9 @@ import { useBlobUrl } from "./ReferenceImage";
 import styles from "./Studio.module.css";
 
 export const STATUS_LABELS = { queued: "排队中", claimed: "准备生成", running: "生成中", succeeded: "已完成", failed: "生成失败" };
-const MODEL_LABELS: Record<StudioModel, string> = {
+const MODEL_LABELS: Record<StudioModel | "gpt-image-2.6-sunburst", string> = {
   "gpt-image-2.6-flare": "IMAGE 2.6 FLARE",
+  "gpt-image-2.6": "GPT IMAGE 2.6",
   "gpt-image-2.6-sunburst": "IMAGE 2.6 SUNBURST",
   "gpt-image-2.5-sunburst": "IMAGE 2.5 SUNBURST",
   "gpt-image-2": "GPT IMAGE 2",

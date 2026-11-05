@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { loadConnection, saveConnection, CONNECTION_STORAGE_KEY } from "./connection";
-import { historySnapshot, pickParams, pruneHistory, type StudioHistoryEntry } from "./history";
+import { historySnapshot, paramsForReuse, pickParams, pruneHistory, type StudioHistoryEntry } from "./history";
 
 describe("studio connection privacy", () => {
   beforeEach(() => localStorage.clear());
@@ -48,9 +48,15 @@ describe("device history", () => {
     expect(JSON.stringify(saved)).not.toMatch(/secret|baseUrl|apiKey/);
     expect(saved.params).toEqual({ prompt: "a cat", size: "auto", model: "gpt-image-2" });
   });
-  it.each(["gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst"] as const)("preserves %s and defaults old history to Image 2", (model) => {
+  it.each(["gpt-image-2", "gpt-image-2.5-sunburst", "gpt-image-2.6-flare", "gpt-image-2.6"] as const)("preserves %s and defaults old history to Image 2", (model) => {
     expect(pickParams({ prompt: "cat", size: "auto", model }).model).toBe(model);
     expect(pickParams({ prompt: "cat", size: "auto" }).model).toBe("gpt-image-2");
+  });
+  it("keeps the original model in an existing history snapshot", () => {
+    const legacy = { ...record("legacy-model", 1), params: { prompt: "cat", size: "auto", model: "gpt-image-2.6-sunburst" } } as unknown as StudioHistoryEntry;
+    expect(historySnapshot(legacy).params).toEqual({ prompt: "cat", size: "auto", model: "gpt-image-2.6-sunburst" });
+    expect(paramsForReuse(legacy.params)).toEqual({ prompt: "cat", size: "auto", model: "gpt-image-2.6" });
+    expect(legacy.params.model).toBe("gpt-image-2.6-sunburst");
   });
   it("evicts oldest completed records while preserving active work", () => {
     const active = record("active", 0, "running");

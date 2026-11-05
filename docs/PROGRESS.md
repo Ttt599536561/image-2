@@ -43,6 +43,12 @@
 
 ## 会话日志（新条目追加在最上面，必须按此格式）
 
+### [2026-11-05] F-082更正：gpt-image-2.6替代2.6-sunburst，本地验收通过
+- 用户进一步要求把`gpt-image-2.6-sunburst`改为`gpt-image-2.6`。0.3.6同步共享模型合同、选择器、结果标签和当前文档；flare及默认Image 2不变，后端拒绝旧名称。
+- 保留旧图片任务的历史快照与原模型标签，仅在复制参数复用/以图编辑时转换为新名称。独立审查指出初稿会改写历史快照，已以失败测试复现并修复，复审无未关闭问题；不修改服务端冻结任务或数据库schema。
+- 最终验收退出0：typecheck；103文件891 passed/1 skipped；生产构建完整E2E19 passed（1.2m），四模型请求/Relay/历史/复用均通过；build、45文件密钥扫描、audit高危门禁和release:validate通过。复用E盘PG17/55435测试库与缓存，无付费上游调用。日志`.cache/logs/image26-rename-*`。
+- 下一步：提交并监看CI；使用`.cache/tmp/deploy-image26-rename.ps1 -WaitForCi`并行预构建，只有精确SHA的CI成功才写入切换标记。当前生产仍为0.3.5/c0264a6，最终版本以随后线上验收日志为准。
+
 ### [2026-11-05] 0.3.5模型扩展已上线
 - `c0264a6`已推送main，[CI #59](https://github.com/Ttt599536561/image-2/actions/runs/42019789067)全绿（含Docker/空栈smoke）。受控升级退出0，三个应用容器均运行0.3.5/c0264a6；五服务正常，内外health204、首页200。
 - 线上只读验收退出0：实际部署合同接受两个新模型、默认gpt-image-2、拒绝未知及近似名称；从公开首页沿同源JS引用取得当前`/assets/studio-BsAd8gZY.js`，两新模型均存在。证据`.cache/logs/deployment/image26-production-verification-20261105T114442Z.json`，无真实生成请求或业务数据写入。UI由生产构建本地19项E2E覆盖；生产浏览器直控受URL识别限制，未宣称已完成线上点击验收。

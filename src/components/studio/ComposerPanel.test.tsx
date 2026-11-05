@@ -29,7 +29,7 @@ describe("studio composer keyboard submission", () => {
   it("exposes all models, always-visible background, and all clipboard files", () => {
     const change = vi.fn(); const add = vi.fn();
     render(<ComposerPanel params={{ prompt: "", size: "auto", model: "gpt-image-2" }} onParams={change} references={[]} onReferences={add} onRemoveReference={vi.fn()} onGenerate={vi.fn()} busy={false} enabled hasConnection connectionLabel="api.tangguo.xin" onConnection={vi.fn()} />);
-    for (const model of ["gpt-image-2.6-flare", "gpt-image-2.6-sunburst", "gpt-image-2.5-sunburst", "gpt-image-2"]) {
+    for (const model of ["gpt-image-2.6-flare", "gpt-image-2.6", "gpt-image-2.5-sunburst", "gpt-image-2"]) {
       fireEvent.click(screen.getByRole("combobox", { name: "生成模型" }));
       fireEvent.click(screen.getByRole("option", { name: model }));
       expect(change).toHaveBeenLastCalledWith(expect.objectContaining({ model }));
