@@ -3,6 +3,9 @@
 import { z } from "zod";
 import { PublicMediaUrlSchema } from "./public-media-url";
 
+export const ResultImageMime = z.enum(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+export type ResultImageMime = z.infer<typeof ResultImageMime>;
+
 export const SIZES = [
   "auto",
   "1024x1024",
@@ -172,6 +175,7 @@ export const GenerateStatusResponse = z.discriminatedUnion("status", [
       width: z.number().int().nullable(),
       height: z.number().int().nullable(),
       savedToLibrary: z.boolean(),
+      contentType: ResultImageMime.optional(),
     }),
     creditsChargedMp: z.number().int().nonnegative(),
     durationMs: z.number().int().nonnegative(),

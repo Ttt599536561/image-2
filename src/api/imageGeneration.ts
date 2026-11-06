@@ -134,16 +134,15 @@ function collectImageValue(value: unknown, images: ParsedImage[]): void {
     return;
   }
 
-  if (typeof value.url === 'string') {
+  // These fields are representations of one output, not separate images. The
+  // requested inline original can differ from a preview at the accompanying URL.
+  const inline = typeof value.b64_json === 'string' ? value.b64_json.trim() : '';
+  if (inline) {
+    images.push({ src: toImageDataUrl(inline), kind: 'base64' });
+  } else if (typeof value.url === 'string' && value.url.trim()) {
     images.push({ src: value.url, kind: 'url' });
-  }
-
-  if (typeof value.image_url === 'string') {
+  } else if (typeof value.image_url === 'string' && value.image_url.trim()) {
     images.push({ src: value.image_url, kind: 'url' });
-  }
-
-  if (typeof value.b64_json === 'string') {
-    images.push({ src: toImageDataUrl(value.b64_json), kind: 'base64' });
   }
 }
 

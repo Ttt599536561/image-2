@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BACKGROUNDS, QUALITIES, SIZES } from "./generate";
+import { BACKGROUNDS, QUALITIES, SIZES, type ResultImageMime } from "./generate";
 
 export const DEFAULT_STUDIO_BASE_URL = "https://api.tangguo.xin/v1";
 export const STUDIO_MODEL = "gpt-image-2";
@@ -42,7 +42,7 @@ export type StudioJobStatus = {
   startedAt?: string;
   elapsedMs?: number;
   durationMs?: number;
-  image?: { id: string; url: string; width: number | null; height: number | null };
+  image?: { id: string; url: string; width: number | null; height: number | null; contentType?: ResultImageMime };
   error?: { code: string; message: string };
 };
 export type StudioStatusBatch = { items: StudioJobStatus[]; missingIds: string[] };

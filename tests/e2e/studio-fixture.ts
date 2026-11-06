@@ -100,7 +100,7 @@ export async function submitFromUi(page: Page, prompt: string): Promise<StudioAc
   return accepted.json();
 }
 
-export async function completeJob(generationId: string, expected: { reference?: boolean; images?: Buffer[]; prompt?: string; model?: StudioModel; outputFormat?: "png" | "gif" } = {}): Promise<void> {
+export async function completeJob(generationId: string, expected: { reference?: boolean; images?: Buffer[]; prompt?: string; model?: StudioModel; outputFormat?: "png" | "gif" } = {}, returnedBytes?: Buffer): Promise<void> {
   let calls = 0;
   const outcome = await runGenerationJob(generationId, {
     callRelay: async (input) => {
@@ -116,7 +116,8 @@ export async function completeJob(generationId: string, expected: { reference?: 
         expect(Buffer.from(image.bytes), `reference image ${index + 1}`).toEqual(expectedImages[index]);
         expect(image.contentType).toBe("image/png");
       }
-      return { images: [{ b64_json: (expected.outputFormat === "gif" ? tinyGif : tinyPng).toString("base64") }] };
+      const bytes = returnedBytes ?? (expected.outputFormat === "gif" ? tinyGif : tinyPng);
+      return { images: [{ b64_json: bytes.toString("base64") }] };
     },
   });
   expect(outcome).toBe("succeeded");

@@ -75,7 +75,8 @@ export function StudioPage() {
       if (controller.signal.aborted) return;
       const invalid = validateReferenceImage(file); if (invalid) throw new Error(invalid);
       if (!chooseReferences([file])) return;
-      updateParams(paramsForReuse(entry.params)); navigate("create");
+      // Reference-image edits use PNG; ordinary reuse keeps the original request format.
+      updateParams({ ...paramsForReuse(entry.params), outputFormat: "png" }); navigate("create");
       toast.info(converted ? "已将大图转换为参考副本，原图不变" : "已将原图设为参考图，可修改描述后生成");
     } catch (cause) {
       if (!controller.signal.aborted) toast.error(cause instanceof Error ? cause.message : "准备参考图片失败，原图不受影响。");

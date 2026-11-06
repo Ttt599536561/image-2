@@ -13,11 +13,12 @@ describe("status query parsing", () => {
     const generationId = randomUUID(); const userId = randomUUID(); const imageId = randomUUID();
     mocks.sql.mockResolvedValueOnce([{
       id: generationId, credential_mode: "system", deadline_at: new Date(), status: "succeeded",
-      image_id: imageId, public_url: "/media/result.png", width: 1024, height: 1024,
+      image_id: imageId, public_url: "/media/result.png", content_type: "image/png", width: 1024, height: 1024,
       saved_to_library: true, credits_charged_mp: 70, duration_ms: 5_000,
     }]);
     const [status] = await loadGenerationStatuses(userId, [generationId]);
-    expect(status).toMatchObject({ status: "succeeded", image: { id: imageId, savedToLibrary: true } });
+    expect(status).toMatchObject({ status: "succeeded", image: { id: imageId, contentType: "image/png", savedToLibrary: true } });
+    expect(mocks.sql.mock.calls[0][0].join("?")).toContain("i.content_type");
     expect(GenerateStatusBatchResponse.safeParse({ items: [status], missingIds: [] }).success).toBe(true);
     expect(mocks.sql.mock.calls[0][0].join("?")).toContain("g.user_id=");
     expect(mocks.sql.mock.calls[0].at(-1)).toBe(userId);

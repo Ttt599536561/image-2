@@ -787,6 +787,57 @@ test("GIF uses frozen format, animated media, local history, reuse and original 
   await expectNoMoney(owner);
 });
 
+test("GIF request keeps the PNG original, identifies both formats and preserves GIF for the next creation", async ({ page }) => {
+  const owner = await openStudio(page);
+  await configureConnection(page, true);
+  const model = "gpt-image-2.6";
+  const prompt = "在海边招手的小猫";
+  await selectOption(page, "生成模型", model);
+  const gifButton = page.getByRole("button", { name: "GIF 动图", exact: true });
+  await gifButton.click();
+  const submittedFormats: string[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && new URL(request.url()).pathname === "/api/studio/generate") {
+      submittedFormats.push(request.postDataJSON().outputFormat);
+    }
+  });
+  const accepted = await submitFromUi(page, prompt);
+  await completeJob(accepted.generationId, { model, outputFormat: "gif", prompt }, tinyPng);
+  const result = page.getByRole("region", { name: "生成结果" });
+  const formatNotice = result.getByRole("status").filter({ hasText: /请求 GIF，实际返回 PNG/ });
+  await expect(result.getByRole("button", { name: `已完成：${prompt}`, exact: true })).toBeVisible();
+  await expect(formatNotice).toBeVisible();
+  await page.screenshot({ path: ".cache/logs/result-format-notice.png" });
+  await expect.poll(async () => (await history(page))[0]?.blobType).toBe("image/png");
+  const [saved] = await history(page);
+  expect(JSON.parse(saved.snapshot)).toMatchObject({
+    generationId: accepted.generationId, status: "succeeded", params: { model, outputFormat: "gif" }, image: { contentType: "image/png" },
+  });
+  // Recover the original and its format from this browser, even without the server media response.
+  await page.route("**/api/studio/images/*", (route) => route.abort("failed"));
+  await page.reload();
+  await expect(formatNotice).toBeVisible();
+  await expect(gifButton).toHaveAttribute("aria-pressed", "true");
+  await expect(modelSelect(page)).toHaveText(model);
+  await page.getByRole("navigation").getByRole("button", { name: "此设备历史", exact: true }).click();
+  const historyCard = page.getByRole("region", { name: "此设备历史" }).getByRole("button", { name: new RegExp(prompt) });
+  await expect(historyCard).toContainText("GIF 请求 · PNG 结果");
+  await historyCard.click();
+  await expect(formatNotice).toBeVisible();
+  await expect(result.getByRole("button", { name: "放大查看生成图片" }).locator("img")).toHaveAttribute("src", /^blob:/);
+  const downloadPromise = page.waitForEvent("download");
+  await result.getByRole("button", { name: "下载原图" }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toBe(`图像工坊_${accepted.generationId}.png`);
+  expect(await readFile((await download.path())!)).toEqual(tinyPng);
+  expect(submittedFormats).toEqual(["gif"]);
+  expect((await pool.query(`SELECT g.id, g.output_format, i.content_type FROM generations g
+    LEFT JOIN images i ON i.generation_id=g.id WHERE g.user_id=$1`, [owner])).rows).toEqual([
+    { id: accepted.generationId, output_format: "gif", content_type: "image/png" },
+  ]);
+  await expectNoMoney(owner);
+});
+
 test("invalid GIF combinations explain the issue without changing parameters or uploading references", async ({ page }) => {
   const owner = await openStudio(page);
   await configureConnection(page);

@@ -49,6 +49,11 @@ async function referenceMultipart() {
 }
 
 describe("anonymous API", () => {
+  it("projects actual image MIME into the status used by polling and SSE", async () => {
+    mock.statuses.mockResolvedValue([{ generationId: id, status: "succeeded", image: { id: other, contentType: "image/webp", publicUrl: "private-url" } }]);
+    const response = await studioStatusLoader(new Request(`https://studio.example/api/studio/status?ids=${id}`));
+    expect((await response.json()).items[0].image).toEqual({ id: other, url: `/api/studio/images/${other}`, contentType: "image/webp" });
+  });
   it("reports unsupported GIF parameters and malformed output with fixed safe messages", async () => {
     for (const code of ["invalid_request", "invalid_response"]) {
       mock.statuses.mockResolvedValue([{ generationId: id, status: "failed", deadlineAt: "2026-10-28T12:00:00Z", errorCode: code, error: "private-key provider detail" }]);
@@ -57,6 +62,15 @@ describe("anonymous API", () => {
       expect(body.items[0].error.message).toContain("GIF");
       expect(JSON.stringify(body)).not.toMatch(/private-key|provider detail/);
     }
+  });
+  it("identifies a verified single frame and never quotes provider-supplied error text", async () => {
+    const status = async (error: string) => {
+      mock.statuses.mockResolvedValue([{ generationId: id, status: "failed", errorCode: "invalid_response", error }]);
+      const res = await studioStatusLoader(new Request(`https://studio.example/api/studio/status?ids=${id}`));
+      return (await res.json()).items[0].error.message;
+    };
+    expect(await status("gif_mismatch:image/gif:frames=1")).toMatch(/实际返回单帧 GIF/);
+    expect(await status("gif_mismatch:image/gif:frames=1 private-key")).not.toMatch(/单帧|private-key/);
   });
   it("forwards GIF output format and blocks incompatible references before enqueue", async () => {
     const gif = { ...input, model: "gpt-image-2.6", outputFormat: "gif" };

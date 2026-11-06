@@ -4,7 +4,8 @@ import { downloadImage } from "../../lib/download";
 import type { StudioHistoryEntry } from "../../lib/studio/history";
 import { ResultCanvas } from "./ResultCanvas";
 
-vi.mock("../Lightbox/LightboxProvider", () => ({ useLightbox: () => ({ open: vi.fn() }) }));
+const openLightbox = vi.hoisted(() => vi.fn());
+vi.mock("../Lightbox/LightboxProvider", () => ({ useLightbox: () => ({ open: openLightbox }) }));
 vi.mock("../../lib/download", () => ({ downloadImage: vi.fn() }));
 afterEach(() => { vi.unstubAllGlobals(); vi.clearAllMocks(); });
 
@@ -16,6 +17,20 @@ function canvas(entry: StudioHistoryEntry, retryable = false) {
 }
 
 describe("immediate task presentation", () => {
+  it.each([
+    ["image/png", "PNG", "png"],
+    ["image/jpeg", "JPEG", "jpg"],
+    ["image/webp", "WebP", "webp"],
+  ] as const)("shows %s returned for a GIF request before the Blob is saved", (contentType, label, ext) => {
+    const image = { id: "test", url: "/api/studio/images/test", width: 1, height: 1, contentType };
+    canvas({ ...pending, status: "succeeded", params: { ...pending.params, outputFormat: "gif" }, image });
+    expect(screen.getByRole("status")).toHaveTextContent(`请求 GIF，实际返回 ${label}。已保留原图。`);
+    expect(screen.queryByText("GIF 动图")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "下载原图" }));
+    expect(downloadImage).toHaveBeenCalledWith(image.url, `图像工坊_pending.${ext}`);
+    fireEvent.click(screen.getByRole("button", { name: "放大查看生成图片" }));
+    expect(openLightbox).toHaveBeenCalledWith(image.url, `图像工坊_pending.${ext}`);
+  });
   it.each([true, false])("downloads GIF without converting it and does not offer static reference editing (local Blob: %s)", (local) => {
     vi.stubGlobal("URL", Object.assign(URL, { createObjectURL: vi.fn(() => "blob:animated"), revokeObjectURL: vi.fn() }));
     const entry: StudioHistoryEntry = { ...pending, status: "succeeded", params: { ...pending.params, model: "gpt-image-2.6", outputFormat: "gif" }, image: { id: "gif", url: "/api/studio/images/gif", width: 1, height: 1 }, ...(local ? { blob: new Blob(["GIF89a"], { type: "image/gif" }) } : {}) };

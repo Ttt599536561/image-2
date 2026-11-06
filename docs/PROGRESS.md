@@ -46,6 +46,12 @@
 
 ## 会话日志（新条目追加在最上面，必须按此格式）
 
+### [2026-11-06] F-084：请求 GIF 时开放 PNG/JPEG/WebP 原图，0.3.8本地验收
+- 本次07:50:47任务为 `809aa079-8de8-4437-9386-cb56edfb2cb3`，与上一次504不同。正式网关 `1c0fea68-8d62-44d4-b204-bcb99ce7843e` 返回200，计量1图/59.803秒，但无输出尺寸、帧数、MIME或原图。旧网站在收到可识别图片后以GIF不符拒绝，没有保存原件；不能声称已确认当时的具体格式。
+- 按用户要求改为保留识别出的PNG/JPEG/WebP。请求格式继续冻结在generations，实际MIME沿用images.content_type，无迁移；状态、SSE、历史、预览与下载按实际格式，明确提示“请求 GIF，实际返回 PNG。已保留原图。”。独立审查发现编辑原图沿用GIF会导致参考图被拒；已改为显式“以图编辑（PNG）”，普通复用/完成仍保留GIF。单帧GIF失败显示具体格式，坏图仍拒绝。未修改Sub2、未调用真实收费生成。
+- 修复可复现的双表示选择问题：同条目有URL及非空b64时只取请求的内联原图，缺内联才沿用安全URL路径；不额外GET或重发POST。线上先前是否命中双表示无法从账单推断。
+- 验收均退出0：`npm run typecheck`；`npm run test:run -- --exclude '.local/**' --exclude '.cache/**' --maxWorkers 4` → `939 passed | 1 skipped`；`npm run test:money` → `125 passed`；生产构建 `npm run test:e2e -- --config .cache/models26-playwright.config.ts` → `22 passed (2.2m)`，包含一次提交、真实PNG下载字节对照、断开媒体服务后从历史重开、下一次仍为GIF；build、assert-no-secrets（45文件）、audit高危门禁、release:validate通过。日志 `.cache/logs/result-format-*`。线上升级仍以随后核验为准。
+
 ### [2026-11-06] GIF失败跨层只读定位：上游504，被网关转为502
 - 用户报告“生成失败，请检查连接设置后重试”。生产任务`0d42a182-0eeb-45d4-b25a-b268dc1d9076`，北京时间07:37:54提交、07:38:50失败；实际冻结`gpt-image-2.6/gif/auto`，耗时55721ms，relay55699ms、storage0ms，记录`relay_unreachable/http502`，凭据终态已删除。
 - 按项目索引定位api.tangguo.xin为Sub2正式站；只读核实49.51.35.163运行0.2.19-r2。网关关联请求`9212ec1c-26e7-4ebc-a10f-3ce5936fbc3b`实际走API-key渠道2989“SubRouter生图”，上游`https://usaeast.up.railway.app/v1/images/generations`返回504，明确错误“图片生成超时，请稍后再试。”。故障切换后pool=1/excluded=1，无其它可用渠道，最终502。

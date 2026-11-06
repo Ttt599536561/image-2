@@ -83,6 +83,23 @@ describe("generation preferences", () => {
 });
 
 describe("editing a generated image", () => {
+  it("keeps the requested GIF on reuse and uses PNG only after explicitly editing the returned image", async () => {
+    const entry = fixture.entry!;
+    entry.params = { prompt: "waving cat", model: "gpt-image-2.6", size: "1920x1088", quality: "high", background: "opaque", outputFormat: "gif" };
+    entry.image = { ...entry.image!, contentType: "image/png" };
+    fixture.prepare.mockResolvedValue({ file: new File(["copy"], "returned.png", { type: "image/png" }), converted: false });
+    render(<StudioPage />);
+    fireEvent.click(screen.getByRole("button", { name: "复用参数" }));
+    expect(screen.getByRole("button", { name: "GIF 动图" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "以图编辑（PNG）" }));
+    await waitFor(() => expect(screen.getByText("returned.png")).toBeVisible());
+    expect(screen.getByRole("button", { name: "PNG 静态图" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("combobox", { name: "生成模型" })).toHaveTextContent("gpt-image-2.6");
+    expect(screen.getByRole("button", { name: /16:9/ })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("combobox", { name: "生成质量" })).toHaveTextContent("高");
+    expect(screen.getByRole("combobox", { name: "图片背景" })).toHaveTextContent("不透明");
+    expect(entry.params.outputFormat).toBe("gif");
+  });
   it("clears submitted references as soon as the hook accepts the local task", async () => {
     fixture.generate.mockResolvedValue(true);
     vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: false })));

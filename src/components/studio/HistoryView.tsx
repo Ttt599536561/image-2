@@ -4,14 +4,16 @@ import { ConfirmDialog } from "../ConfirmDialog/ConfirmDialog";
 import type { StudioHistoryEntry } from "../../lib/studio/history";
 import { useBlobUrl } from "./ReferenceImage";
 import { STATUS_LABELS } from "./ResultCanvas";
+import { resultFormat } from "../../lib/studio/resultFormat";
 import styles from "./Studio.module.css";
 
 function HistoryCard({ entry, onSelect }: { entry: StudioHistoryEntry; onSelect: () => void }) {
   const localUrl = useBlobUrl(entry.blob);
   const src = localUrl ?? entry.image?.url;
+  const format = resultFormat(entry);
   return <button type="button" className={styles.historyCard} onClick={onSelect}>
     <div className={styles.historyImage}>{src ? <img src={src} alt={entry.params.prompt} loading="lazy" /> : <><Image size={27} strokeWidth={1.2} /><span>{STATUS_LABELS[entry.status]}</span></>}</div>
-    <div className={styles.historyCaption}><p>{entry.params.prompt}</p><span>{new Date(entry.createdAt).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}<small>{STATUS_LABELS[entry.status]}</small></span></div>
+    <div className={styles.historyCaption}><p>{entry.params.prompt}</p>{format.gifFallback && <span>GIF 请求 · {format.label} 结果</span>}<span>{new Date(entry.createdAt).toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })}<small>{STATUS_LABELS[entry.status]}</small></span></div>
   </button>;
 }
 export function HistoryView({ entries, onSelect, onClear }: { entries: StudioHistoryEntry[]; onSelect: (id: string) => void; onClear: () => void }) {

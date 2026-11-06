@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ErrorCode, GenerateStatusResponse } from "../../contracts/generate";
+import { ResultImageMime, type ErrorCode, type GenerateStatusResponse } from "../../contracts/generate";
 import { getSql } from "../../db/db.server";
 import { expireDueGenerations } from "./deadline.server";
 
@@ -29,7 +29,7 @@ export async function loadGenerationStatuses(
   const rows = await getSql()`SELECT g.id,g.credential_mode,g.deadline_at,g.status,g.started_at,
                                     g.source_image_id,g.error_code,g.error,g.http_status,
                                     g.duration_ms,g.credits_charged_mp,
-                                    i.id AS image_id,i.public_url,i.width,i.height,i.saved_to_library,
+                                    i.id AS image_id,i.public_url,i.width,i.height,i.saved_to_library,i.content_type,
                                     si.id AS source_join_id,si.public_url AS source_public_url,
                                     si.width AS source_width,si.height AS source_height
                              FROM generations g
@@ -61,6 +61,7 @@ export async function loadGenerationStatuses(
           width: row.width == null ? null : Number(row.width),
           height: row.height == null ? null : Number(row.height),
           savedToLibrary: row.saved_to_library === true,
+          contentType: ResultImageMime.safeParse(row.content_type).data,
         },
         creditsChargedMp: Number(row.credits_charged_mp),
         durationMs: Number(row.duration_ms ?? 0),

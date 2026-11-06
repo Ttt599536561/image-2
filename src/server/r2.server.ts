@@ -175,8 +175,10 @@ export async function putToR2(
 ): Promise<PutResult> {
   const { bytes, contentType } = await fetchImageBytes(relayImage, signal);
   const gif = contentType === "image/gif" ? readGifMetadata(bytes) : undefined;
-  if (expectedOutputFormat === "gif" && (!gif || gif.frames < 2)) {
-    throw Object.assign(new Error("上游未返回完整的 GIF 动图，请确认所选服务支持 GIF 输出"), { failureCode: "invalid_response" as const });
+  // Preserve supported non-GIF originals using their detected format. A file
+  // claiming to be an animation still needs more than one actual GIF frame.
+  if (expectedOutputFormat === "gif" && gif?.frames === 1) {
+    throw Object.assign(new Error("gif_mismatch:image/gif:frames=1"), { failureCode: "invalid_response" as const });
   }
   const extension = contentType === "image/jpeg" ? "jpg" : contentType === "image/webp" ? "webp" : contentType === "image/gif" ? "gif" : "png";
   const storageKey = buildStorageKey(userId, generationId, extension);

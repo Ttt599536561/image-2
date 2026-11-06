@@ -38,7 +38,13 @@ describe("provider image storage boundary", () => {
     mocks.safeRequest.mockResolvedValue({ status: 200, headers: { "content-type": "image/png" }, body: animatedGif });
     expect(await putToR2("owner", "job", { url: "https://provider.example/result.png" }, undefined, "gif")).toMatchObject({ contentType: "image/gif" });
   });
-  it.each([png, Buffer.concat([gifHeader, gifFrame, Buffer.from([0x3b])]), animatedGif.subarray(0, -1)])("rejects static or incomplete GIF results before persistence", async (bytes) => {
+  it("retains the PNG original and its real extension when GIF was requested", async () => {
+    const result = await putToR2("owner", "job", { b64_json: png.toString("base64") }, undefined, "gif");
+    expect(result).toMatchObject({ contentType: "image/png", width: 1, height: 1, sizeBytes: png.length });
+    expect(result.storageKey).toMatch(/\.png$/);
+    expect(mocks.send.mock.calls[0][0].input.Body).toEqual(png);
+  });
+  it.each([Buffer.concat([gifHeader, gifFrame, Buffer.from([0x3b])]), animatedGif.subarray(0, -1)])("rejects single-frame or incomplete GIF results before persistence", async (bytes) => {
     await expect(putToR2("owner", "job", { b64_json: bytes.toString("base64") }, undefined, "gif")).rejects.toMatchObject({ failureCode: "invalid_response" });
     expect(mocks.send).not.toHaveBeenCalled();
   });
@@ -81,7 +87,7 @@ describe("provider image storage boundary", () => {
       [Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 2, 0xff, 0xd9]), "image/jpeg", "jpg"],
       [Buffer.concat([Buffer.from("RIFF"), Buffer.from([12, 0, 0, 0]), Buffer.from("WEBPVP8 "), Buffer.alloc(4)]), "image/webp", "webp"],
     ] as const) {
-      const result = await putToR2("owner", "job", { b64_json: bytes.toString("base64") });
+      const result = await putToR2("owner", "job", { b64_json: bytes.toString("base64") }, undefined, "gif");
       expect(result.contentType).toBe(mime);
       expect(result.storageKey).toMatch(new RegExp(`\\.${extension}$`));
     }

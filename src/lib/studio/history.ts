@@ -1,4 +1,5 @@
 import { STUDIO_MODEL, type StudioJobStatus, type StudioParams } from "../../contracts/studio";
+import { ResultImageMime } from "../../contracts/generate";
 
 export interface StudioHistoryEntry extends StudioJobStatus {
   createdAt: number;
@@ -32,7 +33,7 @@ export function historySnapshot(entry: StudioHistoryEntry): StudioHistoryEntry {
     ...(entry.startedAt ? { startedAt: entry.startedAt } : {}),
     ...(entry.durationMs !== undefined ? { durationMs: entry.durationMs } : {}),
     ...(entry.elapsedMs !== undefined ? { elapsedMs: entry.elapsedMs } : {}),
-    ...(entry.image ? { image: { id: entry.image.id, url: entry.image.url, width: entry.image.width, height: entry.image.height } } : {}),
+    ...(entry.image ? { image: { id: entry.image.id, url: entry.image.url, width: entry.image.width, height: entry.image.height, contentType: ResultImageMime.safeParse(entry.image.contentType).data } } : {}),
     ...(entry.error ? { error: { code: entry.error.code, message: entry.error.message } } : {}),
     ...(entry.blob ? { blob: entry.blob } : {}),
   };

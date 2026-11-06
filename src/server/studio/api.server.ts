@@ -71,20 +71,21 @@ export async function loadStudioStatuses(userId: string, ids: string[]): Promise
   const legacy = await loadGenerationStatuses(userId, ids);
   const items: StudioJobStatus[] = legacy.map((row) => {
     const identity = { generationId: row.generationId, status: row.status, deadlineAt: row.deadlineAt };
-    if (row.status === "succeeded") return { ...identity, durationMs: row.durationMs, ...(row.image?.id ? { image: { id: row.image.id, url: `/api/studio/images/${row.image.id}`, width: row.image.width, height: row.image.height } } : {}) };
-    if (row.status === "failed") return { ...identity, error: { code: row.errorCode, message: studioErrorMessage(row.errorCode) } };
+    if (row.status === "succeeded") return { ...identity, durationMs: row.durationMs, ...(row.image?.id ? { image: { id: row.image.id, url: `/api/studio/images/${row.image.id}`, width: row.image.width, height: row.image.height, contentType: row.image.contentType } } : {}) };
+    if (row.status === "failed") return { ...identity, error: { code: row.errorCode, message: studioErrorMessage(row.errorCode, row.error) } };
     return { ...identity, startedAt: row.startedAt, elapsedMs: row.elapsedMs };
   });
   const found = new Set(items.map((item) => item.generationId));
   return { items, missingIds: ids.filter((id) => !found.has(id)) };
 }
-function studioErrorMessage(code: string): string {
+function studioErrorMessage(code: string, detail: string): string {
   // Upstream response text may echo secrets or contain old billing copy. Emit fixed safe messages.
   if (code === "provider_timeout") return "生成超时，请检查服务后重新提交";
   if (code === "custom_key_invalid") return "服务未接受此 Key，请检查连接设置";
   if (code === "custom_key_quota") return "上游 Key 额度不足，请检查服务账户";
   if (code === "relay_rate_limited") return "上游服务繁忙，请稍后再试";
   if (code === "content_rejected") return "服务未接受此提示词，请修改后重试";
+  if (code === "invalid_response" && detail === "gif_mismatch:image/gif:frames=1") return "图片服务实际返回单帧 GIF，生成动图需要至少两帧。";
   if (code === "invalid_response") return "上游未返回有效图片或完整 GIF 动图，请确认服务支持所选格式";
   if (code === "invalid_request") return "图片服务不支持所选参数，请检查模型、输出格式和尺寸；GIF 需服务支持";
   return "生成失败，请检查连接设置后重试";

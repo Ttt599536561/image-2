@@ -13,6 +13,16 @@ const input = (): CallRelayRequest => ({
 });
 const response = (value: unknown, status = 200) => ({ status, headers: {}, body: Buffer.from(JSON.stringify(value)) });
 describe("studio custom relay", () => {
+  it("uses the requested inline original rather than the URL preview of the same output", async () => {
+    const inline = "R0lGODlhAQABAIAAAAAAAP///w==";
+    safeRequest.mockResolvedValue(response({ data: [
+      { url: "https://cdn.example/preview.png", b64_json: inline },
+      { url: "https://cdn.example/other.png", b64_json: "  " },
+    ] }));
+    const result = await callRelay({ ...input(), model: "gpt-image-2.6", outputFormat: "gif" });
+    expect(result.images).toEqual([{ b64_json: inline }, { url: "https://cdn.example/other.png" }]);
+    expect(safeRequest).toHaveBeenCalledOnce();
+  });
   it.each(["gpt-image-2.6", "gpt-image-2.6-flare"])("requests a complete GIF from %s with bounded animation defaults", async (model) => {
     await callRelay({ ...input(), model, outputFormat: "gif" });
     expect(JSON.parse(safeRequest.mock.calls[0][1].body)).toMatchObject({ model, output_format: "gif", frame_count: 9, frame_duration_ms: 200, response_format: "b64_json", n: 1 });
