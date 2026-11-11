@@ -8,7 +8,7 @@ AI 图像工坊是无需注册或登录的图片创作工作台。填写固定�
 
 已部署站点：[https://one-image2.tangguo.xin](https://one-image2.tangguo.xin)
 
-当前代码版本为 `0.3.8`。部署目标是 `45.207.199.3` 的 Docker Compose 环境；实际部署提交、版本与验收证据以[当前状态](docs/PROGRESS.md)为准。
+当前代码版本为 `0.3.9`。部署目标是 `45.207.199.3` 的 Docker Compose 环境；实际部署提交、版本与验收证据以[当前状态](docs/PROGRESS.md)为准。
 
 ## 主要能力
 
@@ -77,6 +77,9 @@ sudo bash deploy/install.sh \
 完整命令、升级步骤和已知故障处理见 [Docker 部署与运维](docs/dev/deploy.md)。
 
 ## 文档
+
+- [公开使用指南](https://one-image2.tangguo.xin/guide)：文生图、参考图、模型与 GIF、本机历史。
+- [Google 收录与 SEO](tasks/2026-11-11-seo.md)：公开抓取范围、验证配置和提交步骤。
 
 - [当前发布状态](docs/PROGRESS.md)
 - [技术设计索引](docs/dev/README.md)

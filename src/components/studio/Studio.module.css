@@ -2,13 +2,13 @@
 .studio button, .studio input, .studio textarea, .studio select { font: inherit; }
 .studio button { cursor: pointer; }
 .studio button:disabled { cursor: not-allowed; opacity: .48; }
-.studio button:focus-visible, .studio input:focus-visible, .studio textarea:focus-visible, .studio select:focus-visible, .studio summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.studio button:focus-visible, .studio a:focus-visible, .studio input:focus-visible, .studio textarea:focus-visible, .studio select:focus-visible, .studio summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 .rail { display: flex; align-items: center; flex-direction: column; background: var(--bg-subtle); border-right: 1px solid var(--border-subtle); padding: 23px 7px 18px; gap: 32px; }
 .brand { color: var(--text-primary); text-decoration: none; }
 .brand > span { display: grid; place-items: center; width: 40px; height: 40px; color: var(--primary-fg); background: var(--primary-bg); border-radius: 13px; }
 .brand strong { display: none; }
 .navItems { display: grid; gap: 14px; width: 100%; }
-.navItem { display: flex; align-items: center; flex-direction: column; justify-content: center; gap: 7px; width: 100%; min-height: 63px; padding: 10px 2px; border: 0; border-radius: 12px; color: var(--text-secondary); background: transparent; transition: color .15s, background .15s; }
+.navItem { display: flex; align-items: center; flex-direction: column; justify-content: center; gap: 7px; width: 100%; min-height: 63px; padding: 10px 2px; border: 0; border-radius: 12px; color: var(--text-secondary); background: transparent; text-decoration: none; transition: color .15s, background .15s; }
 .navItem span { font-size: 10px; white-space: nowrap; letter-spacing: .1px; }
 .navItem:hover { background: var(--bg-muted); color: var(--text-primary); }
 .navItem.navActive { background: var(--accent-surface); color: var(--accent-on-surface); }
@@ -315,6 +315,9 @@
   .historyEmpty { padding: 65px 10px; }
 }
 @media (max-width: 480px) {
+  .rail { padding-left: 8px; padding-right: 8px; gap: 4px; }
+  .navItems { gap: 0; }
+  .navItem { padding-left: 6px; padding-right: 6px; }
   .panelScroll { padding: 20px 16px; }
   .composerFooter { padding-left: 16px; padding-right: 16px; }
   .panelHeading h1 { font-size: 21px; }

@@ -87,6 +87,14 @@ describe("production web startup", () => {
     expect(compressed.status).toBe(200);
     expect(compressed.headers["content-encoding"]).toBe("gzip");
   });
+  it("keeps private endpoints out of search while allowing public pages and assets", async () => {
+    for (const url of ["/api/studio/status", "/media/private.png", "/admin/login", "/healthz", "/missing-page"]) {
+      expect((await send(port, url)).headers["x-robots-tag"], url).toBe("noindex, nofollow");
+    }
+    for (const url of ["/", "/guide", "/guide/", "/robots.txt", "/sitemap.xml", "/assets/app.js", "/favicon.ico"]) {
+      expect((await send(port, url)).headers["x-robots-tag"], url).toBeUndefined();
+    }
+  });
   it("registers shutdown handlers and removes them when the server closes", async () => {
     const disposable = createServer();
     await listen(disposable);

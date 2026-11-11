@@ -4,6 +4,9 @@ import { index, layout, type RouteConfig, route } from "@react-router/dev/routes
 // Retired account/billing handlers under legacy/ are never registered.
 export default [
   index("routes/studio.tsx"),
+  route("guide", "routes/guide.tsx"),
+  route("robots.txt", "routes/robots.txt.ts"),
+  route("sitemap.xml", "routes/sitemap.xml.ts"),
   route("healthz", "routes/healthz.ts"),
   route("media/*", "routes/media.$.ts"),
   route("api/studio/session", "routes/api.studio.session.ts"),

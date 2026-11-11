@@ -15,13 +15,18 @@ import { ToastProvider } from "../src/components/Toast/ToastProvider";
 import { parseThemeCookie, type Theme, ThemeProvider } from "../src/lib/theme";
 import { rejectHttpWriteDuringMaintenance as maintenanceMiddleware } from "../src/server/system-update/maintenance-guard.server";
 import type { Route } from "./+types/root";
+import { createNoIndexMeta } from "../src/lib/seo";
+import { getSeoConfig } from "../src/server/seo.server";
 // 全局设计令牌（side-effect import；RR 收集进 <Links/> 注入，SSR 无 FOUC）
 import "../src/styles/tokens.css";
 
 export const middleware: Route.MiddlewareFunction[] = [maintenanceMiddleware];
 
+// Indexable public pages provide their own metadata; admin and error pages do not.
+export function meta() { return createNoIndexMeta(); }
+
 export function loader({ request }: Route.LoaderArgs) {
-  return { theme: parseThemeCookie(request.headers.get("Cookie")) };
+  return { theme: parseThemeCookie(request.headers.get("Cookie")), seo: getSeoConfig() };
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
@@ -33,8 +38,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <head>
         <meta charSet="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>AI 图像工坊</title>
         <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=1" />
+        {data?.seo?.googleSiteVerification && <meta name="google-site-verification" content={data.seo.googleSiteVerification} />}
         <Meta />
         <Links />
       </head>

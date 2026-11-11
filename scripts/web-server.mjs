@@ -25,6 +25,13 @@ export function createWebServer(build, { publicDirectory = "public" } = {}) {
   app.use(path.posix.join(publicPath, "assets"), express.static(path.join(build.assetsBuildDirectory, "assets"), { immutable: true, maxAge: "1y" }));
   app.use(publicPath, express.static(build.assetsBuildDirectory));
   app.use(express.static(publicDirectory, { maxAge: "1h" }));
+  // Public document discovery is intentionally limited. Private media still
+  // requires its existing ownership checks; this header is not access control.
+  app.use((request, response, next) => {
+    const publicDocuments = new Set(["/", "/guide", "/guide/", "/robots.txt", "/sitemap.xml"]);
+    if (!publicDocuments.has(request.path)) response.setHeader("X-Robots-Tag", "noindex, nofollow");
+    next();
+  });
   app.use(morgan("tiny"));
   app.all("/{*splat}", createRequestHandler({ build, mode: process.env.NODE_ENV }));
   return createServer(WEB_HTTP_OPTIONS, app);

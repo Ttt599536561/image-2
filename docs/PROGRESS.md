@@ -47,6 +47,13 @@
 
 ## 会话日志（新条目追加在最上面，必须按此格式）
 
+### [2026-11-11] F-085：SEO与Google收录准备，0.3.9本地验收
+- 保留首页直达工作台，新增公开/guide及新标签导航；SSR单一title、准确description、canonical、OG/Twitter品牌卡片和WebSite/WebApplication结构化数据。robots/sitemap仅公布两公开页；后台/接口/私人媒体/未知动态路径noindex，旧页301，未知404。
+- canonical只用部署配置，不信任Host；GOOGLE_SITE_VERIFICATION可选HTML验证token。没有生成新用户Key、没有实际付费调用。Google Search Console未提交/未验证：CUA因无法可靠识别Windows Chrome URL自动停止，已向用户请求验证信息，不能声称已收录。
+- 验收退出0：npm run typecheck；npm run test:run -- --exclude '.local/**' --exclude '.cache/**' --maxWorkers 4 → 107 files / 950 passed | 1 skipped；npm run test:e2e -- --config .cache/models26-playwright.config.ts → 25 passed (42.4s)；build、assert-no-secrets（51文件）、npm audit --audit-level=high、release:validate（v0.3.9/v0.2.9）通过。audit遗留4 moderate/2 low，无high/critical。桌面/手机指南截图已目视验证。
+- 独立交叉审查无阻塞发现。修正RR8.3 meta参数为loaderData并以强类型单测及真实SSR测试覆盖。证据.cache/logs/seo-*；生产部署等待精确SHA CI，现有Caddy修改必须保留。
+
+
 ### [2026-11-06] 0.3.8已上线：保留GIF请求的非GIF原图
 - 精确提交`6888ade`的[CI42134788674](https://github.com/Ttt599536561/image-2/actions/runs/42134788674)成功后受控升级退出0；Web/worker/scheduler均为0.3.8/6888ade，五服务正常，内外health204、首页200，无新增数据库迁移。
 - 线上只读验收退出0：验证内联原图优先、请求GIF且实际PNG时正确识别PNG及.png后缀，当前公开`studio-Dg1VYaNC.js`含实际格式提示与配置保持逻辑。未提交生成请求/未写入生产业务数据。证据`.cache/logs/deployment/result-format-production-verification-20261106T001446Z.json`；本地结果`.cache/logs/result-format-local-summary.json`。

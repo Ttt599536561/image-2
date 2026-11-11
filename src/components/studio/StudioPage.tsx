@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowUpRight, ChevronDown, Circle, Clock3, Link2, Moon, PanelLeftClose, Sparkles, Sun, X } from "lucide-react";
+import { ArrowUpRight, BookOpen, ChevronDown, Circle, Clock3, Link2, Moon, PanelLeftClose, Sparkles, Sun, X } from "lucide-react";
 import { MAX_STUDIO_REFERENCE_IMAGES, type StudioParams } from "../../contracts/studio";
 import { fetchResultBlob, validateReferenceImage } from "../../lib/studio/api";
 import { isActive, paramsForReuse, type StudioHistoryEntry } from "../../lib/studio/history";
@@ -98,7 +98,7 @@ export function StudioPage() {
   return <main className={styles.studio}>
     <nav className={styles.rail} aria-label="工作台导航">
       <a href="/" className={styles.brand} aria-label="图像工坊首页"><span><Sparkles size={22} strokeWidth={1.6} /></span><strong>图像工坊</strong></a>
-      <div className={styles.navItems}>{([{ id: "create", label: "创作", icon: Sparkles }, { id: "history", label: "此设备历史", icon: Clock3 }, { id: "settings", label: "连接设置", icon: Link2 }] as const).map((item) => <button type="button" key={item.id} aria-current={view === item.id ? "page" : undefined} className={`${styles.navItem} ${view === item.id ? styles.navActive : ""}`} onClick={() => navigate(item.id)}><item.icon size={21} strokeWidth={1.6} /><span>{item.label}</span></button>)}</div>
+      <div className={styles.navItems}>{([{ id: "create", label: "创作", icon: Sparkles }, { id: "history", label: "此设备历史", icon: Clock3 }, { id: "settings", label: "连接设置", icon: Link2 }] as const).map((item) => <button type="button" key={item.id} aria-current={view === item.id ? "page" : undefined} className={`${styles.navItem} ${view === item.id ? styles.navActive : ""}`} onClick={() => navigate(item.id)}><item.icon size={21} strokeWidth={1.6} /><span>{item.label}</span></button>)}<a href="/guide" target="_blank" rel="noopener noreferrer" title="在新标签页打开使用指南" className={styles.navItem}><BookOpen size={21} strokeWidth={1.6} aria-hidden /><span>使用指南</span></a></div>
       <button type="button" className={`${styles.navItem} ${styles.themeButton}`} onClick={theme.toggle} aria-label={theme.theme === "dark" ? "切换到浅色主题" : "切换到深色主题"}>{theme.theme === "dark" ? <Sun size={20} /> : <Moon size={20} />}<span>{theme.theme === "dark" ? "浅色" : "深色"}</span></button>
     </nav>
     <button type="button" className={styles.mobilePanelToggle} aria-expanded={panelOpen} aria-controls="studio-creation-panel" onClick={() => setPanelOpen(!panelOpen)}><span><Sparkles size={16} />{view === "settings" ? "连接设置" : "创作面板"}</span>{panelOpen ? <PanelLeftClose size={17} /> : <ChevronDown size={17} />}</button>
