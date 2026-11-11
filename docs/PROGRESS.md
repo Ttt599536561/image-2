@@ -47,6 +47,10 @@
 
 ## 会话日志（新条目追加在最上面，必须按此格式）
 
+### [2026-11-11] F-085：补齐宿主更新器独立环境白名单
+- 最终全仓检索确认部署.env拒绝未知键的白名单有两份；install-lib已修，独立宿主updater还需允许STUDIO_PUBLIC_ORIGIN/GOOGLE_SITE_VERIFICATION。最小增加两个允许名，不放宽任意键。
+- 扩展updater用例先红重现unknown deployment environment key: STUDIO_PUBLIC_ORIGIN，再绿退出0/PASS: updater request validation；覆盖旧env、非空/空SEO配置和.env字节不变。隔离副本锁重定向到task.cache，生产锁/脚本未改。typecheck及950单测再次通过。
+- 487ca89已通过此前失败的完整CI部署契约阶段，但预构建第二轮在waiting_ci主动停止143，没有放行/写token，生产仍0.3.8/6888ade。最终发布必须比对宿主updater本体与仓库新脚本，再部署用户验证标记。
 ### [2026-11-11] F-085发布门修复：Google验证配置兼容与Ubuntu26超时mock
 - 66b4683的CI43035606842两次均在既有安装器blocking Web测试返回124；发布门未放行，生产仍0.3.8/6888ade，Caddy两文件未变。测试失败不是网站生成流程回归。
 - 实际runner已是Ubuntu26.04.1。隔离对照确认GNU timeout9.4会终止fake shell及其sleep子进程，uutils timeout0.10.0留下sleep子进程持有命令替换stdout；forked sleeper超时1秒后仍等4秒，而exec sleeper在1秒退出。修复两个阻塞mock为exec sleep30，保持健康循环2秒/单探针1秒/外层8秒预算，并加强具体健康超时错误断言。Ubuntu24/26定向均绿；未修改生产健康检查逻辑。

@@ -104,6 +104,12 @@ run_updater() {
 
 test_valid_request_is_claimed() {
   new_case
+  if (($# > 0)); then
+    printf 'STUDIO_PUBLIC_ORIGIN="%s"\nGOOGLE_SITE_VERIFICATION="%s"\n' "$1" "$2" \
+      >>"$PROJECT_ROOT/deploy/.env.production"
+  fi
+  local env_hash
+  env_hash="$(sha256sum "$PROJECT_ROOT/deploy/.env.production" | awk '{print $1}')"
   write_request
 
   if run_updater; then
@@ -124,6 +130,8 @@ test_valid_request_is_claimed() {
     fail 'the claimed request remained in the inbox'
   [[ ! -e "$CONTROL_ROOT/inbox/.start-reservation" ]] || \
     fail 'the claimed reservation remained in the inbox'
+  [[ "$(sha256sum "$PROJECT_ROOT/deploy/.env.production" | awk '{print $1}')" == "$env_hash" ]] || \
+    fail 'loading optional SEO settings changed deployment environment bytes'
 }
 
 test_duplicate_request_key_is_rejected() {
@@ -141,5 +149,7 @@ test_duplicate_request_key_is_rejected() {
 }
 
 test_valid_request_is_claimed
+test_valid_request_is_claimed 'https://images.example.com' 'test_ownership-token_123'
+test_valid_request_is_claimed '' ''
 test_duplicate_request_key_is_rejected
 printf 'PASS: updater request validation\n'
