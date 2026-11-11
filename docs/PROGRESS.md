@@ -47,6 +47,14 @@
 
 ## 会话日志（新条目追加在最上面，必须按此格式）
 
+### [2026-11-11] F-085发布门修复：Google验证配置兼容与Ubuntu26超时mock
+- 66b4683的CI43035606842两次均在既有安装器blocking Web测试返回124；发布门未放行，生产仍0.3.8/6888ade，Caddy两文件未变。测试失败不是网站生成流程回归。
+- 实际runner已是Ubuntu26.04.1。隔离对照确认GNU timeout9.4会终止fake shell及其sleep子进程，uutils timeout0.10.0留下sleep子进程持有命令替换stdout；forked sleeper超时1秒后仍等4秒，而exec sleeper在1秒退出。修复两个阻塞mock为exec sleep30，保持健康循环2秒/单探针1秒/外层8秒预算，并加强具体健康超时错误断言。Ubuntu24/26定向均绿；未修改生产健康检查逻辑。
+- 独立审查发现install-lib环境白名单未允许SEO配置，已最小增加STUDIO_PUBLIC_ORIGIN/GOOGLE_SITE_VERIFICATION，并让render保留已配置值及显式空值；不配置时保持旧24键。32项helper测试Git Bash/Linux通过，含加载/旧env/空值/render/resume字节保持。
+- 最终复验：typecheck退出0、950单测通过；Ubuntu26完整32项安装器及Linux32项helper通过，updater/backup-restore10项/ci-smoke契约全部退出0。未改auth真实PG迁移，留给新SHA CI完整验证。日志.cache/logs/deployment/seo-timeout-*、seo-three-deploy-contracts.log。
+- 用户已提供HTML验证token，待新版本发布完成后单独备份env并写入、仅重建Web；暂未点击Google验证或提交站点地图。
+
+
 ### [2026-11-11] F-085：SEO与Google收录准备，0.3.9本地验收
 - 保留首页直达工作台，新增公开/guide及新标签导航；SSR单一title、准确description、canonical、OG/Twitter品牌卡片和WebSite/WebApplication结构化数据。robots/sitemap仅公布两公开页；后台/接口/私人媒体/未知动态路径noindex，旧页301，未知404。
 - canonical只用部署配置，不信任Host；GOOGLE_SITE_VERIFICATION可选HTML验证token。没有生成新用户Key、没有实际付费调用。Google Search Console未提交/未验证：CUA因无法可靠识别Windows Chrome URL自动停止，已向用户请求验证信息，不能声称已收录。

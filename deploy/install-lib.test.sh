@@ -279,6 +279,7 @@ test_load_deploy_env_rejects_unknown_malformed_and_unquoted_code() {
 }
 
 set_render_fixture_inputs() {
+  unset STUDIO_PUBLIC_ORIGIN GOOGLE_SITE_VERIFICATION
   COMPOSE_PROJECT_NAME='ai-image-workshop-test'
   COMPOSE_PROFILES=''
   IMAGE_TAG='latest'
@@ -295,6 +296,50 @@ set_render_fixture_inputs() {
   CUSTOM_KEY_JOB_ENCRYPTION_KEY='encryption-key-test'
   UPDATER_CONTROL_ROOT='/var/lib/ai-image-workshop-updater'
   UPDATER_CONTROL_GID='995'
+}
+
+test_optional_seo_env_load_and_legacy_compatibility() {
+  local env_file="$TEST_ROOT/seo-load.env"
+  printf '%s\n' 'BETTER_AUTH_URL="https://images.example.com"' \
+    'STUDIO_PUBLIC_ORIGIN="https://images.example.com:8443/"' \
+    'GOOGLE_SITE_VERIFICATION="test_ownership-token_123"' >"$env_file"
+  load_deploy_env "$env_file" || fail_assertion 'optional SEO settings should load'
+  assert_equal 'https://images.example.com:8443/' "$STUDIO_PUBLIC_ORIGIN" 'configured origin should load exactly'
+  assert_equal 'test_ownership-token_123' "$GOOGLE_SITE_VERIFICATION" 'verification token should load exactly'
+
+  printf '%s\n' 'STUDIO_PUBLIC_ORIGIN=""' 'GOOGLE_SITE_VERIFICATION=""' >"$env_file"
+  load_deploy_env "$env_file" || fail_assertion 'empty optional settings in example env should load'
+  assert_equal '' "$STUDIO_PUBLIC_ORIGIN" 'empty origin should clear inherited value'
+  assert_equal '' "$GOOGLE_SITE_VERIFICATION" 'empty verification should clear inherited value'
+
+  unset STUDIO_PUBLIC_ORIGIN GOOGLE_SITE_VERIFICATION
+  printf '%s\n' 'BETTER_AUTH_URL="https://images.example.com"' >"$env_file"
+  load_deploy_env "$env_file" || fail_assertion 'legacy env without SEO settings should remain valid'
+  [[ ! ${STUDIO_PUBLIC_ORIGIN+x} && ! ${GOOGLE_SITE_VERIFICATION+x} ]] \
+    || fail_assertion 'legacy env should not fabricate optional settings'
+}
+
+test_optional_seo_env_render_and_resume_preserves_values() {
+  local env_file="$TEST_ROOT/seo-render.env"
+  set_render_fixture_inputs
+  STUDIO_PUBLIC_ORIGIN='https://images.example.com'
+  GOOGLE_SITE_VERIFICATION='test_ownership-token_123'
+  render_production_env "$env_file" || fail_assertion 'SEO settings should render'
+  unset STUDIO_PUBLIC_ORIGIN GOOGLE_SITE_VERIFICATION
+  load_deploy_env "$env_file" || fail_assertion 'rendered SEO settings should load'
+  assert_equal 'https://images.example.com' "${STUDIO_PUBLIC_ORIGIN-}" 'rendering must preserve origin'
+  assert_equal 'test_ownership-token_123' "${GOOGLE_SITE_VERIFICATION-}" 'rendering must preserve verification token'
+  local before_hash
+  before_hash="$(sha256sum "$env_file" | awk '{print $1}')"
+  migrate_updater_environment "$env_file" '/var/lib/ai-image-workshop-updater' '995' \
+    || fail_assertion 'resume migration should accept SEO config'
+  assert_equal "$before_hash" "$(sha256sum "$env_file" | awk '{print $1}')" 'resume must preserve complete config bytes'
+
+  STUDIO_PUBLIC_ORIGIN=''
+  GOOGLE_SITE_VERIFICATION=''
+  render_production_env "$env_file" || fail_assertion 'explicit empty optional settings should render'
+  assert_contains "$(<"$env_file")" 'STUDIO_PUBLIC_ORIGIN=""' 'explicit empty origin should persist'
+  assert_contains "$(<"$env_file")" 'GOOGLE_SITE_VERIFICATION=""' 'explicit empty verification should persist'
 }
 
 test_compose_service_env_file_round_trip() {
@@ -784,6 +829,8 @@ run_test 'password absent from redirected output' test_collect_install_inputs_ne
 run_test 'dotenv quote and safe load round-trip' test_dotenv_quote_and_safe_load_round_trip
 run_test 'Compose-compatible dotenv quote rules' test_dotenv_quote_matches_compose_rules
 run_test 'unsafe dotenv input rejection' test_load_deploy_env_rejects_unknown_malformed_and_unquoted_code
+run_test 'optional SEO env loading and legacy compatibility' test_optional_seo_env_load_and_legacy_compatibility
+run_test 'optional SEO env render and resume preservation' test_optional_seo_env_render_and_resume_preserves_values
 run_test 'Compose service env_file exact round-trip' test_compose_service_env_file_round_trip
 run_test 'Compose auto-probe skips non-Linux' test_compose_auto_probe_skips_non_linux
 run_test 'port detection and first-free selection' test_port_detection_and_selection

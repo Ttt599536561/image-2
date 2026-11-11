@@ -78,6 +78,9 @@ run_test() {
 write_fake_commands() {
   mkdir -p "$CASE_ROOT/fake-bin"
 
+  # Block the probe process itself, like the real docker/curl executables.
+  # Ubuntu 26.04's uutils timeout kills its direct child, not shell grandchildren;
+  # a forked sleeper would retain curl's stdout and hold $(...) open after timeout.
   cat >"$CASE_ROOT/fake-bin/docker" <<'FAKE_DOCKER'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -162,7 +165,7 @@ if [[ " $* " == *' up -d postgres '* ]]; then
 fi
 
 if [[ " $* " == *' exec -T postgres pg_isready '* ]]; then
-  if [[ -e "$FAKE_STATE/postgres-probe-blocks" ]]; then /bin/sleep 30; fi
+  if [[ -e "$FAKE_STATE/postgres-probe-blocks" ]]; then exec /bin/sleep 30; fi
   if [[ -e "$FAKE_STATE/require-runtime-start" && ! -e "$FAKE_STATE/postgres-up" ]]; then
     exit 70
   fi
@@ -240,7 +243,7 @@ set -euo pipefail
 if [[ -f "$FAKE_STATE/curl-fails" ]]; then
   exit 7
 fi
-if [[ -e "$FAKE_STATE/curl-blocks" ]]; then /bin/sleep 30; fi
+if [[ -e "$FAKE_STATE/curl-blocks" ]]; then exec /bin/sleep 30; fi
 if [[ -e "$FAKE_STATE/require-runtime-start" && ! -e "$FAKE_STATE/app-up" ]]; then
   exit 8
 fi
@@ -1021,7 +1024,7 @@ test_blocking_health_probes_respect_monotonic_deadlines() {
   run_install "$input_file" --existing-proxy --public-url https://images.example.com --port 18081
   [[ "$RUN_STATUS" -ne 0 && "$RUN_STATUS" -ne 124 ]] || fail_assertion 'blocked PostgreSQL probe must fail within the installer deadline'
   output="$(<"$RUN_OUTPUT")"
-  assert_contains "$output" 'PostgreSQL' 'PostgreSQL deadline failure should be clear'
+  assert_contains "$output" 'PostgreSQL 在 2 秒内未就绪' 'PostgreSQL deadline failure should come from the bounded health loop'
   assert_contains "$(<"$FAKE_STATE/docker.log")" 'pg_isready -U ai_image_workshop -d ai_image_workshop -t 1' 'PostgreSQL probe should bound pg_isready itself'
   [[ ! -e "$FAKE_STATE/timeout-zero" ]] || fail_assertion 'PostgreSQL probe must never invoke timeout 0'
 
@@ -1036,7 +1039,7 @@ test_blocking_health_probes_respect_monotonic_deadlines() {
   [[ "$RUN_STATUS" -ne 0 && "$RUN_STATUS" -ne 124 ]] \
     || fail_assertion "blocked Web probe must fail within the installer deadline (status=$RUN_STATUS)"
   output="$(<"$RUN_OUTPUT")"
-  assert_contains "$output" 'Web' 'Web deadline failure should be clear'
+  assert_contains "$output" 'Web 健康检查在 2 秒内未返回 HTTP 204' 'Web deadline failure should come from the bounded health loop'
   assert_contains "$(<"$FAKE_STATE/curl.log")" '--connect-timeout' 'curl probe should bound connection setup'
   assert_contains "$(<"$FAKE_STATE/curl.log")" '--max-time' 'curl probe should bound the complete request'
   [[ ! -e "$FAKE_STATE/timeout-zero" ]] || fail_assertion 'Web probe must never invoke timeout 0'

@@ -141,7 +141,8 @@ _deploy_env_key_allowed() {
     COMPOSE_PROJECT_NAME | COMPOSE_PROFILES | IMAGE_TAG | DOMAIN | WEB_BIND_ADDRESS | WEB_HOST_PORT | \
       POSTGRES_DB | POSTGRES_USER | POSTGRES_PASSWORD | DATABASE_DRIVER | DATABASE_URL | \
       DATABASE_URL_UNPOOLED | STORAGE_DRIVER | LOCAL_STORAGE_ROOT | BETTER_AUTH_SECRET | \
-      BETTER_AUTH_URL | RELAY_API_KEY | RELAY_BASE_URL | CUSTOM_KEY_JOB_ENCRYPTION_KEY | \
+      BETTER_AUTH_URL | STUDIO_PUBLIC_ORIGIN | GOOGLE_SITE_VERIFICATION | \
+      RELAY_API_KEY | RELAY_BASE_URL | CUSTOM_KEY_JOB_ENCRYPTION_KEY | \
       CUSTOM_KEY_MODES_ENABLED | WORKER_CONCURRENCY | TRUST_PROXY | UPDATER_CONTROL_ROOT | \
       UPDATER_CONTROL_GID)
       return 0
@@ -561,6 +562,10 @@ render_production_env() {
       UPDATER_CONTROL_ROOT "$updater_control_root"
       UPDATER_CONTROL_GID "$updater_control_gid"
     )
+    # Absent settings keep old install files unchanged; explicitly configured
+    # values (including empty ones) survive subsequent render/resume operations.
+    [[ ! ${STUDIO_PUBLIC_ORIGIN+x} ]] || entries+=(STUDIO_PUBLIC_ORIGIN "$STUDIO_PUBLIC_ORIGIN")
+    [[ ! ${GOOGLE_SITE_VERIFICATION+x} ]] || entries+=(GOOGLE_SITE_VERIFICATION "$GOOGLE_SITE_VERIFICATION")
     local entry_index
     for ((entry_index = 0; entry_index < ${#entries[@]}; entry_index += 2)); do
       _write_deploy_env_line "${entries[entry_index]}" "${entries[entry_index + 1]}" || exit 1
